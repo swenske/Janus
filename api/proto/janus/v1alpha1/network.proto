@@ -71,6 +71,18 @@ service NetworkService {
   // ConsulApplyConfig has `consul validate` check a configuration, saves
   // it with its files, and restarts the agent.
   rpc ConsulApplyConfig(ConsulApplyConfigRequest) returns (ConsulApplyConfigResponse);
+  // ConsulManagedGet returns the layer a Controller manages
+  // (docs/consul.md "From the Controller") - its secrets left out, has_*
+  // saying whether they're set - and how the registration of the node's
+  // own services stands.
+  rpc ConsulManagedGet(google.protobuf.Empty) returns (ConsulManagedGetResponse);
+  // ConsulManagedSet replaces the managed layer: rendered into janusd's
+  // part of the agent's configuration, loaded after the operator's - its
+  // keys win -, checked by `consul validate` with it, and the agent
+  // restarts when what it reads changed. The node then registers its own
+  // services in the agent (IDs janus:*) with the layer's token. An empty
+  // layer removes it, and the services it registered.
+  rpc ConsulManagedSet(ConsulManaged) returns (ConsulManagedSetResponse);
 
   // The node's own network configuration: hostname, interfaces (physical
   // and 802.1Q VLANs, DHCP or static), DNS and NTP. Unlike the optional
@@ -450,7 +462,8 @@ message ConsulStatusResponse {
   string service_state = 3;
   string service_error = 4; // its last exit, if it ended badly
   // What the agent says of itself, over its HTTP API (127.0.0.1:8500,
-  // without a token): empty if it can't be asked, error says why.
+  // with the managed layer's token if there's one): empty if it can't be
+  // asked, error says why.
   string error = 5;
   string node_name = 6;
   string node_id = 7;
@@ -460,6 +473,12 @@ message ConsulStatusResponse {
   string leader = 11; // the cluster's leader, "" if there's none
   repeated ConsulMember members = 12; // the LAN gossip pool
   string files_dir = 13; // where the configuration's files are
+  // A Controller manages a layer of the configuration
+  // (ConsulManagedGet): its token is the one the agent is asked with.
+  bool managed = 14;
+  // The agent's services, its own and the operator's, with their checks'
+  // state.
+  repeated ConsulService services = 15;
 }
 
 message ConsulMember {
@@ -468,6 +487,101 @@ message ConsulMember {
   string status = 3; // "alive", "leaving", "left", "failed"
   string role = 4; // "server", "client"
   string datacenter = 5;
+}
+
+// ConsulManaged is the part of the Consul agent's configuration a
+// Controller manages: what makes the node a client of its Consul
+// cluster, and which of its own services it registers there.
+message ConsulManaged {
+  // Who set it: "janus-controller <id> consul <hash>"; empty: none set.
+  string managed_by = 1;
+  string datacenter = 2;
+  // The node's name in Consul.
+  string node_name = 3;
+  // The servers to join (host or host:port, as retry_join takes them).
+  repeated string retry_join = 4;
+  // The address the agent binds and advertises; empty: the node's main
+  // IPv4 address.
+  string advertise_addr = 5;
+  // The gossip encryption key (encrypt). Write-only: never returned -
+  // has_encrypt says whether one is set. Sent empty with has_encrypt
+  // true, the saved one is kept.
+  string encrypt = 6;
+  bool has_encrypt = 7;
+  // The agent's ACL token (acl.tokens.agent), also the one the node
+  // registers its services with. Write-only, as encrypt.
+  string agent_token = 8;
+  bool has_agent_token = 9;
+  // The CA of the servers' RPC certificates (PEM): the agent verifies
+  // them, and gets its own certificate from them (auto_encrypt).
+  string ca_pem = 10;
+  // The node's metadata in the catalog.
+  map<string, string> node_meta = 11;
+  ConsulManagedServices services = 12;
+}
+
+// ConsulManagedServices: which of its services the node registers.
+message ConsulManagedServices {
+  // janus: janusd's API (:9505).
+  bool janus = 1;
+  // janus-exporter and, when that extension runs, node-exporter.
+  bool exporters = 2;
+  // haproxy-<name>: one per frontend and listen section.
+  bool frontends = 3;
+  // haproxy-url: one instance per URL the configuration routes - the
+  // hosts in the maps a use_backend reads by the Host header (or the
+  // TLS server name), and in host ACLs.
+  bool urls = 4;
+}
+
+message ConsulManagedGetResponse {
+  ModuleState state = 1;
+  // The layer, its secrets left out; empty managed_by: none set.
+  ConsulManaged managed = 2;
+  // The registration of the node's services: when it last went
+  // through, why not since, how many janusd keeps registered, and
+  // whether they're in maintenance (the node is drained, or going
+  // down).
+  int64 synced_unix = 3;
+  string sync_error = 4;
+  int32 registered = 5;
+  bool maintenance = 6;
+}
+
+message ConsulManagedSetResponse {
+  bool accepted = 1;
+  repeated string errors = 2; // consul validate's
+  // The agent restarted (or started) to read it - not when nothing it
+  // reads changed.
+  bool restarted = 3;
+}
+
+// ConsulService is a service the node's agent has registered.
+message ConsulService {
+  string id = 1;
+  string name = 2;
+  string address = 3;
+  uint32 port = 4;
+  repeated string tags = 5;
+  map<string, string> meta = 6;
+  // Its checks' worst: "passing", "warning", "critical", "maintenance";
+  // empty without a check.
+  string status = 7;
+  // Registered by janusd (IDs janus:*), not by the operator's
+  // configuration.
+  bool managed = 8;
+  // Its checks, the maintenance one included.
+  repeated ConsulCheck checks = 9;
+}
+
+// ConsulCheck is a check of a service, as the agent runs it.
+message ConsulCheck {
+  string id = 1;
+  string name = 2;
+  string status = 3; // "passing", "warning", "critical"
+  // What it last said (cut to 512 characters); for a service in
+  // maintenance, the reason.
+  string output = 4;
 }
 
 message ConsulGetConfigResponse {

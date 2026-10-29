@@ -61,6 +61,7 @@ topics:
               - { file: docs/vrrp.md, label: VRRP (keepalived) }
               - { file: docs/bgp.md, label: BGP (BIRD) }
               - { file: docs/consul.md, label: Consul }
+              - { file: docs/guide/consul-controller.md, label: Consul through the Controller }
           - label: Operate
             pages:
               - { file: docs/guide/updates.md, label: Updating nodes }

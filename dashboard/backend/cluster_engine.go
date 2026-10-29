@@ -82,6 +82,7 @@ func (e *clusterEngine) start(id, phase, actor string, fn func(ctx context.Conte
 		delete(e.busy, id)
 		e.mu.Unlock()
 		e.poke()
+		e.a.consul.Poke() // its members' node metadata (janus_cluster)
 	}()
 	return true
 }

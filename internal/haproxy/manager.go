@@ -115,6 +115,7 @@ type Manager struct {
 
 	changeMu sync.Mutex
 	changed  chan struct{}
+	updated  chan struct{}
 
 	counters Counters
 }
@@ -436,6 +437,7 @@ func (m *Manager) startLocked(wait bool) error {
 		return &StartError{Output: output.lines()}
 	}
 	m.restoreCerts(p)
+	m.notifyUpdated()
 	return nil
 }
 
@@ -548,6 +550,29 @@ func (m *Manager) Changed() <-chan struct{} {
 		m.changed = make(chan struct{})
 	}
 	return m.changed
+}
+
+// Updated returns a channel closed the next time HAProxy runs another
+// configuration (a start, a reload) or a map or an ACL changes at
+// runtime (MapUpdate, ACLUpdate): a cue for what reads the
+// configuration and its maps - the services registered in Consul - to
+// read them again. Take it before reading.
+func (m *Manager) Updated() <-chan struct{} {
+	m.changeMu.Lock()
+	defer m.changeMu.Unlock()
+	if m.updated == nil {
+		m.updated = make(chan struct{})
+	}
+	return m.updated
+}
+
+func (m *Manager) notifyUpdated() {
+	m.changeMu.Lock()
+	defer m.changeMu.Unlock()
+	if m.updated != nil {
+		close(m.updated)
+		m.updated = nil
+	}
 }
 
 func (m *Manager) notifyChanged() {

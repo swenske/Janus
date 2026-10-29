@@ -99,6 +99,7 @@ func (m *Manager) MapUpdate(mapName, key, value string, del bool) error {
 	if err != nil {
 		return err
 	}
+	defer m.notifyUpdated()
 	if del {
 		return mustEmpty(m.statsCommand(fmt.Sprintf("del map %s %s", name, k)))
 	}
@@ -119,6 +120,7 @@ func (m *Manager) ACLUpdate(aclName, value string, del bool) error {
 	if err != nil {
 		return err
 	}
+	defer m.notifyUpdated()
 	if del {
 		return mustEmpty(m.statsCommand(fmt.Sprintf("del acl %s %s", name, v)))
 	}

@@ -13,6 +13,7 @@ package haproxyflow
 
 import (
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -34,10 +35,19 @@ type Frontend struct {
 	Mode string
 	// Binds are its addresses, as written.
 	Binds []string
+	// TLSBinds are those of Binds with ssl.
+	TLSBinds []string
+	// ACLs are its named ACLs: each line's words after the name (the
+	// fetch, its flags, its values), by name - one name may have
+	// several lines.
+	ACLs map[string][][]string
 	// Answers are what it answers itself with: return, redirect,
 	// use-service <name>, stats page.
 	Answers []string
-	Rules   []Rule
+	// UseServices are its use-service rules - HAProxy's own services,
+	// prometheus-exporter among them - with their conditions.
+	UseServices []UseService
+	Rules       []Rule
 }
 
 // Rule is one way a frontend picks a backend.
@@ -53,11 +63,19 @@ type Rule struct {
 	Suffix   string
 	MapCalls []MapCall
 	Literals []string
+	// Exprs are the sample expressions it reads: its own, and those
+	// set-var gives the variables it reads.
+	Exprs []string
 }
 
+// UseService is an http-request (or tcp-request) use-service rule: the
+// service and its condition, "if ..." or "unless ...", "" without.
+type UseService struct{ Name, Cond string }
+
 // MapCall is a map converter: the file it reads and the value it gives
-// when no key matches.
-type MapCall struct{ Path, Default string }
+// when no key matches - and the converter, "map", "map_dom", "map_reg"
+// (how its keys match).
+type MapCall struct{ Path, Default, Converter string }
 
 // Link is a frontend that may send to a backend, and the rules that do.
 type Link struct {
@@ -191,7 +209,7 @@ func sectionArgs(args []string) (name string, extra []string, from string) {
 
 var (
 	setVar  = regexp.MustCompile(`^set-var(?:-fmt)?\(([^,)]+)`)
-	mapCall = regexp.MustCompile(`\bmap(?:_[a-z0-9_]+)?\(([^)]*)\)`)
+	mapCall = regexp.MustCompile(`\b(map(?:_[a-z0-9_]+)?)\(([^)]*)\)`)
 	readVar = regexp.MustCompile(`\bvar\(([^,)]+)`)
 	strLit  = regexp.MustCompile(`^str\(([^)]*)\)$`)
 )
@@ -219,12 +237,12 @@ func unquote(s string) string {
 func MapCalls(expr string) []MapCall {
 	var out []MapCall
 	for _, m := range mapCall.FindAllStringSubmatch(expr, -1) {
-		args := strings.Split(m[1], ",")
+		args := strings.Split(m[2], ",")
 		path := unquote(args[0])
 		if path == "" {
 			continue
 		}
-		mc := MapCall{Path: path}
+		mc := MapCall{Path: path, Converter: m[1]}
 		if len(args) > 1 {
 			mc.Default = unquote(strings.Join(args[1:], ","))
 		}
@@ -264,7 +282,10 @@ type proxy struct {
 	defaultBackend string
 	inherited      string
 	binds          []string
+	tlsBinds       []string
+	acls           map[string][][]string
 	answers        []string
+	useServices    []UseService
 	uses           [][2]string // target, condition
 	vars           map[string][]string
 }
@@ -313,7 +334,7 @@ func Parse(cfg string) Topology {
 				}
 				last = cur
 			case "frontend", "listen":
-				cur = &proxy{kind: w[0], name: name, mode: base.mode, inherited: base.defaultBackend, vars: map[string][]string{}}
+				cur = &proxy{kind: w[0], name: name, mode: base.mode, inherited: base.defaultBackend, vars: map[string][]string{}, acls: map[string][][]string{}}
 				if len(extra) > 0 {
 					cur.binds = append(cur.binds, extra[0]) // "listen name :80": the old inline bind
 				}
@@ -352,6 +373,11 @@ func Parse(cfg string) Topology {
 		switch {
 		case kw == "bind" && arg(1) != "":
 			cur.binds = append(cur.binds, w[1])
+			if slices.Contains(w[2:], "ssl") {
+				cur.tlsBinds = append(cur.tlsBinds, w[1])
+			}
+		case kw == "acl" && arg(2) != "":
+			cur.acls[w[1]] = append(cur.acls[w[1]], w[2:])
 		case kw == "use_backend" && arg(1) != "":
 			cond := ""
 			if arg(2) == "if" || arg(2) == "unless" {
@@ -366,6 +392,13 @@ func Parse(cfg string) Topology {
 				at = 3
 			}
 			cur.answer(strings.TrimSpace("use-service " + arg(at)))
+			if arg(at) != "" {
+				cond := ""
+				if arg(at+1) == "if" || arg(at+1) == "unless" {
+					cond = strings.Join(w[at+1:], " ")
+				}
+				cur.useServices = append(cur.useServices, UseService{Name: arg(at), Cond: cond})
+			}
 		case kw == "stats" && (arg(1) == "enable" || arg(1) == "uri"):
 			cur.answer("stats page")
 		}
@@ -381,7 +414,7 @@ func Parse(cfg string) Topology {
 
 	seenMap := map[string]bool{}
 	for _, f := range fronts {
-		fe := Frontend{Name: f.name, Kind: f.kind, Mode: f.mode, Binds: f.binds, Answers: f.answers}
+		fe := Frontend{Name: f.name, Kind: f.kind, Mode: f.mode, Binds: f.binds, TLSBinds: f.tlsBinds, ACLs: f.acls, Answers: f.answers, UseServices: f.useServices}
 		for _, u := range f.uses {
 			target, cond := u[0], u[1]
 			if !strings.Contains(target, "%[") {
@@ -396,6 +429,7 @@ func Parse(cfg string) Topology {
 				for _, m := range readVar.FindAllStringSubmatch(expr, -1) {
 					exprs = append(exprs, f.vars[strings.TrimSpace(m[1])]...)
 				}
+				r.Exprs = exprs
 				for _, e := range exprs {
 					r.MapCalls = append(r.MapCalls, MapCalls(e)...)
 					// set-var(txn.be) str(be_api): a backend named as is.

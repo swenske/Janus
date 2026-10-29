@@ -151,6 +151,8 @@ var effects = map[string]effectOf{
 	"network consul get":       {effectReads, ""},
 	"network consul check":     {effectReads, ""},
 	"network consul apply":     {effectChanges, "the agent restarts"},
+	"network consul managed":   {effectReads, ""},
+	"network consul services":  {effectReads, ""},
 
 	"access trust":       {effectReads, ""},
 	"access trust-set":   {effectCritical, "pins a fleet's root on the node"},

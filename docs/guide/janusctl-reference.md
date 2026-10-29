@@ -1256,6 +1256,22 @@ janusctl network consul apply [-file NAME=PATH] [-only-files] FILE
 | `-file NAME=PATH` | a file it names (repeatable) |
 | `-only-files` | drop the saved files not given |
 
+##### janusctl network consul managed
+
+The layer a Controller manages, and the registration of the node's services.
+
+```text
+janusctl network consul managed
+```
+
+##### janusctl network consul services
+
+The agent's services and their checks.
+
+```text
+janusctl network consul services
+```
+
 ## Trust
 
 ### janusctl access

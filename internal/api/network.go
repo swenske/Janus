@@ -32,9 +32,11 @@ type Network struct {
 	// BGP manages the bird extension (bgp.go).
 	BGP *bgp.Manager
 	// Consul manages the consul extension (consul.go); Services reports
-	// its service's state.
-	Consul   *consul.Manager
-	Services interface {
+	// its service's state; ConsulRegistrar registers the node's own
+	// services when a Controller manages the agent.
+	Consul          *consul.Manager
+	ConsulRegistrar *consul.Registrar
+	Services        interface {
 		State(id string) (extensions.ServiceState, error)
 	}
 }

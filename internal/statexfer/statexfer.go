@@ -105,6 +105,9 @@ var (
 		"controller/registered",
 		"controller/enrollment.json",
 		"config/consul-node-id",
+		// The Consul agent's ACL token is this node's own (its node
+		// identity): a replacement gets its own from the Controller.
+		"config/consul-managed.json", // consul.ManagedFile
 	}
 	// left describes the hardware or this run, not the configuration.
 	left = []string{

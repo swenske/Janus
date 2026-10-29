@@ -20,6 +20,7 @@ import {
   Trash2,
   UserRound,
   Users,
+  Waypoints,
   X,
 } from 'lucide-react'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
@@ -64,6 +65,7 @@ const ClustersPage = lazyView(() => import('./Clusters.jsx'))
 const HypervisorsPage = lazyView(() => import('./Hypervisors.jsx'))
 const LogForwardingPage = lazyView(() => import('./LogForwarding.jsx'))
 const LetsEncryptPage = lazyView(() => import('./LetsEncrypt.jsx'))
+const ConsulPage = lazyView(() => import('./Consul.jsx'))
 const MachineConsole = lazyView(() => import('./Console.jsx'))
 const TokensPage = lazyView(() => import('./Tokens.jsx'))
 const SettingsPage = lazyView(() => import('./Settings.jsx'))
@@ -1143,7 +1145,7 @@ function AccountButton() {
 function MainApp() {
   const route = useHashRoute()
   const can = useCan()
-  const tab = ['clusters', 'hypervisors', 'tokens', 'settings', 'accounts', 'audit', 'log-forwarding', 'letsencrypt', 'backups'].find((t) => route.startsWith(`/${t}`)) || 'nodes'
+  const tab = ['clusters', 'hypervisors', 'tokens', 'settings', 'accounts', 'audit', 'log-forwarding', 'letsencrypt', 'consul', 'backups'].find((t) => route.startsWith(`/${t}`)) || 'nodes'
   // The account's Settings (preferences.js): how often the nodes and the
   // hypervisors are asked, the nodes' figures and their curves.
   const { prefs } = usePreferences()
@@ -1366,6 +1368,7 @@ function MainApp() {
                   { id: 'audit', label: 'Audit', icon: ScrollText },
                   { id: 'log-forwarding', label: 'Log forwarding', icon: Send },
                   { id: 'letsencrypt', label: 'Let’s Encrypt', icon: LockKeyhole },
+                  { id: 'consul', label: 'Consul', icon: Waypoints },
                   { id: 'backups', label: 'Backups', icon: Archive },
                 ]
               : []),
@@ -1395,6 +1398,8 @@ function MainApp() {
           <LogForwardingPage />
         ) : tab === 'letsencrypt' && can('admin') ? (
           <LetsEncryptPage />
+        ) : tab === 'consul' && can('admin') ? (
+          <ConsulPage />
         ) : tab === 'backups' && can('admin') ? (
           <BackupsPage />
         ) : tab === 'clusters' && can('reader') ? (

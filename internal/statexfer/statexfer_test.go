@@ -29,6 +29,7 @@ var nodeState = map[string]string{
 	"config/acme/account.key":          "-----BEGIN PRIVATE KEY-----\n",
 	"config/console.json":              "{}\n",
 	"config/consul-node-id":            "0000\n",
+	"config/consul-managed.json":       "{\"agent_token\": \"the node's own\"}\n",
 	"config/sysctl-observations.json":  "{}\n",
 	"config/logforward/config.json":    "{}\n",
 	"config/logforward/cursors.json":   "{}\n",
@@ -94,7 +95,7 @@ func TestExportCarries(t *testing.T) {
 	}
 	for _, never := range []string{"haproxy/cluster/member.pem", "haproxy/janus-peers.cfg", "config/sysctl-observations.json", "config/logforward/cursors.json", "config/.console.json.tmp", "controller/token", "boot/pending.json", "events/events.jsonl", "upgrade-incoming/rootfs.squashfs",
 		// the identity, not asked for
-		"pki/ca.key", "pki/server.key", "pki/admin.key", "controller/registered", "config/consul-node-id"} {
+		"pki/ca.key", "pki/server.key", "pki/admin.key", "controller/registered", "config/consul-node-id", "config/consul-managed.json"} {
 		if slices.Contains(got, never) {
 			t.Errorf("%s is carried", never)
 		}
@@ -103,7 +104,7 @@ func TestExportCarries(t *testing.T) {
 		t.Errorf("manifest: %+v", m)
 	}
 	m, _ = export(t, true)
-	for _, want := range []string{"pki/ca.key", "pki/server.key", "pki/admin.key", "controller/registered", "config/consul-node-id"} {
+	for _, want := range []string{"pki/ca.key", "pki/server.key", "pki/admin.key", "controller/registered", "config/consul-node-id", "config/consul-managed.json"} {
 		if !slices.Contains(paths(m), want) {
 			t.Errorf("with the identity, %s isn't carried", want)
 		}

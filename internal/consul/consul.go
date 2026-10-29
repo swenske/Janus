@@ -8,28 +8,35 @@
 // janusd adds a fragment of its own, loaded after the operator's
 // configuration: the data directory (in /run - nothing the agent keeps
 // there needs to outlive a reboot when everything else comes from the
-// configuration) and a node ID kept on STATE, so the node stays the same
-// member of its cluster across reboots.
+// configuration), a node ID kept on STATE, so the node stays the same
+// member of its cluster across reboots, and the layer a Controller
+// manages, if one does (managed.go) - with which janusd registers the
+// node's own services in the agent (register.go).
 package consul
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/swenske/Janus/internal/extensions"
 	"github.com/swenske/Janus/internal/modcfg"
+	"github.com/swenske/Janus/internal/oomadj"
 )
 
 // Where the agent and its files are - vars, so tests can move them.
@@ -73,6 +80,11 @@ type Services interface {
 type Manager struct {
 	svc Services
 	mod *modcfg.Module
+	// Main is the node's main IPv4 address, "" if none: the one the
+	// agent advertises when the managed layer names none.
+	Main func() string
+
+	mu sync.Mutex // an operator's apply, the managed layer's
 }
 
 func New(svc Services) *Manager {
@@ -125,7 +137,12 @@ func (m *Manager) Boot() error {
 	if err := os.MkdirAll(RunDir, 0o700); err != nil {
 		return err
 	}
-	if err := writeFragment(); err != nil {
+	managed, err := LoadManaged()
+	if err != nil {
+		log.Printf("consul: the managed layer: %v - the agent runs without it", err)
+		managed = nil
+	}
+	if _, err := m.writeFragment(managed); err != nil {
 		return err
 	}
 	names, err := savedFileNames()
@@ -143,23 +160,70 @@ func (m *Manager) Boot() error {
 	if err := writeRunFiles(files); err != nil {
 		return err
 	}
-	return m.mod.Boot()
+	if err := m.mod.Boot(); err != nil {
+		return err
+	}
+	_, isDefault, err := m.mod.Saved()
+	if err != nil || !isDefault || managed == nil {
+		return err
+	}
+	return writeIfChanged(m.mod.RunPath(), []byte(placeholder), 0o644)
 }
 
-// writeFragment writes janusd's part of the configuration.
-func writeFragment() error {
-	id, err := nodeID()
-	if err != nil {
-		return err
+func (m *Manager) main() string {
+	if m.Main == nil {
+		return ""
 	}
-	data, err := json.MarshalIndent(map[string]string{
-		"data_dir": filepath.Join(RunDir, "data"),
-		"node_id":  id,
-	}, "", "  ")
+	return m.Main()
+}
+
+// writeFragment writes janusd's part of the configuration with the
+// managed layer managed (nil: none) and the CA it names; changed: the
+// agent doesn't read what it did.
+func (m *Manager) writeFragment(managed *Managed) (changed bool, err error) {
+	data, err := fragment(managed, m.main())
 	if err != nil {
-		return err
+		return false, err
 	}
-	return os.WriteFile(filepath.Join(RunDir, fragmentFile), append(data, '\n'), 0o644)
+	ca := managedCAPath()
+	if managed.IsSet() && managed.CAPEM != "" {
+		if err := os.MkdirAll(filepath.Dir(ca), 0o700); err != nil {
+			return false, err
+		}
+		c, err := writeIfChangedReport(ca, []byte(managed.CAPEM), 0o644)
+		if err != nil {
+			return false, err
+		}
+		changed = c
+	} else if err := os.Remove(ca); err == nil {
+		changed = true
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+	c, err := writeIfChangedReport(filepath.Join(RunDir, fragmentFile), data, 0o600)
+	return changed || c, err
+}
+
+// writeIfChanged replaces path with data unless it holds it already.
+func writeIfChanged(path string, data []byte, perm os.FileMode) error {
+	_, err := writeIfChangedReport(path, data, perm)
+	return err
+}
+
+func writeIfChangedReport(path string, data []byte, perm os.FileMode) (bool, error) {
+	if old, err := os.ReadFile(path); err == nil && bytes.Equal(old, data) {
+		if st, err := os.Stat(path); err == nil && st.Mode().Perm() == perm {
+			return false, nil
+		}
+	}
+	tmp := filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".tmp")
+	if err := os.WriteFile(tmp, data, perm); err != nil {
+		return false, err
+	}
+	if err := os.Chmod(tmp, perm); err != nil {
+		return false, err
+	}
+	return true, os.Rename(tmp, path)
 }
 
 // nodeID is the node's Consul node ID: random, made once, kept on STATE.
@@ -212,7 +276,11 @@ func (m *Manager) Check(config string, files map[string][]byte) ([]string, error
 		return nil, err
 	}
 	if _, err := os.Stat(filepath.Join(RunDir, fragmentFile)); err != nil {
-		if err := writeFragment(); err != nil {
+		managed, err := LoadManaged()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := m.writeFragment(managed); err != nil {
 			return nil, err
 		}
 	}
@@ -222,8 +290,11 @@ func (m *Manager) Check(config string, files map[string][]byte) ([]string, error
 // Apply checks, saves and applies a configuration with its files: an
 // empty value keeps a saved file, a saved file not given is removed. The
 // agent restarts with it (or starts). An empty configuration removes it
-// all, and stops the agent.
+// all, and stops the agent - unless a Controller manages a layer: the
+// agent then goes on with that alone.
 func (m *Manager) Apply(config string, files map[string][]byte) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	files, err := mergeFiles(files)
 	if err != nil {
 		return nil, err
@@ -244,19 +315,209 @@ func (m *Manager) Apply(config string, files map[string][]byte) ([]string, error
 		return nil, err
 	}
 	if empty {
-		return nil, m.svc.StopService(ServiceID)
+		managed, err := LoadManaged()
+		if err != nil {
+			return nil, err
+		}
+		if managed == nil {
+			return nil, m.svc.StopService(ServiceID)
+		}
+		if err := writeIfChanged(m.mod.RunPath(), []byte(placeholder), 0o644); err != nil {
+			return nil, err
+		}
 	}
+	return nil, m.restart()
+}
+
+// restart has the agent read its configuration again: restarted, or
+// started.
+func (m *Manager) restart() error {
 	st, err := m.svc.State(ServiceID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	switch st.State {
 	case "running", "restarting":
-		return nil, m.svc.RestartService(ServiceID)
+		return m.svc.RestartService(ServiceID)
 	case "stopped":
-		return nil, m.svc.StartService(ServiceID)
+		return m.svc.StartService(ServiceID)
 	}
-	return nil, nil // waiting for the configuration it now has
+	return nil // waiting for the configuration it now has
+}
+
+// Managed is the saved managed layer, nil: none.
+func (m *Manager) Managed() (*Managed, error) { return LoadManaged() }
+
+// SetManaged checks, saves and applies the managed layer next (nil or
+// unset: none) - keepEncrypt and keepToken keep the saved secrets when
+// next leaves them empty. The agent restarts when what it reads changed
+// (restarted); without an operator's configuration it runs on the layer
+// alone, and removing the layer then stops it.
+func (m *Manager) SetManaged(next *Managed, keepEncrypt, keepToken bool) (errs []string, restarted bool, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cur, err := LoadManaged()
+	if err != nil {
+		cur = nil // unreadable: replaced
+	}
+	_, noOperator, err := m.mod.Saved()
+	if err != nil {
+		return nil, false, err
+	}
+	if err := os.MkdirAll(RunDir, 0o700); err != nil {
+		return nil, false, err
+	}
+	if !next.IsSet() {
+		if cur == nil {
+			return nil, false, saveManaged(nil)
+		}
+		if err := saveManaged(nil); err != nil {
+			return nil, false, err
+		}
+		if _, err := m.writeFragment(nil); err != nil {
+			return nil, false, err
+		}
+		if noOperator {
+			if err := os.Remove(m.mod.RunPath()); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return nil, false, err
+			}
+			return nil, false, m.svc.StopService(ServiceID)
+		}
+		return nil, true, m.restart()
+	}
+	n := *next
+	n.RetryJoin = slices.Clone(n.RetryJoin)
+	if cur != nil {
+		if n.Encrypt == "" && keepEncrypt {
+			n.Encrypt = cur.Encrypt
+		}
+		if n.AgentToken == "" && keepToken {
+			n.AgentToken = cur.AgentToken
+		}
+	}
+	if errs := n.Validate(); len(errs) > 0 {
+		return errs, false, errors.New("invalid managed layer")
+	}
+	if errs, err := m.checkManaged(&n, noOperator); err != nil {
+		return errs, false, err
+	}
+	if err := saveManaged(&n); err != nil {
+		return nil, false, err
+	}
+	changed, err := m.writeFragment(&n)
+	if err != nil {
+		return nil, false, err
+	}
+	if noOperator {
+		if err := writeIfChanged(m.mod.RunPath(), []byte(placeholder), 0o644); err != nil {
+			return nil, false, err
+		}
+	}
+	st, err := m.svc.State(ServiceID)
+	if err != nil {
+		return nil, false, err
+	}
+	if !changed && st.State == "running" {
+		return nil, false, nil
+	}
+	return nil, true, m.restart()
+}
+
+// checkManaged has consul validate the operator's configuration (or the
+// placeholder) with janusd's fragment as managed would make it.
+func (m *Manager) checkManaged(managed *Managed, noOperator bool) ([]string, error) {
+	data, err := fragment(managed, m.main())
+	if err != nil {
+		return nil, err
+	}
+	frag, err := os.CreateTemp(RunDir, ".check-*-"+fragmentFile)
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(frag.Name())
+	if _, err := frag.Write(data); err != nil {
+		frag.Close()
+		return nil, err
+	}
+	if err := frag.Close(); err != nil {
+		return nil, err
+	}
+	operator := m.mod.RunPath()
+	if noOperator {
+		f, err := os.CreateTemp(RunDir, ".check-*-consul.hcl")
+		if err != nil {
+			return nil, err
+		}
+		defer os.Remove(f.Name())
+		if _, err := f.WriteString(placeholder); err != nil {
+			f.Close()
+			return nil, err
+		}
+		if err := f.Close(); err != nil {
+			return nil, err
+		}
+		operator = f.Name()
+	}
+	cmd := exec.Command(Binary, "validate", operator, frag.Name())
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := oomadj.Run(cmd, oomadj.Default); err != nil {
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) {
+			return nil, fmt.Errorf("run consul: %w", err)
+		}
+		var lines []string
+		for _, l := range strings.Split(strings.TrimRight(out.String(), "\n"), "\n") {
+			l = strings.ReplaceAll(strings.ReplaceAll(l, frag.Name(), fragmentFile), operator, "consul.hcl")
+			if strings.TrimSpace(l) != "" {
+				lines = append(lines, l)
+			}
+		}
+		if len(lines) == 0 {
+			lines = []string{fmt.Sprintf("consul refused the managed layer (%v)", err)}
+		}
+		return lines, errors.New("invalid managed layer")
+	}
+	return nil, nil
+}
+
+// Refresh renders the managed layer again - the node's main address
+// changed, the one the agent advertises when the layer names none - and
+// restarts the agent if what it reads changed.
+func (m *Manager) Refresh() error {
+	if !m.Available() {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	managed, err := LoadManaged()
+	if err != nil || managed == nil || managed.AdvertiseAddr != "" {
+		return err
+	}
+	changed, err := m.writeFragment(managed)
+	if err != nil || !changed {
+		return err
+	}
+	log.Printf("consul: the node's main address is now %q - the agent restarts to advertise it", m.main())
+	return m.restart()
+}
+
+// Address is the node's address in Consul: the managed layer's, else
+// its main IPv4 address.
+func (m *Manager) Address() string {
+	if managed, err := LoadManaged(); err == nil && managed != nil && managed.AdvertiseAddr != "" {
+		return managed.AdvertiseAddr
+	}
+	return m.main()
+}
+
+// Token is the managed layer's agent token, "" without one.
+func (m *Manager) Token() string {
+	managed, err := LoadManaged()
+	if err != nil || managed == nil {
+		return ""
+	}
+	return managed.AgentToken
 }
 
 // mergeFiles fills the empty values in with the saved files.
@@ -364,6 +625,10 @@ type Agent struct {
 	Version    string
 	Leader     string
 	Members    []Member
+	// Services are the agent's services, the operator's and janusd's
+	// (IDs janus:*); ServicesError says why they couldn't be read.
+	Services      []AgentService
+	ServicesError string
 }
 
 // Member is a member of the agent's LAN gossip pool.
@@ -375,23 +640,49 @@ type Member struct {
 	Datacenter string
 }
 
+// AgentService is a service of the agent's, with its checks' worst
+// state.
+type AgentService struct {
+	ID, Name, Address string
+	Port              int
+	Tags              []string
+	Meta              map[string]string
+	// Status: "passing", "warning", "critical", "maintenance"; "" without
+	// a check.
+	Status string
+	Checks []AgentCheck
+}
+
+// AgentCheck is a check of a service's.
+type AgentCheck struct {
+	ID, Name, Status, Output string
+}
+
+// maxCheckOutput bounds what a check said, as the status reports it.
+const maxCheckOutput = 512
+
+// Managed reports whether janusd registered it.
+func (s AgentService) Managed() bool { return strings.HasPrefix(s.ID, IDPrefix) }
+
 var memberStatus = map[int]string{0: "none", 1: "alive", 2: "leaving", 3: "left", 4: "failed"}
 
-// Agent asks the agent's HTTP API (HTTPAddr, without a token) about
-// itself, its cluster's leader and its members.
+// Agent asks the agent's HTTP API (HTTPAddr) about itself, its
+// cluster's leader, its members and its services - with the managed
+// layer's token, if there's one.
 func (m *Manager) Agent(ctx context.Context) (*Agent, error) {
+	c := &agentClient{token: m.Token()}
 	var self struct {
 		Config struct {
 			NodeName, NodeID, Datacenter, Version string
 			Server                                bool
 		}
 	}
-	if err := get(ctx, "/v1/agent/self", &self); err != nil {
+	if err := c.do(ctx, http.MethodGet, "/v1/agent/self", nil, &self); err != nil {
 		return nil, err
 	}
 	a := &Agent{NodeName: self.Config.NodeName, NodeID: self.Config.NodeID, Datacenter: self.Config.Datacenter,
 		Server: self.Config.Server, Version: self.Config.Version}
-	_ = get(ctx, "/v1/status/leader", &a.Leader)
+	_ = c.do(ctx, http.MethodGet, "/v1/status/leader", nil, &a.Leader)
 	var members []struct {
 		Name   string
 		Addr   string
@@ -399,7 +690,7 @@ func (m *Manager) Agent(ctx context.Context) (*Agent, error) {
 		Status int
 		Tags   map[string]string
 	}
-	if err := get(ctx, "/v1/agent/members", &members); err == nil {
+	if err := c.do(ctx, http.MethodGet, "/v1/agent/members", nil, &members); err == nil {
 		for _, mem := range members {
 			role := mem.Tags["role"]
 			switch role {
@@ -413,27 +704,139 @@ func (m *Manager) Agent(ctx context.Context) (*Agent, error) {
 		}
 		slices.SortFunc(a.Members, func(x, y Member) int { return strings.Compare(x.Name, y.Name) })
 	}
+	services, err := c.services(ctx)
+	if err != nil {
+		a.ServicesError = err.Error()
+		return a, nil
+	}
+	checks, err := c.checks(ctx)
+	if err != nil {
+		a.ServicesError = err.Error()
+	}
+	for _, s := range services {
+		var cs []AgentCheck
+		for _, c := range checks {
+			if c.ServiceID != s.ID {
+				continue
+			}
+			out := c.Output
+			if c.CheckID == maintenanceCheck(s.ID) && c.Notes != "" {
+				out = c.Notes
+			}
+			if len(out) > maxCheckOutput {
+				out = strings.ToValidUTF8(out[:maxCheckOutput], "") + "…"
+			}
+			cs = append(cs, AgentCheck{ID: c.CheckID, Name: c.Name, Status: c.Status, Output: out})
+		}
+		slices.SortFunc(cs, func(x, y AgentCheck) int { return strings.Compare(x.ID, y.ID) })
+		a.Services = append(a.Services, AgentService{ID: s.ID, Name: s.Service, Address: s.Address, Port: s.Port,
+			Tags: s.Tags, Meta: s.Meta, Status: worstStatus(checks, s.ID), Checks: cs})
+	}
+	slices.SortFunc(a.Services, func(x, y AgentService) int { return strings.Compare(x.ID, y.ID) })
 	return a, nil
 }
 
-var httpClient = &http.Client{Timeout: 3 * time.Second}
+// worstStatus is the worst state of service id's checks: maintenance
+// first, then critical, warning, passing.
+func worstStatus(checks map[string]agentCheck, id string) string {
+	rank := map[string]int{"passing": 1, "warning": 2, "critical": 3, "maintenance": 4}
+	worst := ""
+	for _, c := range checks {
+		if c.ServiceID != id {
+			continue
+		}
+		st := c.Status
+		if c.CheckID == maintenanceCheck(id) {
+			st = "maintenance"
+		}
+		if rank[st] > rank[worst] {
+			worst = st
+		}
+	}
+	return worst
+}
 
-func get(ctx context.Context, path string, into any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+HTTPAddr+path, nil)
+// maintenanceCheck is the check Consul adds to a service in
+// maintenance.
+func maintenanceCheck(id string) string { return "_service_maintenance:" + id }
+
+// agentClient asks the local agent's HTTP API, with token if any.
+type agentClient struct {
+	token string
+	// addr is the agent's HTTP API, HTTPAddr if empty (tests).
+	addr string
+}
+
+var httpClient = &http.Client{Timeout: 5 * time.Second}
+
+// do sends body (JSON, nil: none) and decodes the answer into into
+// (nil: ignored).
+func (c *agentClient) do(ctx context.Context, method, path string, body, into any) error {
+	var rd io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		rd = bytes.NewReader(b)
+	}
+	addr := cmpOr(c.addr, HTTPAddr)
+	req, err := http.NewRequestWithContext(ctx, method, "http://"+addr+path, rd)
 	if err != nil {
 		return err
 	}
+	if c.token != "" {
+		req.Header.Set("X-Consul-Token", c.token)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("the agent's HTTP API (%s): %w", HTTPAddr, err)
+		return fmt.Errorf("the agent's HTTP API (%s): %w", addr, err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	if resp.StatusCode == http.StatusForbidden {
-		return fmt.Errorf("the agent's HTTP API refuses anonymous reads (ACLs): %s", strings.TrimSpace(string(body)))
+		if c.token == "" {
+			return fmt.Errorf("the agent's HTTP API refuses anonymous reads (ACLs): %s", strings.TrimSpace(string(data)))
+		}
+		return fmt.Errorf("the agent's HTTP API refuses the managed token: %s", strings.TrimSpace(string(data)))
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("the agent's HTTP API: %s: %s", resp.Status, strings.TrimSpace(string(body)))
+		return fmt.Errorf("the agent's HTTP API: %s %s: %s: %s", method, strings.SplitN(path, "?", 2)[0], resp.Status, strings.TrimSpace(string(data)))
 	}
-	return json.Unmarshal(body, into)
+	if into == nil {
+		return nil
+	}
+	return json.Unmarshal(data, into)
+}
+
+// agentService is a service as /v1/agent/services lists it.
+type agentService struct {
+	ID      string
+	Service string
+	Tags    []string
+	Meta    map[string]string
+	Address string
+	Port    int
+}
+
+type agentCheck struct {
+	CheckID   string
+	Name      string
+	ServiceID string
+	Status    string
+	Output    string
+	Notes     string
+}
+
+func (c *agentClient) services(ctx context.Context) (map[string]agentService, error) {
+	out := map[string]agentService{}
+	return out, c.do(ctx, http.MethodGet, "/v1/agent/services", nil, &out)
+}
+
+func (c *agentClient) checks(ctx context.Context) (map[string]agentCheck, error) {
+	out := map[string]agentCheck{}
+	return out, c.do(ctx, http.MethodGet, "/v1/agent/checks", nil, &out)
 }

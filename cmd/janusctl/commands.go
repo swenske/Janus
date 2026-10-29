@@ -351,6 +351,8 @@ var commands = &command{name: "janusctl", subs: []*command{
 			{name: "get", help: "the saved configuration"},
 			{name: "check", args: "FILE", help: "have consul validate it", flags: []flagDef{valFlag("file", "NAME=PATH", "a file it names (repeatable)", argFile), boolFlag("only-files", "unused here")}, pos: []argKind{argFile}, required: 1},
 			{name: "apply", args: "FILE", help: "check, save and apply (the agent restarts)", flags: []flagDef{valFlag("file", "NAME=PATH", "a file it names (repeatable)", argFile), boolFlag("only-files", "drop the saved files not given")}, pos: []argKind{argFile}, required: 1},
+			{name: "managed", help: "the layer a Controller manages, and the registration of the node's services"},
+			{name: "services", help: "the agent's services and their checks"},
 		}},
 	}},
 	{name: "access", group: "🔐 Trust", help: "the fleet the node trusts, its own CA", subs: []*command{

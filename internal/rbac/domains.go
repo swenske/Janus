@@ -139,6 +139,8 @@ var Domain = map[string]string{
 	"NetworkService/VRRPGetConfig":        DomainNetwork,
 	"NetworkService/ConsulApplyConfig":    DomainNetwork,
 	"NetworkService/ConsulGetConfig":      DomainNetwork,
+	"NetworkService/ConsulManagedGet":     DomainNetwork,
+	"NetworkService/ConsulManagedSet":     DomainNetwork,
 	"NetworkService/FirewallApplyRuleset": DomainNetwork,
 	"NetworkService/FirewallGetRuleset":   DomainNetwork,
 	"NetworkService/FirewallConfirm":      DomainNetwork,

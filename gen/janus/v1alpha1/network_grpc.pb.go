@@ -35,6 +35,8 @@ const (
 	NetworkService_ConsulStatus_FullMethodName         = "/janus.v1alpha1.NetworkService/ConsulStatus"
 	NetworkService_ConsulGetConfig_FullMethodName      = "/janus.v1alpha1.NetworkService/ConsulGetConfig"
 	NetworkService_ConsulApplyConfig_FullMethodName    = "/janus.v1alpha1.NetworkService/ConsulApplyConfig"
+	NetworkService_ConsulManagedGet_FullMethodName     = "/janus.v1alpha1.NetworkService/ConsulManagedGet"
+	NetworkService_ConsulManagedSet_FullMethodName     = "/janus.v1alpha1.NetworkService/ConsulManagedSet"
 	NetworkService_NetworkConfigGet_FullMethodName     = "/janus.v1alpha1.NetworkService/NetworkConfigGet"
 	NetworkService_NetworkConfigApply_FullMethodName   = "/janus.v1alpha1.NetworkService/NetworkConfigApply"
 	NetworkService_NetworkConfigConfirm_FullMethodName = "/janus.v1alpha1.NetworkService/NetworkConfigConfirm"
@@ -94,6 +96,18 @@ type NetworkServiceClient interface {
 	// ConsulApplyConfig has `consul validate` check a configuration, saves
 	// it with its files, and restarts the agent.
 	ConsulApplyConfig(ctx context.Context, in *ConsulApplyConfigRequest, opts ...grpc.CallOption) (*ConsulApplyConfigResponse, error)
+	// ConsulManagedGet returns the layer a Controller manages
+	// (docs/consul.md "From the Controller") - its secrets left out, has_*
+	// saying whether they're set - and how the registration of the node's
+	// own services stands.
+	ConsulManagedGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ConsulManagedGetResponse, error)
+	// ConsulManagedSet replaces the managed layer: rendered into janusd's
+	// part of the agent's configuration, loaded after the operator's - its
+	// keys win -, checked by `consul validate` with it, and the agent
+	// restarts when what it reads changed. The node then registers its own
+	// services in the agent (IDs janus:*) with the layer's token. An empty
+	// layer removes it, and the services it registered.
+	ConsulManagedSet(ctx context.Context, in *ConsulManaged, opts ...grpc.CallOption) (*ConsulManagedSetResponse, error)
 	// NetworkConfigGet returns the saved network configuration.
 	NetworkConfigGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*NetworkConfigGetResponse, error)
 	// NetworkConfigApply applies a configuration on trial: the node
@@ -278,6 +292,26 @@ func (c *networkServiceClient) ConsulApplyConfig(ctx context.Context, in *Consul
 	return out, nil
 }
 
+func (c *networkServiceClient) ConsulManagedGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ConsulManagedGetResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConsulManagedGetResponse)
+	err := c.cc.Invoke(ctx, NetworkService_ConsulManagedGet_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *networkServiceClient) ConsulManagedSet(ctx context.Context, in *ConsulManaged, opts ...grpc.CallOption) (*ConsulManagedSetResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConsulManagedSetResponse)
+	err := c.cc.Invoke(ctx, NetworkService_ConsulManagedSet_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *networkServiceClient) NetworkConfigGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*NetworkConfigGetResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(NetworkConfigGetResponse)
@@ -389,6 +423,18 @@ type NetworkServiceServer interface {
 	// ConsulApplyConfig has `consul validate` check a configuration, saves
 	// it with its files, and restarts the agent.
 	ConsulApplyConfig(context.Context, *ConsulApplyConfigRequest) (*ConsulApplyConfigResponse, error)
+	// ConsulManagedGet returns the layer a Controller manages
+	// (docs/consul.md "From the Controller") - its secrets left out, has_*
+	// saying whether they're set - and how the registration of the node's
+	// own services stands.
+	ConsulManagedGet(context.Context, *emptypb.Empty) (*ConsulManagedGetResponse, error)
+	// ConsulManagedSet replaces the managed layer: rendered into janusd's
+	// part of the agent's configuration, loaded after the operator's - its
+	// keys win -, checked by `consul validate` with it, and the agent
+	// restarts when what it reads changed. The node then registers its own
+	// services in the agent (IDs janus:*) with the layer's token. An empty
+	// layer removes it, and the services it registered.
+	ConsulManagedSet(context.Context, *ConsulManaged) (*ConsulManagedSetResponse, error)
 	// NetworkConfigGet returns the saved network configuration.
 	NetworkConfigGet(context.Context, *emptypb.Empty) (*NetworkConfigGetResponse, error)
 	// NetworkConfigApply applies a configuration on trial: the node
@@ -467,6 +513,12 @@ func (UnimplementedNetworkServiceServer) ConsulGetConfig(context.Context, *empty
 }
 func (UnimplementedNetworkServiceServer) ConsulApplyConfig(context.Context, *ConsulApplyConfigRequest) (*ConsulApplyConfigResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ConsulApplyConfig not implemented")
+}
+func (UnimplementedNetworkServiceServer) ConsulManagedGet(context.Context, *emptypb.Empty) (*ConsulManagedGetResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ConsulManagedGet not implemented")
+}
+func (UnimplementedNetworkServiceServer) ConsulManagedSet(context.Context, *ConsulManaged) (*ConsulManagedSetResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ConsulManagedSet not implemented")
 }
 func (UnimplementedNetworkServiceServer) NetworkConfigGet(context.Context, *emptypb.Empty) (*NetworkConfigGetResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method NetworkConfigGet not implemented")
@@ -774,6 +826,42 @@ func _NetworkService_ConsulApplyConfig_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NetworkService_ConsulManagedGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NetworkServiceServer).ConsulManagedGet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NetworkService_ConsulManagedGet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NetworkServiceServer).ConsulManagedGet(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NetworkService_ConsulManagedSet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConsulManaged)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NetworkServiceServer).ConsulManagedSet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NetworkService_ConsulManagedSet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NetworkServiceServer).ConsulManagedSet(ctx, req.(*ConsulManaged))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _NetworkService_NetworkConfigGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
@@ -923,6 +1011,14 @@ var NetworkService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ConsulApplyConfig",
 			Handler:    _NetworkService_ConsulApplyConfig_Handler,
+		},
+		{
+			MethodName: "ConsulManagedGet",
+			Handler:    _NetworkService_ConsulManagedGet_Handler,
+		},
+		{
+			MethodName: "ConsulManagedSet",
+			Handler:    _NetworkService_ConsulManagedSet_Handler,
 		},
 		{
 			MethodName: "NetworkConfigGet",

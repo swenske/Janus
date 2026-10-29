@@ -69,7 +69,19 @@ func (s *System) extensionCall(id string, call func(string) error) (*janusv1alph
 	return &janusv1alpha1.ServiceResponse{Service: info}, true, nil
 }
 
+// ServicesChanged, if set, is told when a service may have started or
+// stopped, or an exporter moved: what the node registers in Consul
+// follows (cmd/janusd).
+var ServicesChanged func()
+
+func servicesChanged() {
+	if ServicesChanged != nil {
+		ServicesChanged()
+	}
+}
+
 func (s *System) ServiceStart(_ context.Context, req *janusv1alpha1.ServiceRequest) (*janusv1alpha1.ServiceResponse, error) {
+	defer servicesChanged()
 	if s.Extensions != nil {
 		if resp, ok, err := s.extensionCall(req.GetId(), s.Extensions.StartService); ok {
 			return resp, err
@@ -97,6 +109,7 @@ func (s *System) ServiceStart(_ context.Context, req *janusv1alpha1.ServiceReque
 // finishes the ones in flight (up to haproxyStopTimeout). janusd can't be
 // stopped - the node would be unreachable; see Restart instead.
 func (s *System) ServiceStop(_ context.Context, req *janusv1alpha1.ServiceRequest) (*janusv1alpha1.ServiceResponse, error) {
+	defer servicesChanged()
 	if s.Extensions != nil {
 		if resp, ok, err := s.extensionCall(req.GetId(), s.Extensions.StopService); ok {
 			return resp, err
@@ -122,6 +135,7 @@ func (s *System) ServiceStop(_ context.Context, req *janusv1alpha1.ServiceReques
 // the listening sockets, the old one finishes its connections), or
 // starts it if it was stopped. For janusd it's the same as Restart.
 func (s *System) ServiceRestart(ctx context.Context, req *janusv1alpha1.ServiceRequest) (*janusv1alpha1.ServiceResponse, error) {
+	defer servicesChanged()
 	if s.Extensions != nil {
 		if resp, ok, err := s.extensionCall(req.GetId(), s.Extensions.RestartService); ok {
 			return resp, err

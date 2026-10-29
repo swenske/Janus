@@ -675,6 +675,9 @@ func (r *machineRunner) forget(ctx context.Context, id string) error {
 
 // removeNode forgets a node: its page, its connection, its record.
 func (a *app) removeNode(_ context.Context, id string) error {
+	if n, ok := a.store.Get(id); ok {
+		a.consulNodeRemoved(n) // while it's still reachable
+	}
 	a.forgetNodePage(id)
 	nodeproxy.Forget(id)
 	a.nodeMetrics.Forget(id)
