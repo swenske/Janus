@@ -1,0 +1,74 @@
+{
+  "schema": 1,
+  "install_id": "4f9c1e7a2b6d48e0a3c5f17d9e2b6a81",
+  "controller": {
+    "version": "v2026.10.29-3",
+    "arch": "amd64",
+    "prerelease": false
+  },
+  "nodes": {
+    "total": 7,
+    "unreachable": 1,
+    "versions": {
+      "v2026.10.29": 2,
+      "v2026.10.29-3": 4
+    },
+    "arches": {
+      "amd64": 6
+    },
+    "haproxy": {
+      "3.2": 1,
+      "3.4": 5
+    },
+    "kernel": {
+      "stable": 6
+    },
+    "console": {
+      "serial": 6
+    },
+    "extensions": {
+      "bird": 3,
+      "letsencrypt": 5,
+      "prometheus-node-exporter": 6,
+      "qemu-guest-agent": 6
+    },
+    "schematics": {
+      "5a8d6944047f00079ae8cd55b239a47e1561a108f665fcad553bfe6acdad1d03": 3,
+      "c2b5e8a41f0d7c39e6a1b4f8d2e7c05a9b3f6d1e8a4c7b2f5e0d9a3c6b1f4e72": 3
+    },
+    "vcpus": {
+      "1": 2,
+      "2": 4
+    },
+    "memory": {
+      "1-2GiB": 4,
+      "<1GiB": 2
+    }
+  },
+  "clusters": {
+    "count": 2,
+    "sizes": [
+      2,
+      3
+    ]
+  },
+  "platforms": {
+    "machines": {
+      "libvirt": 2,
+      "proxmox": 4
+    },
+    "added": 1
+  },
+  "features": {
+    "sso": true,
+    "mfa_required": true,
+    "autoscaling": false,
+    "cluster_bgp": true,
+    "cluster_vrrp": false,
+    "log_forwarding": true,
+    "lets_encrypt": true,
+    "s3_backups": true,
+    "fleet": true,
+    "consul": false
+  }
+}
