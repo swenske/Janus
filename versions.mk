@@ -95,8 +95,8 @@ KEEPALIVED_SHA256  := a0faef8e401c143487b131b526df7541c1e33d9b8814642fa9dfe8bb25
 # QEMU source for qemu-ga: sha256 of the tarball, pinned after checking its
 # GPG signature (release key CEACC9E15534EBABB82D3FA03353C9CEF108B584,
 # Michael Roth).
-QEMU_VERSION := 11.1.2
-QEMU_SHA256  := 731b5681e4bb18be313231579b8efd0296c5b015fa36dc533874b639ba838016
+QEMU_VERSION := 11.1.3
+QEMU_SHA256  := 5a8289c7940dc77d3873c81a6c29ba3afe1446fc9d36e77fa1658cdbecb84b22
 
 # BIRD for the BGP extension: the 2.x branch, single-threaded and still
 # maintained - BIRD 3.3.2 (multithreaded) aborted on an assertion
