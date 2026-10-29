@@ -641,6 +641,7 @@ func (a *app) handleMachineUpdate(w http.ResponseWriter, r *http.Request) {
 // was really done.
 func (r *machineRunner) update(ctx context.Context, id string, p *updatePlan) error {
 	err := r.updateSteps(ctx, id, p)
+	defer r.a.consul.Poke() // its extensions may have changed: consul among them
 	_, uerr := r.a.machines.Update(id, func(m *machines.Machine) error {
 		m.Phase = machines.PhaseReady
 		m.Spec.ManagedBy, m.Spec.Locked = p.next.ManagedBy, p.next.Locked

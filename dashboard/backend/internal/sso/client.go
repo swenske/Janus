@@ -3,11 +3,8 @@ package sso
 import (
 	"context"
 	"crypto/subtle"
-	"crypto/tls"
 	"errors"
 	"fmt"
-	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -17,6 +14,8 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
+
+	"github.com/swenske/Janus/dashboard/backend/internal/httpsclient"
 )
 
 const (
@@ -128,75 +127,10 @@ func authStyle(methods []string, hasSecret bool) (oauth2.AuthStyle, string, erro
 
 // HTTPClient is how the Controller reaches a provider: trusting its
 // certificate as t says, no proxy, no redirect followed, https only,
-// answers capped.
+// answers capped (internal/httpsclient).
 func HTTPClient(t Trust) *http.Client {
-	tr := &http.Transport{
-		Proxy: nil,
-		// The TLS configuration is made for each host: the token and key
-		// endpoints may be on another than the issuer's.
-		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			host, _, err := net.SplitHostPort(addr)
-			if err != nil {
-				return nil, err
-			}
-			cfg, err := t.tls().Config(host)
-			if err != nil {
-				return nil, err
-			}
-			d := &tls.Dialer{NetDialer: &net.Dialer{Timeout: 10 * time.Second}, Config: cfg}
-			return d.DialContext(ctx, network, addr)
-		},
-		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: requestTimeout,
-		MaxIdleConns:          4,
-		IdleConnTimeout:       90 * time.Second,
-	}
-	return &http.Client{
-		Transport: cappedTransport{tr},
-		Timeout:   requestTimeout,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	return httpsclient.New(t.tls(), httpsclient.Options{MaxBytes: maxResponse, Timeout: requestTimeout, What: "provider"})
 }
-
-var errTooBig = fmt.Errorf("the provider's answer is over %d bytes", maxResponse)
-
-type cappedTransport struct{ next http.RoundTripper }
-
-func (t cappedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if req.URL.Scheme != "https" {
-		return nil, fmt.Errorf("%s: a provider is reached over https only", req.URL.Redacted())
-	}
-	resp, err := t.next.RoundTrip(req)
-	if err != nil {
-		return nil, err
-	}
-	resp.Body = &cappedBody{rc: resp.Body, left: maxResponse + 1}
-	return resp, nil
-}
-
-type cappedBody struct {
-	rc   io.ReadCloser
-	left int64
-}
-
-func (c *cappedBody) Read(p []byte) (int, error) {
-	if c.left == 0 {
-		return 0, errTooBig
-	}
-	if int64(len(p)) > c.left {
-		p = p[:c.left]
-	}
-	n, err := c.rc.Read(p)
-	c.left -= int64(n)
-	if c.left == 0 {
-		return n, errTooBig
-	}
-	return n, err
-}
-
-func (c *cappedBody) Close() error { return c.rc.Close() }
 
 // Client signs in through one version of a provider's settings.
 type Client struct {

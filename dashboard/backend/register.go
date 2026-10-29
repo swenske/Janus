@@ -351,6 +351,7 @@ func (a *app) admitLabelled(p *pending.Node, machineID string, l map[string]stri
 	}
 	a.trust.Kick() // brought to trust the fleet at once
 	a.logfwd.Poke()
+	a.consul.Poke()
 	return node, nil
 }
 

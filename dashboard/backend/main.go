@@ -243,6 +243,9 @@ func main() {
 	if err := app.startACMEOrdering(masterKey, *acmeClient); err != nil {
 		log.Fatalf("lets encrypt ordering: %v", err)
 	}
+	if err := app.startConsul(masterKey); err != nil {
+		log.Fatalf("consul: %v", err)
+	}
 	// The node pages: a machine's lock, and its record read again after a
 	// change made there.
 	nodeproxy.LockedBy = func(n *store.Node) string {
@@ -345,6 +348,7 @@ func (a *app) routes(spa http.Handler) *http.ServeMux {
 	a.registerLogForwardingRoutes(mux)
 	a.registerACMERelayRoutes(mux)
 	a.registerACMEOrderingRoutes(mux)
+	a.registerConsulRoutes(mux)
 	a.registerRestoreRoutes(mux)
 	a.registerHypervisorRoutes(mux)
 	a.registerFleetRoutes(mux)
@@ -402,6 +406,8 @@ type app struct {
 	// logfwd is the log forwarding: the Controller's own and the fleet's
 	// profiles (logforward.go).
 	logfwd *logForwarding
+	// consul is the nodes' Consul agents (consul.go).
+	consul *consulMgmt
 	runner *machineRunner
 	// clusters: the clusters of the Controller's nodes (cluster*.go).
 	clusters *clusterEngine
@@ -572,6 +578,7 @@ func (a *app) handleAddNode(w http.ResponseWriter, r *http.Request) {
 	}
 	a.trust.Kick() // brought to trust the fleet at once
 	a.logfwd.Poke()
+	a.consul.Poke()
 
 	writeJSON(w, http.StatusCreated, struct {
 		ID string `json:"id"`
@@ -622,6 +629,7 @@ func (a *app) handleNode(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.logfwd.Poke() // another log forwarding profile may pick it
+		a.consul.Poke() // the Consul selector too, its node metadata
 		writeJSON(w, http.StatusOK, viewNode(n))
 		return
 	}

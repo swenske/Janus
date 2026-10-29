@@ -11,11 +11,14 @@ import (
 
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/pki"
 )
 
 // The consul extension: the agent's status, its configuration (a plain
 // string) and the files it names - by name only, their content never
-// comes back; a file sent empty keeps the saved one.
+// comes back; a file sent empty keeps the saved one - and the layer a
+// Controller manages, read only: the Controller's Consul settings set
+// it (consul.go).
 
 func registerConsulRoutes(mux *http.ServeMux, node *store.Node) {
 	empty := &emptypb.Empty{}
@@ -28,6 +31,24 @@ func registerConsulRoutes(mux *http.ServeMux, node *store.Node) {
 	}
 	mux.HandleFunc("GET /api/network/consul", net(func(ctx context.Context, c janusv1alpha1.NetworkServiceClient) (any, error) {
 		resp, err := c.ConsulStatus(ctx, empty)
+		if err != nil {
+			return nil, err
+		}
+		data, err := protoOut.Marshal(resp)
+		if err != nil {
+			return nil, err
+		}
+		var out map[string]any
+		if err := json.Unmarshal(data, &out); err != nil {
+			return nil, err
+		}
+		out["state"] = strings.ToLower(strings.TrimPrefix(resp.GetState().String(), "MODULE_STATE_"))
+		return out, nil
+	}))
+	// The layer a Controller manages, its secrets left out (has_*), and
+	// how the registration of the node's own services stands.
+	mux.HandleFunc("GET /api/network/consul/managed", net(func(ctx context.Context, c janusv1alpha1.NetworkServiceClient) (any, error) {
+		resp, err := c.ConsulManagedGet(ctx, empty)
 		if err != nil {
 			return nil, err
 		}
@@ -77,3 +98,8 @@ func registerConsulRoutes(mux *http.ServeMux, node *store.Node) {
 		})
 	}
 }
+
+// ConsulUser is the Controller's Consul integration acting on a node
+// (the Controller's consul.go): it sets the managed layer
+// (ConsulManagedSet, admin) - named so in the node's audit.
+var ConsulUser = User{Name: "consul", Perms: []Perm{{Role: pki.RoleAdmin}}}
