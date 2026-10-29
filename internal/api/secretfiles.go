@@ -34,6 +34,8 @@ var SecretPaths = []string{
 	"/etc/janus/config/acme", "/etc/.state/config/acme", // ACME account key
 	"/etc/janus/config/letsencrypt.json", "/etc/.state/config/letsencrypt.json", // DNS provider credentials, EAB key
 	"/etc/janus/config/logforward", "/etc/.state/config/logforward", // log servers' API keys, passwords, client keys
+	"/etc/janus/config/consul-managed.json", "/etc/.state/config/consul-managed.json", // the Consul agent's ACL token, the gossip key
+	"/run/janus/consul", // the agent's configuration as it reads it (the same secrets), its files and data
 }
 
 // privateKeyBlock is the line opening a PEM private key: "PRIVATE KEY",

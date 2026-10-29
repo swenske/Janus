@@ -495,11 +495,16 @@ func main() {
 	}
 	// The Consul agent (consul extension) waits for its configuration
 	// likewise; janusd's own part of it (data directory, node ID) first.
+	// With a Controller managing the agent (ConsulManagedSet), janusd
+	// registers the node's own services in it.
 	consulMgr := consul.New(extMgr)
+	consulMgr.Main = func() string { return mainIPv4(netMgr.MainAddresses()) }
+	var consulReg *consul.Registrar
 	if *manageHost && consulMgr.Available() {
 		if err := consulMgr.Boot(); err != nil {
 			log.Printf("consul: %v", err)
 		}
+		consulReg = startConsulRegistrar(consulMgr, haproxyMgr, *haproxyCfg, extMgr, clusterStore)
 	}
 	// A deliberate stop of HAProxy gives the virtual IPs up and withdraws
 	// the anycast routes at once (Changed wakes both checks), then waits
@@ -546,6 +551,7 @@ func main() {
 		// Each step timed, as for a reboot janusd makes itself
 		// (internal/api/powerdown.go).
 		ms := func(d time.Duration) time.Duration { return d.Round(time.Millisecond) }
+		consulReg.GoingDown("janusd is stopping") // before HAProxy stops answering
 		t0 := time.Now()
 		if err := haproxyMgr.Stop(5 * time.Second); err != nil {
 			log.Printf("haproxy: stop: %v", err)
@@ -704,6 +710,12 @@ func main() {
 				log.Printf("node-exporter: %v", err)
 			}
 		}
+		if consulReg != nil {
+			if err := consulMgr.Refresh(); err != nil {
+				log.Printf("consul: %v", err)
+			}
+			consulReg.Poke()
+		}
 	}
 
 	tlsConfig := pki.NodeTLSConfig(local.CA, serverCert, fleet, clusterStore)
@@ -730,7 +742,7 @@ func main() {
 	haproxyHistory := &haproxy.History{Dir: filepath.Join(filepath.Dir(*haproxyCfg), "history")}
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr, ACME: acmeMgr, History: haproxyHistory})
 	janusv1alpha1.RegisterAccessServiceServer(srv, &api.Access{Fleet: fleet, Local: local, ServerCert: serverCert, Console: os.Stderr})
-	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc, Firewall: fwMgr, VRRP: vrrpMgr, HAProxyHealthy: gateHealthy, BGP: bgpMgr, Consul: consulMgr, Services: extMgr})
+	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc, Firewall: fwMgr, VRRP: vrrpMgr, HAProxyHealthy: gateHealthy, BGP: bgpMgr, Consul: consulMgr, ConsulRegistrar: consulReg, Services: extMgr})
 	janusv1alpha1.RegisterClusterServiceServer(srv, &api.Cluster{Store: clusterStore, PeersFile: peersFile, HAProxy: haproxyMgr, LocalIPs: pki.LocalIPs, VRRP: vrrpMgr, BGP: bgpMgr, ACME: acmeMgr, ACMECertDir: acme.CertDir})
 
 	log.Printf("janusd %s listening on %s (mTLS required)", version, *addr)

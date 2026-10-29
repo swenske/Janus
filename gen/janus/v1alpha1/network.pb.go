@@ -2398,16 +2398,23 @@ type ConsulStatusResponse struct {
 	ServiceState string `protobuf:"bytes,3,opt,name=service_state,json=serviceState,proto3" json:"service_state,omitempty"`
 	ServiceError string `protobuf:"bytes,4,opt,name=service_error,json=serviceError,proto3" json:"service_error,omitempty"` // its last exit, if it ended badly
 	// What the agent says of itself, over its HTTP API (127.0.0.1:8500,
-	// without a token): empty if it can't be asked, error says why.
-	Error         string          `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`
-	NodeName      string          `protobuf:"bytes,6,opt,name=node_name,json=nodeName,proto3" json:"node_name,omitempty"`
-	NodeId        string          `protobuf:"bytes,7,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
-	Datacenter    string          `protobuf:"bytes,8,opt,name=datacenter,proto3" json:"datacenter,omitempty"`
-	Server        bool            `protobuf:"varint,9,opt,name=server,proto3" json:"server,omitempty"`
-	Version       string          `protobuf:"bytes,10,opt,name=version,proto3" json:"version,omitempty"`
-	Leader        string          `protobuf:"bytes,11,opt,name=leader,proto3" json:"leader,omitempty"`                     // the cluster's leader, "" if there's none
-	Members       []*ConsulMember `protobuf:"bytes,12,rep,name=members,proto3" json:"members,omitempty"`                   // the LAN gossip pool
-	FilesDir      string          `protobuf:"bytes,13,opt,name=files_dir,json=filesDir,proto3" json:"files_dir,omitempty"` // where the configuration's files are
+	// with the managed layer's token if there's one): empty if it can't be
+	// asked, error says why.
+	Error      string          `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`
+	NodeName   string          `protobuf:"bytes,6,opt,name=node_name,json=nodeName,proto3" json:"node_name,omitempty"`
+	NodeId     string          `protobuf:"bytes,7,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Datacenter string          `protobuf:"bytes,8,opt,name=datacenter,proto3" json:"datacenter,omitempty"`
+	Server     bool            `protobuf:"varint,9,opt,name=server,proto3" json:"server,omitempty"`
+	Version    string          `protobuf:"bytes,10,opt,name=version,proto3" json:"version,omitempty"`
+	Leader     string          `protobuf:"bytes,11,opt,name=leader,proto3" json:"leader,omitempty"`                     // the cluster's leader, "" if there's none
+	Members    []*ConsulMember `protobuf:"bytes,12,rep,name=members,proto3" json:"members,omitempty"`                   // the LAN gossip pool
+	FilesDir   string          `protobuf:"bytes,13,opt,name=files_dir,json=filesDir,proto3" json:"files_dir,omitempty"` // where the configuration's files are
+	// A Controller manages a layer of the configuration
+	// (ConsulManagedGet): its token is the one the agent is asked with.
+	Managed bool `protobuf:"varint,14,opt,name=managed,proto3" json:"managed,omitempty"`
+	// The agent's services, its own and the operator's, with their checks'
+	// state.
+	Services      []*ConsulService `protobuf:"bytes,15,rep,name=services,proto3" json:"services,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2533,6 +2540,20 @@ func (x *ConsulStatusResponse) GetFilesDir() string {
 	return ""
 }
 
+func (x *ConsulStatusResponse) GetManaged() bool {
+	if x != nil {
+		return x.Managed
+	}
+	return false
+}
+
+func (x *ConsulStatusResponse) GetServices() []*ConsulService {
+	if x != nil {
+		return x.Services
+	}
+	return nil
+}
+
 type ConsulMember struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -2609,6 +2630,485 @@ func (x *ConsulMember) GetDatacenter() string {
 	return ""
 }
 
+// ConsulManaged is the part of the Consul agent's configuration a
+// Controller manages: what makes the node a client of its Consul
+// cluster, and which of its own services it registers there.
+type ConsulManaged struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Who set it: "janus-controller <id> consul <hash>"; empty: none set.
+	ManagedBy  string `protobuf:"bytes,1,opt,name=managed_by,json=managedBy,proto3" json:"managed_by,omitempty"`
+	Datacenter string `protobuf:"bytes,2,opt,name=datacenter,proto3" json:"datacenter,omitempty"`
+	// The node's name in Consul.
+	NodeName string `protobuf:"bytes,3,opt,name=node_name,json=nodeName,proto3" json:"node_name,omitempty"`
+	// The servers to join (host or host:port, as retry_join takes them).
+	RetryJoin []string `protobuf:"bytes,4,rep,name=retry_join,json=retryJoin,proto3" json:"retry_join,omitempty"`
+	// The address the agent binds and advertises; empty: the node's main
+	// IPv4 address.
+	AdvertiseAddr string `protobuf:"bytes,5,opt,name=advertise_addr,json=advertiseAddr,proto3" json:"advertise_addr,omitempty"`
+	// The gossip encryption key (encrypt). Write-only: never returned -
+	// has_encrypt says whether one is set. Sent empty with has_encrypt
+	// true, the saved one is kept.
+	Encrypt    string `protobuf:"bytes,6,opt,name=encrypt,proto3" json:"encrypt,omitempty"`
+	HasEncrypt bool   `protobuf:"varint,7,opt,name=has_encrypt,json=hasEncrypt,proto3" json:"has_encrypt,omitempty"`
+	// The agent's ACL token (acl.tokens.agent), also the one the node
+	// registers its services with. Write-only, as encrypt.
+	AgentToken    string `protobuf:"bytes,8,opt,name=agent_token,json=agentToken,proto3" json:"agent_token,omitempty"`
+	HasAgentToken bool   `protobuf:"varint,9,opt,name=has_agent_token,json=hasAgentToken,proto3" json:"has_agent_token,omitempty"`
+	// The CA of the servers' RPC certificates (PEM): the agent verifies
+	// them, and gets its own certificate from them (auto_encrypt).
+	CaPem string `protobuf:"bytes,10,opt,name=ca_pem,json=caPem,proto3" json:"ca_pem,omitempty"`
+	// The node's metadata in the catalog.
+	NodeMeta      map[string]string      `protobuf:"bytes,11,rep,name=node_meta,json=nodeMeta,proto3" json:"node_meta,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Services      *ConsulManagedServices `protobuf:"bytes,12,opt,name=services,proto3" json:"services,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConsulManaged) Reset() {
+	*x = ConsulManaged{}
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConsulManaged) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConsulManaged) ProtoMessage() {}
+
+func (x *ConsulManaged) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConsulManaged.ProtoReflect.Descriptor instead.
+func (*ConsulManaged) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *ConsulManaged) GetManagedBy() string {
+	if x != nil {
+		return x.ManagedBy
+	}
+	return ""
+}
+
+func (x *ConsulManaged) GetDatacenter() string {
+	if x != nil {
+		return x.Datacenter
+	}
+	return ""
+}
+
+func (x *ConsulManaged) GetNodeName() string {
+	if x != nil {
+		return x.NodeName
+	}
+	return ""
+}
+
+func (x *ConsulManaged) GetRetryJoin() []string {
+	if x != nil {
+		return x.RetryJoin
+	}
+	return nil
+}
+
+func (x *ConsulManaged) GetAdvertiseAddr() string {
+	if x != nil {
+		return x.AdvertiseAddr
+	}
+	return ""
+}
+
+func (x *ConsulManaged) GetEncrypt() string {
+	if x != nil {
+		return x.Encrypt
+	}
+	return ""
+}
+
+func (x *ConsulManaged) GetHasEncrypt() bool {
+	if x != nil {
+		return x.HasEncrypt
+	}
+	return false
+}
+
+func (x *ConsulManaged) GetAgentToken() string {
+	if x != nil {
+		return x.AgentToken
+	}
+	return ""
+}
+
+func (x *ConsulManaged) GetHasAgentToken() bool {
+	if x != nil {
+		return x.HasAgentToken
+	}
+	return false
+}
+
+func (x *ConsulManaged) GetCaPem() string {
+	if x != nil {
+		return x.CaPem
+	}
+	return ""
+}
+
+func (x *ConsulManaged) GetNodeMeta() map[string]string {
+	if x != nil {
+		return x.NodeMeta
+	}
+	return nil
+}
+
+func (x *ConsulManaged) GetServices() *ConsulManagedServices {
+	if x != nil {
+		return x.Services
+	}
+	return nil
+}
+
+// ConsulManagedServices: which of its services the node registers.
+type ConsulManagedServices struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// janus: janusd's API (:9505).
+	Janus bool `protobuf:"varint,1,opt,name=janus,proto3" json:"janus,omitempty"`
+	// janus-exporter and, when that extension runs, node-exporter.
+	Exporters bool `protobuf:"varint,2,opt,name=exporters,proto3" json:"exporters,omitempty"`
+	// haproxy-<name>: one per frontend and listen section.
+	Frontends bool `protobuf:"varint,3,opt,name=frontends,proto3" json:"frontends,omitempty"`
+	// haproxy-url: one instance per URL the configuration routes - the
+	// hosts in the maps a use_backend reads by the Host header (or the
+	// TLS server name), and in host ACLs.
+	Urls          bool `protobuf:"varint,4,opt,name=urls,proto3" json:"urls,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConsulManagedServices) Reset() {
+	*x = ConsulManagedServices{}
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConsulManagedServices) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConsulManagedServices) ProtoMessage() {}
+
+func (x *ConsulManagedServices) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConsulManagedServices.ProtoReflect.Descriptor instead.
+func (*ConsulManagedServices) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *ConsulManagedServices) GetJanus() bool {
+	if x != nil {
+		return x.Janus
+	}
+	return false
+}
+
+func (x *ConsulManagedServices) GetExporters() bool {
+	if x != nil {
+		return x.Exporters
+	}
+	return false
+}
+
+func (x *ConsulManagedServices) GetFrontends() bool {
+	if x != nil {
+		return x.Frontends
+	}
+	return false
+}
+
+func (x *ConsulManagedServices) GetUrls() bool {
+	if x != nil {
+		return x.Urls
+	}
+	return false
+}
+
+type ConsulManagedGetResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	State ModuleState            `protobuf:"varint,1,opt,name=state,proto3,enum=janus.v1alpha1.ModuleState" json:"state,omitempty"`
+	// The layer, its secrets left out; empty managed_by: none set.
+	Managed *ConsulManaged `protobuf:"bytes,2,opt,name=managed,proto3" json:"managed,omitempty"`
+	// The registration of the node's services: when it last went
+	// through, why not since, how many janusd keeps registered, and
+	// whether they're in maintenance (the node is drained, or going
+	// down).
+	SyncedUnix    int64  `protobuf:"varint,3,opt,name=synced_unix,json=syncedUnix,proto3" json:"synced_unix,omitempty"`
+	SyncError     string `protobuf:"bytes,4,opt,name=sync_error,json=syncError,proto3" json:"sync_error,omitempty"`
+	Registered    int32  `protobuf:"varint,5,opt,name=registered,proto3" json:"registered,omitempty"`
+	Maintenance   bool   `protobuf:"varint,6,opt,name=maintenance,proto3" json:"maintenance,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConsulManagedGetResponse) Reset() {
+	*x = ConsulManagedGetResponse{}
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConsulManagedGetResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConsulManagedGetResponse) ProtoMessage() {}
+
+func (x *ConsulManagedGetResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConsulManagedGetResponse.ProtoReflect.Descriptor instead.
+func (*ConsulManagedGetResponse) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *ConsulManagedGetResponse) GetState() ModuleState {
+	if x != nil {
+		return x.State
+	}
+	return ModuleState_MODULE_STATE_NOT_ENABLED
+}
+
+func (x *ConsulManagedGetResponse) GetManaged() *ConsulManaged {
+	if x != nil {
+		return x.Managed
+	}
+	return nil
+}
+
+func (x *ConsulManagedGetResponse) GetSyncedUnix() int64 {
+	if x != nil {
+		return x.SyncedUnix
+	}
+	return 0
+}
+
+func (x *ConsulManagedGetResponse) GetSyncError() string {
+	if x != nil {
+		return x.SyncError
+	}
+	return ""
+}
+
+func (x *ConsulManagedGetResponse) GetRegistered() int32 {
+	if x != nil {
+		return x.Registered
+	}
+	return 0
+}
+
+func (x *ConsulManagedGetResponse) GetMaintenance() bool {
+	if x != nil {
+		return x.Maintenance
+	}
+	return false
+}
+
+type ConsulManagedSetResponse struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Accepted bool                   `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
+	Errors   []string               `protobuf:"bytes,2,rep,name=errors,proto3" json:"errors,omitempty"` // consul validate's
+	// The agent restarted (or started) to read it - not when nothing it
+	// reads changed.
+	Restarted     bool `protobuf:"varint,3,opt,name=restarted,proto3" json:"restarted,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConsulManagedSetResponse) Reset() {
+	*x = ConsulManagedSetResponse{}
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConsulManagedSetResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConsulManagedSetResponse) ProtoMessage() {}
+
+func (x *ConsulManagedSetResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConsulManagedSetResponse.ProtoReflect.Descriptor instead.
+func (*ConsulManagedSetResponse) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *ConsulManagedSetResponse) GetAccepted() bool {
+	if x != nil {
+		return x.Accepted
+	}
+	return false
+}
+
+func (x *ConsulManagedSetResponse) GetErrors() []string {
+	if x != nil {
+		return x.Errors
+	}
+	return nil
+}
+
+func (x *ConsulManagedSetResponse) GetRestarted() bool {
+	if x != nil {
+		return x.Restarted
+	}
+	return false
+}
+
+// ConsulService is a service the node's agent has registered.
+type ConsulService struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Id      string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name    string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Address string                 `protobuf:"bytes,3,opt,name=address,proto3" json:"address,omitempty"`
+	Port    uint32                 `protobuf:"varint,4,opt,name=port,proto3" json:"port,omitempty"`
+	Tags    []string               `protobuf:"bytes,5,rep,name=tags,proto3" json:"tags,omitempty"`
+	Meta    map[string]string      `protobuf:"bytes,6,rep,name=meta,proto3" json:"meta,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Its checks' worst: "passing", "warning", "critical", "maintenance";
+	// empty without a check.
+	Status string `protobuf:"bytes,7,opt,name=status,proto3" json:"status,omitempty"`
+	// Registered by janusd (IDs janus:*), not by the operator's
+	// configuration.
+	Managed       bool `protobuf:"varint,8,opt,name=managed,proto3" json:"managed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConsulService) Reset() {
+	*x = ConsulService{}
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConsulService) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConsulService) ProtoMessage() {}
+
+func (x *ConsulService) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConsulService.ProtoReflect.Descriptor instead.
+func (*ConsulService) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *ConsulService) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ConsulService) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ConsulService) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *ConsulService) GetPort() uint32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *ConsulService) GetTags() []string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
+}
+
+func (x *ConsulService) GetMeta() map[string]string {
+	if x != nil {
+		return x.Meta
+	}
+	return nil
+}
+
+func (x *ConsulService) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ConsulService) GetManaged() bool {
+	if x != nil {
+		return x.Managed
+	}
+	return false
+}
+
 type ConsulGetConfigResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Config        []byte                 `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`                         // the saved configuration (HCL or JSON)
@@ -2620,7 +3120,7 @@ type ConsulGetConfigResponse struct {
 
 func (x *ConsulGetConfigResponse) Reset() {
 	*x = ConsulGetConfigResponse{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[30]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2632,7 +3132,7 @@ func (x *ConsulGetConfigResponse) String() string {
 func (*ConsulGetConfigResponse) ProtoMessage() {}
 
 func (x *ConsulGetConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[30]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2645,7 +3145,7 @@ func (x *ConsulGetConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConsulGetConfigResponse.ProtoReflect.Descriptor instead.
 func (*ConsulGetConfigResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{30}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ConsulGetConfigResponse) GetConfig() []byte {
@@ -2684,7 +3184,7 @@ type ConsulApplyConfigRequest struct {
 
 func (x *ConsulApplyConfigRequest) Reset() {
 	*x = ConsulApplyConfigRequest{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[31]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2696,7 +3196,7 @@ func (x *ConsulApplyConfigRequest) String() string {
 func (*ConsulApplyConfigRequest) ProtoMessage() {}
 
 func (x *ConsulApplyConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[31]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2709,7 +3209,7 @@ func (x *ConsulApplyConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConsulApplyConfigRequest.ProtoReflect.Descriptor instead.
 func (*ConsulApplyConfigRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{31}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *ConsulApplyConfigRequest) GetConfig() []byte {
@@ -2743,7 +3243,7 @@ type ConsulApplyConfigResponse struct {
 
 func (x *ConsulApplyConfigResponse) Reset() {
 	*x = ConsulApplyConfigResponse{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[32]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2755,7 +3255,7 @@ func (x *ConsulApplyConfigResponse) String() string {
 func (*ConsulApplyConfigResponse) ProtoMessage() {}
 
 func (x *ConsulApplyConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[32]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2768,7 +3268,7 @@ func (x *ConsulApplyConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConsulApplyConfigResponse.ProtoReflect.Descriptor instead.
 func (*ConsulApplyConfigResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{32}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *ConsulApplyConfigResponse) GetAccepted() bool {
@@ -2798,7 +3298,7 @@ type FirewallListResponse struct {
 
 func (x *FirewallListResponse) Reset() {
 	*x = FirewallListResponse{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[33]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2810,7 +3310,7 @@ func (x *FirewallListResponse) String() string {
 func (*FirewallListResponse) ProtoMessage() {}
 
 func (x *FirewallListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[33]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2823,7 +3323,7 @@ func (x *FirewallListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirewallListResponse.ProtoReflect.Descriptor instead.
 func (*FirewallListResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{33}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *FirewallListResponse) GetState() ModuleState {
@@ -2871,7 +3371,7 @@ type FirewallGetRulesetResponse struct {
 
 func (x *FirewallGetRulesetResponse) Reset() {
 	*x = FirewallGetRulesetResponse{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[34]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2883,7 +3383,7 @@ func (x *FirewallGetRulesetResponse) String() string {
 func (*FirewallGetRulesetResponse) ProtoMessage() {}
 
 func (x *FirewallGetRulesetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[34]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2896,7 +3396,7 @@ func (x *FirewallGetRulesetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirewallGetRulesetResponse.ProtoReflect.Descriptor instead.
 func (*FirewallGetRulesetResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{34}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *FirewallGetRulesetResponse) GetRuleset() []byte {
@@ -2925,7 +3425,7 @@ type FirewallApplyRulesetRequest struct {
 
 func (x *FirewallApplyRulesetRequest) Reset() {
 	*x = FirewallApplyRulesetRequest{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[35]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2937,7 +3437,7 @@ func (x *FirewallApplyRulesetRequest) String() string {
 func (*FirewallApplyRulesetRequest) ProtoMessage() {}
 
 func (x *FirewallApplyRulesetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[35]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2950,7 +3450,7 @@ func (x *FirewallApplyRulesetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirewallApplyRulesetRequest.ProtoReflect.Descriptor instead.
 func (*FirewallApplyRulesetRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{35}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *FirewallApplyRulesetRequest) GetRuleset() []byte {
@@ -2985,7 +3485,7 @@ type FirewallApplyRulesetResponse struct {
 
 func (x *FirewallApplyRulesetResponse) Reset() {
 	*x = FirewallApplyRulesetResponse{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[36]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2997,7 +3497,7 @@ func (x *FirewallApplyRulesetResponse) String() string {
 func (*FirewallApplyRulesetResponse) ProtoMessage() {}
 
 func (x *FirewallApplyRulesetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[36]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3010,7 +3510,7 @@ func (x *FirewallApplyRulesetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirewallApplyRulesetResponse.ProtoReflect.Descriptor instead.
 func (*FirewallApplyRulesetResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{36}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *FirewallApplyRulesetResponse) GetAccepted() bool {
@@ -3042,7 +3542,7 @@ type FirewallConfirmResponse struct {
 
 func (x *FirewallConfirmResponse) Reset() {
 	*x = FirewallConfirmResponse{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[37]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3054,7 +3554,7 @@ func (x *FirewallConfirmResponse) String() string {
 func (*FirewallConfirmResponse) ProtoMessage() {}
 
 func (x *FirewallConfirmResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[37]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3067,7 +3567,7 @@ func (x *FirewallConfirmResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirewallConfirmResponse.ProtoReflect.Descriptor instead.
 func (*FirewallConfirmResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{37}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{42}
 }
 
 type FirewallSet struct {
@@ -3084,7 +3584,7 @@ type FirewallSet struct {
 
 func (x *FirewallSet) Reset() {
 	*x = FirewallSet{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[38]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3096,7 +3596,7 @@ func (x *FirewallSet) String() string {
 func (*FirewallSet) ProtoMessage() {}
 
 func (x *FirewallSet) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[38]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3109,7 +3609,7 @@ func (x *FirewallSet) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirewallSet.ProtoReflect.Descriptor instead.
 func (*FirewallSet) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{38}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *FirewallSet) GetFamily() string {
@@ -3168,7 +3668,7 @@ type FirewallSetElement struct {
 
 func (x *FirewallSetElement) Reset() {
 	*x = FirewallSetElement{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[39]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3180,7 +3680,7 @@ func (x *FirewallSetElement) String() string {
 func (*FirewallSetElement) ProtoMessage() {}
 
 func (x *FirewallSetElement) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[39]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3193,7 +3693,7 @@ func (x *FirewallSetElement) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirewallSetElement.ProtoReflect.Descriptor instead.
 func (*FirewallSetElement) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{39}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *FirewallSetElement) GetValue() string {
@@ -3233,7 +3733,7 @@ type FirewallSetsResponse struct {
 
 func (x *FirewallSetsResponse) Reset() {
 	*x = FirewallSetsResponse{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[40]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3245,7 +3745,7 @@ func (x *FirewallSetsResponse) String() string {
 func (*FirewallSetsResponse) ProtoMessage() {}
 
 func (x *FirewallSetsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[40]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3258,7 +3758,7 @@ func (x *FirewallSetsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirewallSetsResponse.ProtoReflect.Descriptor instead.
 func (*FirewallSetsResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{40}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *FirewallSetsResponse) GetSets() []*FirewallSet {
@@ -3281,7 +3781,7 @@ type FirewallSetUpdateRequest struct {
 
 func (x *FirewallSetUpdateRequest) Reset() {
 	*x = FirewallSetUpdateRequest{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[41]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3293,7 +3793,7 @@ func (x *FirewallSetUpdateRequest) String() string {
 func (*FirewallSetUpdateRequest) ProtoMessage() {}
 
 func (x *FirewallSetUpdateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[41]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3306,7 +3806,7 @@ func (x *FirewallSetUpdateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirewallSetUpdateRequest.ProtoReflect.Descriptor instead.
 func (*FirewallSetUpdateRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{41}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *FirewallSetUpdateRequest) GetFamily() string {
@@ -3353,7 +3853,7 @@ type FirewallSetUpdateResponse struct {
 
 func (x *FirewallSetUpdateResponse) Reset() {
 	*x = FirewallSetUpdateResponse{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[42]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3365,7 +3865,7 @@ func (x *FirewallSetUpdateResponse) String() string {
 func (*FirewallSetUpdateResponse) ProtoMessage() {}
 
 func (x *FirewallSetUpdateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[42]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3378,7 +3878,7 @@ func (x *FirewallSetUpdateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirewallSetUpdateResponse.ProtoReflect.Descriptor instead.
 func (*FirewallSetUpdateResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{42}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *FirewallSetUpdateResponse) GetSet() *FirewallSet {
@@ -3578,7 +4078,7 @@ const file_janus_v1alpha1_network_proto_rawDesc = "" +
 	"\rvalidate_only\x18\x02 \x01(\bR\fvalidateOnly\"M\n" +
 	"\x17VRRPApplyConfigResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x16\n" +
-	"\x06errors\x18\x02 \x03(\tR\x06errors\"\xbe\x03\n" +
+	"\x06errors\x18\x02 \x03(\tR\x06errors\"\x93\x04\n" +
 	"\x14ConsulStatusResponse\x121\n" +
 	"\x05state\x18\x01 \x01(\x0e2\x1b.janus.v1alpha1.ModuleStateR\x05state\x12\x1e\n" +
 	"\n" +
@@ -3597,7 +4097,9 @@ const file_janus_v1alpha1_network_proto_rawDesc = "" +
 	" \x01(\tR\aversion\x12\x16\n" +
 	"\x06leader\x18\v \x01(\tR\x06leader\x126\n" +
 	"\amembers\x18\f \x03(\v2\x1c.janus.v1alpha1.ConsulMemberR\amembers\x12\x1b\n" +
-	"\tfiles_dir\x18\r \x01(\tR\bfilesDir\"\x88\x01\n" +
+	"\tfiles_dir\x18\r \x01(\tR\bfilesDir\x12\x18\n" +
+	"\amanaged\x18\x0e \x01(\bR\amanaged\x129\n" +
+	"\bservices\x18\x0f \x03(\v2\x1d.janus.v1alpha1.ConsulServiceR\bservices\"\x88\x01\n" +
 	"\fConsulMember\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x16\n" +
@@ -3605,7 +4107,62 @@ const file_janus_v1alpha1_network_proto_rawDesc = "" +
 	"\x04role\x18\x04 \x01(\tR\x04role\x12\x1e\n" +
 	"\n" +
 	"datacenter\x18\x05 \x01(\tR\n" +
-	"datacenter\"f\n" +
+	"datacenter\"\x96\x04\n" +
+	"\rConsulManaged\x12\x1d\n" +
+	"\n" +
+	"managed_by\x18\x01 \x01(\tR\tmanagedBy\x12\x1e\n" +
+	"\n" +
+	"datacenter\x18\x02 \x01(\tR\n" +
+	"datacenter\x12\x1b\n" +
+	"\tnode_name\x18\x03 \x01(\tR\bnodeName\x12\x1d\n" +
+	"\n" +
+	"retry_join\x18\x04 \x03(\tR\tretryJoin\x12%\n" +
+	"\x0eadvertise_addr\x18\x05 \x01(\tR\radvertiseAddr\x12\x18\n" +
+	"\aencrypt\x18\x06 \x01(\tR\aencrypt\x12\x1f\n" +
+	"\vhas_encrypt\x18\a \x01(\bR\n" +
+	"hasEncrypt\x12\x1f\n" +
+	"\vagent_token\x18\b \x01(\tR\n" +
+	"agentToken\x12&\n" +
+	"\x0fhas_agent_token\x18\t \x01(\bR\rhasAgentToken\x12\x15\n" +
+	"\x06ca_pem\x18\n" +
+	" \x01(\tR\x05caPem\x12H\n" +
+	"\tnode_meta\x18\v \x03(\v2+.janus.v1alpha1.ConsulManaged.NodeMetaEntryR\bnodeMeta\x12A\n" +
+	"\bservices\x18\f \x01(\v2%.janus.v1alpha1.ConsulManagedServicesR\bservices\x1a;\n" +
+	"\rNodeMetaEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"}\n" +
+	"\x15ConsulManagedServices\x12\x14\n" +
+	"\x05janus\x18\x01 \x01(\bR\x05janus\x12\x1c\n" +
+	"\texporters\x18\x02 \x01(\bR\texporters\x12\x1c\n" +
+	"\tfrontends\x18\x03 \x01(\bR\tfrontends\x12\x12\n" +
+	"\x04urls\x18\x04 \x01(\bR\x04urls\"\x88\x02\n" +
+	"\x18ConsulManagedGetResponse\x121\n" +
+	"\x05state\x18\x01 \x01(\x0e2\x1b.janus.v1alpha1.ModuleStateR\x05state\x127\n" +
+	"\amanaged\x18\x02 \x01(\v2\x1d.janus.v1alpha1.ConsulManagedR\amanaged\x12\x1f\n" +
+	"\vsynced_unix\x18\x03 \x01(\x03R\n" +
+	"syncedUnix\x12\x1d\n" +
+	"\n" +
+	"sync_error\x18\x04 \x01(\tR\tsyncError\x12\x1e\n" +
+	"\n" +
+	"registered\x18\x05 \x01(\x05R\n" +
+	"registered\x12 \n" +
+	"\vmaintenance\x18\x06 \x01(\bR\vmaintenance\"l\n" +
+	"\x18ConsulManagedSetResponse\x12\x1a\n" +
+	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x16\n" +
+	"\x06errors\x18\x02 \x03(\tR\x06errors\x12\x1c\n" +
+	"\trestarted\x18\x03 \x01(\bR\trestarted\"\x9d\x02\n" +
+	"\rConsulService\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
+	"\aaddress\x18\x03 \x01(\tR\aaddress\x12\x12\n" +
+	"\x04port\x18\x04 \x01(\rR\x04port\x12\x12\n" +
+	"\x04tags\x18\x05 \x03(\tR\x04tags\x12;\n" +
+	"\x04meta\x18\x06 \x03(\v2'.janus.v1alpha1.ConsulService.MetaEntryR\x04meta\x12\x16\n" +
+	"\x06status\x18\a \x01(\tR\x06status\x12\x18\n" +
+	"\amanaged\x18\b \x01(\bR\amanaged\x1a7\n" +
+	"\tMetaEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"f\n" +
 	"\x17ConsulGetConfigResponse\x12\x16\n" +
 	"\x06config\x18\x01 \x01(\fR\x06config\x12\x1d\n" +
 	"\n" +
@@ -3690,7 +4247,7 @@ const file_janus_v1alpha1_network_proto_rawDesc = "" +
 	"\x18MODULE_STATE_NOT_ENABLED\x10\x00\x12\x18\n" +
 	"\x14MODULE_STATE_RUNNING\x10\x01\x12\x18\n" +
 	"\x14MODULE_STATE_STOPPED\x10\x02\x12\x16\n" +
-	"\x12MODULE_STATE_ERROR\x10\x032\x86\x0e\n" +
+	"\x12MODULE_STATE_ERROR\x10\x032\xb9\x0f\n" +
 	"\x0eNetworkService\x12F\n" +
 	"\tBGPStatus\x12\x16.google.protobuf.Empty\x1a!.janus.v1alpha1.BGPStatusResponse\x12L\n" +
 	"\fBGPGetConfig\x12\x16.google.protobuf.Empty\x1a$.janus.v1alpha1.BGPGetConfigResponse\x12_\n" +
@@ -3708,6 +4265,8 @@ const file_janus_v1alpha1_network_proto_rawDesc = "" +
 	"\fConsulStatus\x12\x16.google.protobuf.Empty\x1a$.janus.v1alpha1.ConsulStatusResponse\x12R\n" +
 	"\x0fConsulGetConfig\x12\x16.google.protobuf.Empty\x1a'.janus.v1alpha1.ConsulGetConfigResponse\x12h\n" +
 	"\x11ConsulApplyConfig\x12(.janus.v1alpha1.ConsulApplyConfigRequest\x1a).janus.v1alpha1.ConsulApplyConfigResponse\x12T\n" +
+	"\x10ConsulManagedGet\x12\x16.google.protobuf.Empty\x1a(.janus.v1alpha1.ConsulManagedGetResponse\x12[\n" +
+	"\x10ConsulManagedSet\x12\x1d.janus.v1alpha1.ConsulManaged\x1a(.janus.v1alpha1.ConsulManagedSetResponse\x12T\n" +
 	"\x10NetworkConfigGet\x12\x16.google.protobuf.Empty\x1a(.janus.v1alpha1.NetworkConfigGetResponse\x12m\n" +
 	"\x12NetworkConfigApply\x12).janus.v1alpha1.NetworkConfigApplyRequest\x1a*.janus.v1alpha1.NetworkConfigApplyResponse0\x01\x12\\\n" +
 	"\x14NetworkConfigConfirm\x12\x16.google.protobuf.Empty\x1a,.janus.v1alpha1.NetworkConfigConfirmResponse\x12N\n" +
@@ -3727,7 +4286,7 @@ func file_janus_v1alpha1_network_proto_rawDescGZIP() []byte {
 }
 
 var file_janus_v1alpha1_network_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_janus_v1alpha1_network_proto_msgTypes = make([]protoimpl.MessageInfo, 44)
+var file_janus_v1alpha1_network_proto_msgTypes = make([]protoimpl.MessageInfo, 51)
 var file_janus_v1alpha1_network_proto_goTypes = []any{
 	(AddressingMode)(0),                  // 0: janus.v1alpha1.AddressingMode
 	(NeighborFamily)(0),                  // 1: janus.v1alpha1.NeighborFamily
@@ -3763,21 +4322,28 @@ var file_janus_v1alpha1_network_proto_goTypes = []any{
 	(*VRRPApplyConfigResponse)(nil),      // 31: janus.v1alpha1.VRRPApplyConfigResponse
 	(*ConsulStatusResponse)(nil),         // 32: janus.v1alpha1.ConsulStatusResponse
 	(*ConsulMember)(nil),                 // 33: janus.v1alpha1.ConsulMember
-	(*ConsulGetConfigResponse)(nil),      // 34: janus.v1alpha1.ConsulGetConfigResponse
-	(*ConsulApplyConfigRequest)(nil),     // 35: janus.v1alpha1.ConsulApplyConfigRequest
-	(*ConsulApplyConfigResponse)(nil),    // 36: janus.v1alpha1.ConsulApplyConfigResponse
-	(*FirewallListResponse)(nil),         // 37: janus.v1alpha1.FirewallListResponse
-	(*FirewallGetRulesetResponse)(nil),   // 38: janus.v1alpha1.FirewallGetRulesetResponse
-	(*FirewallApplyRulesetRequest)(nil),  // 39: janus.v1alpha1.FirewallApplyRulesetRequest
-	(*FirewallApplyRulesetResponse)(nil), // 40: janus.v1alpha1.FirewallApplyRulesetResponse
-	(*FirewallConfirmResponse)(nil),      // 41: janus.v1alpha1.FirewallConfirmResponse
-	(*FirewallSet)(nil),                  // 42: janus.v1alpha1.FirewallSet
-	(*FirewallSetElement)(nil),           // 43: janus.v1alpha1.FirewallSetElement
-	(*FirewallSetsResponse)(nil),         // 44: janus.v1alpha1.FirewallSetsResponse
-	(*FirewallSetUpdateRequest)(nil),     // 45: janus.v1alpha1.FirewallSetUpdateRequest
-	(*FirewallSetUpdateResponse)(nil),    // 46: janus.v1alpha1.FirewallSetUpdateResponse
-	nil,                                  // 47: janus.v1alpha1.ConsulApplyConfigRequest.FilesEntry
-	(*emptypb.Empty)(nil),                // 48: google.protobuf.Empty
+	(*ConsulManaged)(nil),                // 34: janus.v1alpha1.ConsulManaged
+	(*ConsulManagedServices)(nil),        // 35: janus.v1alpha1.ConsulManagedServices
+	(*ConsulManagedGetResponse)(nil),     // 36: janus.v1alpha1.ConsulManagedGetResponse
+	(*ConsulManagedSetResponse)(nil),     // 37: janus.v1alpha1.ConsulManagedSetResponse
+	(*ConsulService)(nil),                // 38: janus.v1alpha1.ConsulService
+	(*ConsulGetConfigResponse)(nil),      // 39: janus.v1alpha1.ConsulGetConfigResponse
+	(*ConsulApplyConfigRequest)(nil),     // 40: janus.v1alpha1.ConsulApplyConfigRequest
+	(*ConsulApplyConfigResponse)(nil),    // 41: janus.v1alpha1.ConsulApplyConfigResponse
+	(*FirewallListResponse)(nil),         // 42: janus.v1alpha1.FirewallListResponse
+	(*FirewallGetRulesetResponse)(nil),   // 43: janus.v1alpha1.FirewallGetRulesetResponse
+	(*FirewallApplyRulesetRequest)(nil),  // 44: janus.v1alpha1.FirewallApplyRulesetRequest
+	(*FirewallApplyRulesetResponse)(nil), // 45: janus.v1alpha1.FirewallApplyRulesetResponse
+	(*FirewallConfirmResponse)(nil),      // 46: janus.v1alpha1.FirewallConfirmResponse
+	(*FirewallSet)(nil),                  // 47: janus.v1alpha1.FirewallSet
+	(*FirewallSetElement)(nil),           // 48: janus.v1alpha1.FirewallSetElement
+	(*FirewallSetsResponse)(nil),         // 49: janus.v1alpha1.FirewallSetsResponse
+	(*FirewallSetUpdateRequest)(nil),     // 50: janus.v1alpha1.FirewallSetUpdateRequest
+	(*FirewallSetUpdateResponse)(nil),    // 51: janus.v1alpha1.FirewallSetUpdateResponse
+	nil,                                  // 52: janus.v1alpha1.ConsulManaged.NodeMetaEntry
+	nil,                                  // 53: janus.v1alpha1.ConsulService.MetaEntry
+	nil,                                  // 54: janus.v1alpha1.ConsulApplyConfigRequest.FilesEntry
+	(*emptypb.Empty)(nil),                // 55: google.protobuf.Empty
 }
 var file_janus_v1alpha1_network_proto_depIdxs = []int32{
 	5,  // 0: janus.v1alpha1.NetworkConfig.interfaces:type_name -> janus.v1alpha1.NetworkInterface
@@ -3802,57 +4368,67 @@ var file_janus_v1alpha1_network_proto_depIdxs = []int32{
 	28, // 19: janus.v1alpha1.VRRPStatusResponse.instances:type_name -> janus.v1alpha1.VRRPInstance
 	3,  // 20: janus.v1alpha1.ConsulStatusResponse.state:type_name -> janus.v1alpha1.ModuleState
 	33, // 21: janus.v1alpha1.ConsulStatusResponse.members:type_name -> janus.v1alpha1.ConsulMember
-	47, // 22: janus.v1alpha1.ConsulApplyConfigRequest.files:type_name -> janus.v1alpha1.ConsulApplyConfigRequest.FilesEntry
-	3,  // 23: janus.v1alpha1.FirewallListResponse.state:type_name -> janus.v1alpha1.ModuleState
-	43, // 24: janus.v1alpha1.FirewallSet.elements:type_name -> janus.v1alpha1.FirewallSetElement
-	42, // 25: janus.v1alpha1.FirewallSetsResponse.sets:type_name -> janus.v1alpha1.FirewallSet
-	43, // 26: janus.v1alpha1.FirewallSetUpdateRequest.add:type_name -> janus.v1alpha1.FirewallSetElement
-	42, // 27: janus.v1alpha1.FirewallSetUpdateResponse.set:type_name -> janus.v1alpha1.FirewallSet
-	48, // 28: janus.v1alpha1.NetworkService.BGPStatus:input_type -> google.protobuf.Empty
-	48, // 29: janus.v1alpha1.NetworkService.BGPGetConfig:input_type -> google.protobuf.Empty
-	25, // 30: janus.v1alpha1.NetworkService.BGPApplyConfig:input_type -> janus.v1alpha1.BGPApplyConfigRequest
-	48, // 31: janus.v1alpha1.NetworkService.VRRPStatus:input_type -> google.protobuf.Empty
-	48, // 32: janus.v1alpha1.NetworkService.VRRPGetConfig:input_type -> google.protobuf.Empty
-	30, // 33: janus.v1alpha1.NetworkService.VRRPApplyConfig:input_type -> janus.v1alpha1.VRRPApplyConfigRequest
-	48, // 34: janus.v1alpha1.NetworkService.FirewallList:input_type -> google.protobuf.Empty
-	48, // 35: janus.v1alpha1.NetworkService.FirewallGetRuleset:input_type -> google.protobuf.Empty
-	39, // 36: janus.v1alpha1.NetworkService.FirewallApplyRuleset:input_type -> janus.v1alpha1.FirewallApplyRulesetRequest
-	48, // 37: janus.v1alpha1.NetworkService.FirewallConfirm:input_type -> google.protobuf.Empty
-	48, // 38: janus.v1alpha1.NetworkService.FirewallSets:input_type -> google.protobuf.Empty
-	45, // 39: janus.v1alpha1.NetworkService.FirewallSetUpdate:input_type -> janus.v1alpha1.FirewallSetUpdateRequest
-	48, // 40: janus.v1alpha1.NetworkService.ConsulStatus:input_type -> google.protobuf.Empty
-	48, // 41: janus.v1alpha1.NetworkService.ConsulGetConfig:input_type -> google.protobuf.Empty
-	35, // 42: janus.v1alpha1.NetworkService.ConsulApplyConfig:input_type -> janus.v1alpha1.ConsulApplyConfigRequest
-	48, // 43: janus.v1alpha1.NetworkService.NetworkConfigGet:input_type -> google.protobuf.Empty
-	10, // 44: janus.v1alpha1.NetworkService.NetworkConfigApply:input_type -> janus.v1alpha1.NetworkConfigApplyRequest
-	48, // 45: janus.v1alpha1.NetworkService.NetworkConfigConfirm:input_type -> google.protobuf.Empty
-	48, // 46: janus.v1alpha1.NetworkService.NetworkStatus:input_type -> google.protobuf.Empty
-	17, // 47: janus.v1alpha1.NetworkService.NeighborList:input_type -> janus.v1alpha1.NeighborListRequest
-	21, // 48: janus.v1alpha1.NetworkService.BGPStatus:output_type -> janus.v1alpha1.BGPStatusResponse
-	24, // 49: janus.v1alpha1.NetworkService.BGPGetConfig:output_type -> janus.v1alpha1.BGPGetConfigResponse
-	26, // 50: janus.v1alpha1.NetworkService.BGPApplyConfig:output_type -> janus.v1alpha1.BGPApplyConfigResponse
-	27, // 51: janus.v1alpha1.NetworkService.VRRPStatus:output_type -> janus.v1alpha1.VRRPStatusResponse
-	29, // 52: janus.v1alpha1.NetworkService.VRRPGetConfig:output_type -> janus.v1alpha1.VRRPGetConfigResponse
-	31, // 53: janus.v1alpha1.NetworkService.VRRPApplyConfig:output_type -> janus.v1alpha1.VRRPApplyConfigResponse
-	37, // 54: janus.v1alpha1.NetworkService.FirewallList:output_type -> janus.v1alpha1.FirewallListResponse
-	38, // 55: janus.v1alpha1.NetworkService.FirewallGetRuleset:output_type -> janus.v1alpha1.FirewallGetRulesetResponse
-	40, // 56: janus.v1alpha1.NetworkService.FirewallApplyRuleset:output_type -> janus.v1alpha1.FirewallApplyRulesetResponse
-	41, // 57: janus.v1alpha1.NetworkService.FirewallConfirm:output_type -> janus.v1alpha1.FirewallConfirmResponse
-	44, // 58: janus.v1alpha1.NetworkService.FirewallSets:output_type -> janus.v1alpha1.FirewallSetsResponse
-	46, // 59: janus.v1alpha1.NetworkService.FirewallSetUpdate:output_type -> janus.v1alpha1.FirewallSetUpdateResponse
-	32, // 60: janus.v1alpha1.NetworkService.ConsulStatus:output_type -> janus.v1alpha1.ConsulStatusResponse
-	34, // 61: janus.v1alpha1.NetworkService.ConsulGetConfig:output_type -> janus.v1alpha1.ConsulGetConfigResponse
-	36, // 62: janus.v1alpha1.NetworkService.ConsulApplyConfig:output_type -> janus.v1alpha1.ConsulApplyConfigResponse
-	9,  // 63: janus.v1alpha1.NetworkService.NetworkConfigGet:output_type -> janus.v1alpha1.NetworkConfigGetResponse
-	11, // 64: janus.v1alpha1.NetworkService.NetworkConfigApply:output_type -> janus.v1alpha1.NetworkConfigApplyResponse
-	12, // 65: janus.v1alpha1.NetworkService.NetworkConfigConfirm:output_type -> janus.v1alpha1.NetworkConfigConfirmResponse
-	13, // 66: janus.v1alpha1.NetworkService.NetworkStatus:output_type -> janus.v1alpha1.NetworkStatusResponse
-	18, // 67: janus.v1alpha1.NetworkService.NeighborList:output_type -> janus.v1alpha1.NeighborListResponse
-	48, // [48:68] is the sub-list for method output_type
-	28, // [28:48] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	38, // 22: janus.v1alpha1.ConsulStatusResponse.services:type_name -> janus.v1alpha1.ConsulService
+	52, // 23: janus.v1alpha1.ConsulManaged.node_meta:type_name -> janus.v1alpha1.ConsulManaged.NodeMetaEntry
+	35, // 24: janus.v1alpha1.ConsulManaged.services:type_name -> janus.v1alpha1.ConsulManagedServices
+	3,  // 25: janus.v1alpha1.ConsulManagedGetResponse.state:type_name -> janus.v1alpha1.ModuleState
+	34, // 26: janus.v1alpha1.ConsulManagedGetResponse.managed:type_name -> janus.v1alpha1.ConsulManaged
+	53, // 27: janus.v1alpha1.ConsulService.meta:type_name -> janus.v1alpha1.ConsulService.MetaEntry
+	54, // 28: janus.v1alpha1.ConsulApplyConfigRequest.files:type_name -> janus.v1alpha1.ConsulApplyConfigRequest.FilesEntry
+	3,  // 29: janus.v1alpha1.FirewallListResponse.state:type_name -> janus.v1alpha1.ModuleState
+	48, // 30: janus.v1alpha1.FirewallSet.elements:type_name -> janus.v1alpha1.FirewallSetElement
+	47, // 31: janus.v1alpha1.FirewallSetsResponse.sets:type_name -> janus.v1alpha1.FirewallSet
+	48, // 32: janus.v1alpha1.FirewallSetUpdateRequest.add:type_name -> janus.v1alpha1.FirewallSetElement
+	47, // 33: janus.v1alpha1.FirewallSetUpdateResponse.set:type_name -> janus.v1alpha1.FirewallSet
+	55, // 34: janus.v1alpha1.NetworkService.BGPStatus:input_type -> google.protobuf.Empty
+	55, // 35: janus.v1alpha1.NetworkService.BGPGetConfig:input_type -> google.protobuf.Empty
+	25, // 36: janus.v1alpha1.NetworkService.BGPApplyConfig:input_type -> janus.v1alpha1.BGPApplyConfigRequest
+	55, // 37: janus.v1alpha1.NetworkService.VRRPStatus:input_type -> google.protobuf.Empty
+	55, // 38: janus.v1alpha1.NetworkService.VRRPGetConfig:input_type -> google.protobuf.Empty
+	30, // 39: janus.v1alpha1.NetworkService.VRRPApplyConfig:input_type -> janus.v1alpha1.VRRPApplyConfigRequest
+	55, // 40: janus.v1alpha1.NetworkService.FirewallList:input_type -> google.protobuf.Empty
+	55, // 41: janus.v1alpha1.NetworkService.FirewallGetRuleset:input_type -> google.protobuf.Empty
+	44, // 42: janus.v1alpha1.NetworkService.FirewallApplyRuleset:input_type -> janus.v1alpha1.FirewallApplyRulesetRequest
+	55, // 43: janus.v1alpha1.NetworkService.FirewallConfirm:input_type -> google.protobuf.Empty
+	55, // 44: janus.v1alpha1.NetworkService.FirewallSets:input_type -> google.protobuf.Empty
+	50, // 45: janus.v1alpha1.NetworkService.FirewallSetUpdate:input_type -> janus.v1alpha1.FirewallSetUpdateRequest
+	55, // 46: janus.v1alpha1.NetworkService.ConsulStatus:input_type -> google.protobuf.Empty
+	55, // 47: janus.v1alpha1.NetworkService.ConsulGetConfig:input_type -> google.protobuf.Empty
+	40, // 48: janus.v1alpha1.NetworkService.ConsulApplyConfig:input_type -> janus.v1alpha1.ConsulApplyConfigRequest
+	55, // 49: janus.v1alpha1.NetworkService.ConsulManagedGet:input_type -> google.protobuf.Empty
+	34, // 50: janus.v1alpha1.NetworkService.ConsulManagedSet:input_type -> janus.v1alpha1.ConsulManaged
+	55, // 51: janus.v1alpha1.NetworkService.NetworkConfigGet:input_type -> google.protobuf.Empty
+	10, // 52: janus.v1alpha1.NetworkService.NetworkConfigApply:input_type -> janus.v1alpha1.NetworkConfigApplyRequest
+	55, // 53: janus.v1alpha1.NetworkService.NetworkConfigConfirm:input_type -> google.protobuf.Empty
+	55, // 54: janus.v1alpha1.NetworkService.NetworkStatus:input_type -> google.protobuf.Empty
+	17, // 55: janus.v1alpha1.NetworkService.NeighborList:input_type -> janus.v1alpha1.NeighborListRequest
+	21, // 56: janus.v1alpha1.NetworkService.BGPStatus:output_type -> janus.v1alpha1.BGPStatusResponse
+	24, // 57: janus.v1alpha1.NetworkService.BGPGetConfig:output_type -> janus.v1alpha1.BGPGetConfigResponse
+	26, // 58: janus.v1alpha1.NetworkService.BGPApplyConfig:output_type -> janus.v1alpha1.BGPApplyConfigResponse
+	27, // 59: janus.v1alpha1.NetworkService.VRRPStatus:output_type -> janus.v1alpha1.VRRPStatusResponse
+	29, // 60: janus.v1alpha1.NetworkService.VRRPGetConfig:output_type -> janus.v1alpha1.VRRPGetConfigResponse
+	31, // 61: janus.v1alpha1.NetworkService.VRRPApplyConfig:output_type -> janus.v1alpha1.VRRPApplyConfigResponse
+	42, // 62: janus.v1alpha1.NetworkService.FirewallList:output_type -> janus.v1alpha1.FirewallListResponse
+	43, // 63: janus.v1alpha1.NetworkService.FirewallGetRuleset:output_type -> janus.v1alpha1.FirewallGetRulesetResponse
+	45, // 64: janus.v1alpha1.NetworkService.FirewallApplyRuleset:output_type -> janus.v1alpha1.FirewallApplyRulesetResponse
+	46, // 65: janus.v1alpha1.NetworkService.FirewallConfirm:output_type -> janus.v1alpha1.FirewallConfirmResponse
+	49, // 66: janus.v1alpha1.NetworkService.FirewallSets:output_type -> janus.v1alpha1.FirewallSetsResponse
+	51, // 67: janus.v1alpha1.NetworkService.FirewallSetUpdate:output_type -> janus.v1alpha1.FirewallSetUpdateResponse
+	32, // 68: janus.v1alpha1.NetworkService.ConsulStatus:output_type -> janus.v1alpha1.ConsulStatusResponse
+	39, // 69: janus.v1alpha1.NetworkService.ConsulGetConfig:output_type -> janus.v1alpha1.ConsulGetConfigResponse
+	41, // 70: janus.v1alpha1.NetworkService.ConsulApplyConfig:output_type -> janus.v1alpha1.ConsulApplyConfigResponse
+	36, // 71: janus.v1alpha1.NetworkService.ConsulManagedGet:output_type -> janus.v1alpha1.ConsulManagedGetResponse
+	37, // 72: janus.v1alpha1.NetworkService.ConsulManagedSet:output_type -> janus.v1alpha1.ConsulManagedSetResponse
+	9,  // 73: janus.v1alpha1.NetworkService.NetworkConfigGet:output_type -> janus.v1alpha1.NetworkConfigGetResponse
+	11, // 74: janus.v1alpha1.NetworkService.NetworkConfigApply:output_type -> janus.v1alpha1.NetworkConfigApplyResponse
+	12, // 75: janus.v1alpha1.NetworkService.NetworkConfigConfirm:output_type -> janus.v1alpha1.NetworkConfigConfirmResponse
+	13, // 76: janus.v1alpha1.NetworkService.NetworkStatus:output_type -> janus.v1alpha1.NetworkStatusResponse
+	18, // 77: janus.v1alpha1.NetworkService.NeighborList:output_type -> janus.v1alpha1.NeighborListResponse
+	56, // [56:78] is the sub-list for method output_type
+	34, // [34:56] is the sub-list for method input_type
+	34, // [34:34] is the sub-list for extension type_name
+	34, // [34:34] is the sub-list for extension extendee
+	0,  // [0:34] is the sub-list for field type_name
 }
 
 func init() { file_janus_v1alpha1_network_proto_init() }
@@ -3866,7 +4442,7 @@ func file_janus_v1alpha1_network_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_janus_v1alpha1_network_proto_rawDesc), len(file_janus_v1alpha1_network_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   44,
+			NumMessages:   51,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

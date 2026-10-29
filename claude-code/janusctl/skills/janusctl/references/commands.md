@@ -141,6 +141,8 @@ janusctl -endpoint HOST:PORT -ca FILE -cert FILE -key FILE COMMAND ...
 - `janusctl network consul get` - reads - the saved configuration
 - `janusctl network consul check [-file NAME=PATH] [-only-files] FILE` - reads - have consul validate it
 - `janusctl network consul apply [-file NAME=PATH] [-only-files] FILE` - **changes** - check, save and apply (the agent restarts). The agent restarts
+- `janusctl network consul managed` - reads - the layer a Controller manages, and the registration of the node's services
+- `janusctl network consul services` - reads - the agent's services and their checks
 
 ## Trust
 

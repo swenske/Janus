@@ -148,6 +148,8 @@ var Required = map[string][]string{
 	"/janus.v1alpha1.NetworkService/ConsulStatus":         readers,
 	"/janus.v1alpha1.NetworkService/ConsulApplyConfig":    adminOnly,
 	"/janus.v1alpha1.NetworkService/ConsulGetConfig":      adminOnly, // the configuration may hold the gossip key and ACL tokens
+	"/janus.v1alpha1.NetworkService/ConsulManagedGet":     readers,   // its secrets are left out
+	"/janus.v1alpha1.NetworkService/ConsulManagedSet":     adminOnly,
 	"/janus.v1alpha1.NetworkService/FirewallList":         readers,
 	"/janus.v1alpha1.NetworkService/FirewallApplyRuleset": adminOnly,
 	"/janus.v1alpha1.NetworkService/FirewallGetRuleset":   readers,

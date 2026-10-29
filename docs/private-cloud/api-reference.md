@@ -117,6 +117,8 @@ Consul: the consul extension ([docs/consul.md](../consul.md)). The agent runs wi
 | `ConsulStatus` | `Empty` → `ConsulStatusResponse` | `os:reader` | observe | ConsulStatus reports the agent's service and what the agent says of itself. |
 | `ConsulGetConfig` | `Empty` → `ConsulGetConfigResponse` | `os:admin` | network | ConsulGetConfig returns the configuration and the files' names, never their content. |
 | `ConsulApplyConfig` | `ConsulApplyConfigRequest` → `ConsulApplyConfigResponse` | `os:admin` | network | ConsulApplyConfig has `consul validate` check a configuration, saves it with its files, and restarts the agent. |
+| `ConsulManagedGet` | `Empty` → `ConsulManagedGetResponse` | `os:reader` | network | ConsulManagedGet returns the layer a Controller manages ([docs/consul.md](../consul.md) "From the Controller") - its secrets left out, has_* saying whether they're set - and how the registration of the node's own services stands. |
+| `ConsulManagedSet` | `ConsulManaged` → `ConsulManagedSetResponse` | `os:admin` | network | ConsulManagedSet replaces the managed layer: rendered into janusd's part of the agent's configuration, loaded after the operator's - its keys win -, checked by `consul validate` with it, and the agent restarts when what it reads changed. The node then registers its own services in the agent (IDs janus:*) with the layer's token. An empty layer removes it, and the services it registered. |
 
 The node's own network configuration: hostname, interfaces (physical and 802.1Q VLANs, DHCP or static), DNS and NTP. Unlike the optional modules above, always available.
 

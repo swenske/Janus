@@ -182,9 +182,11 @@ Optional modules:
 | `FirewallApplyRuleset` | | ✅ | Check (`validate_only`) or apply a ruleset on trial - reverts unless confirmed |
 | `FirewallConfirm` | | ✅ | Keep and save the ruleset on trial - refused over a connection opened before it was applied |
 | `FirewallSets` / `FirewallSetUpdate` | | ✅ | Named sets of the live ruleset; add/delete elements live, kept across applies and reboots unless they have a timeout |
-| `ConsulStatus` | | ✅ | The consul extension: the agent's service state and, from its HTTP API, its node, role, datacenter, leader and members ([consul.md](consul.md)) |
+| `ConsulStatus` | | ✅ | The consul extension: the agent's service state and, from its HTTP API (with the managed layer's token, if any), its node, role, datacenter, leader, members and services ([consul.md](consul.md)) |
 | `ConsulGetConfig` | | ✅ | The saved configuration and its files' names (admin only: it may hold the gossip key and ACL tokens) |
 | `ConsulApplyConfig` | | ✅ | Check (`validate_only`, by `consul validate`) or apply a configuration with its files - saved, the agent restarts; empty stops the agent |
+| `ConsulManagedGet` | | ✅ | The layer a Controller manages ([consul.md](consul.md#from-the-controller)) - its gossip key and ACL token left out (`has_*`) - and how the registration of the node's own services stands |
+| `ConsulManagedSet` | | ✅ | Replace the managed layer (admin): checked by `consul validate` with the operator's configuration, the agent restarts when what it reads changed, the node registers its services with the layer's token; empty removes it and them |
 
 ## ClusterService
 

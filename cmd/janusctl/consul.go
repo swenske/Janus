@@ -3,9 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -108,6 +111,80 @@ func runConsul(conn *grpc.ClientConn, args []string) {
 		} else {
 			fmt.Println("applied - the agent restarts with it")
 		}
+	case "managed":
+		resp, err := client.ConsulManagedGet(c, &emptypb.Empty{})
+		check("ConsulManagedGet", err)
+		if resp.GetState() == janusv1alpha1.ModuleState_MODULE_STATE_NOT_ENABLED {
+			fmt.Println("State:      not enabled")
+			return
+		}
+		m := resp.GetManaged()
+		if m.GetManagedBy() == "" {
+			fmt.Println("Managed:    no - the agent runs on the operator's configuration alone")
+			return
+		}
+		yes := map[bool]string{true: "set", false: "none"}
+		fmt.Println("Managed by:", m.GetManagedBy())
+		fmt.Println("Datacenter:", m.GetDatacenter())
+		fmt.Println("Node name: ", m.GetNodeName())
+		fmt.Println("Join:      ", strings.Join(m.GetRetryJoin(), ", "))
+		fmt.Println("Advertise: ", or(m.GetAdvertiseAddr(), "the node's main address"))
+		fmt.Println("Gossip key:", yes[m.GetHasEncrypt()])
+		fmt.Println("ACL token: ", yes[m.GetHasAgentToken()])
+		fmt.Println("RPC CA:    ", map[bool]string{true: "set (TLS, auto_encrypt)", false: "none"}[m.GetCaPem() != ""])
+		var meta []string
+		for k, v := range m.GetNodeMeta() {
+			meta = append(meta, k+"="+v)
+		}
+		sort.Strings(meta)
+		fmt.Println("Node meta: ", strings.Join(meta, ", "))
+		sv := m.GetServices()
+		var on []string
+		for _, t := range []struct {
+			name string
+			on   bool
+		}{{"janus", sv.GetJanus()}, {"exporters", sv.GetExporters()}, {"frontends", sv.GetFrontends()}, {"urls", sv.GetUrls()}} {
+			if t.on {
+				on = append(on, t.name)
+			}
+		}
+		fmt.Println("Registers: ", or(strings.Join(on, ", "), "nothing"))
+		synced := "never"
+		if resp.GetSyncedUnix() > 0 {
+			synced = time.Unix(resp.GetSyncedUnix(), 0).Local().Format(time.DateTime)
+		}
+		fmt.Printf("Services:   %d registered, last synced %s", resp.GetRegistered(), synced)
+		if resp.GetMaintenance() {
+			fmt.Print(", in maintenance")
+		}
+		fmt.Println()
+		if resp.GetSyncError() != "" {
+			fmt.Println("Sync error:", resp.GetSyncError())
+		}
+	case "services":
+		resp, err := client.ConsulStatus(c, &emptypb.Empty{})
+		check("ConsulStatus", err)
+		if resp.GetState() == janusv1alpha1.ModuleState_MODULE_STATE_NOT_ENABLED {
+			fmt.Println("State:      not enabled")
+			return
+		}
+		if resp.GetError() != "" {
+			fmt.Fprintln(os.Stderr, "Agent:", resp.GetError())
+		}
+		tw := table("ID", "NAME", "ADDRESS", "STATUS", "BY", "META")
+		for _, s := range resp.GetServices() {
+			by := map[bool]string{true: "janusd", false: "config"}[s.GetManaged()]
+			addr := s.GetAddress()
+			if s.GetPort() > 0 {
+				addr = net.JoinHostPort(addr, fmt.Sprint(s.GetPort()))
+			}
+			meta := s.GetMeta()["url"]
+			if meta == "" {
+				meta = s.GetMeta()["frontend"]
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", s.GetId(), s.GetName(), addr, or(s.GetStatus(), "-"), by, or(meta, "-"))
+		}
+		tw.Flush()
 	default:
 		fmt.Fprintf(os.Stderr, "janusctl network consul: unknown subcommand %q\n", args[0])
 		usage()

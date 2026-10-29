@@ -112,11 +112,11 @@ func TestWords(t *testing.T) {
 
 func TestMapCalls(t *testing.T) {
 	got := MapCalls(`req.hdr(host),lower,map_dom(/etc/haproxy/files/hosts.map,be_default)`)
-	if want := []MapCall{{"/etc/haproxy/files/hosts.map", "be_default"}}; !reflect.DeepEqual(got, want) {
+	if want := []MapCall{{"/etc/haproxy/files/hosts.map", "be_default", "map_dom"}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("map_dom: %v", got)
 	}
 	got = MapCalls(`base,map_beg("/etc/haproxy/files/paths.map")`)
-	if want := []MapCall{{"/etc/haproxy/files/paths.map", ""}}; !reflect.DeepEqual(got, want) {
+	if want := []MapCall{{"/etc/haproxy/files/paths.map", "", "map_beg"}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("map_beg: %v", got)
 	}
 	if got := MapCalls(`req.hdr(host),bitmap(1)`); got != nil {
@@ -135,8 +135,32 @@ frontend vars
 `)
 	r := top.Frontends[0].Rules[0]
 	want := Rule{Type: "dynamic", Format: "pre_%[var(txn.be)]_post", Cond: "if TRUE", Prefix: "pre_", Suffix: "_post",
-		MapCalls: []MapCall{{Path: "/etc/haproxy/files/vars.map"}}, Literals: []string{"be_api"}}
+		MapCalls: []MapCall{{Path: "/etc/haproxy/files/vars.map", Converter: "map_str"}}, Literals: []string{"be_api"},
+		Exprs: []string{"var(txn.be)", "req.hdr(host),lower,map_str(/etc/haproxy/files/vars.map)", "str(be_api)"}}
 	if !reflect.DeepEqual(r, want) {
 		t.Errorf("rule:\n got %+v\nwant %+v", r, want)
+	}
+}
+
+// What a frontend's binds and ACLs say: those with TLS, the named ACLs'
+// lines.
+func TestFrontendTLSAndACLs(t *testing.T) {
+	top := Parse(`
+frontend web
+    bind :80
+    bind 192.0.2.10:443 ssl crt /etc/haproxy/files/site.pem alpn h2,http/1.1
+    acl host_api hdr(host) -i api.example.com
+    acl host_api hdr(host) -i api2.example.com
+    use_backend be_api if host_api
+frontend plain
+    bind :8080
+`)
+	web, plain := top.Frontends[0], top.Frontends[1]
+	if !reflect.DeepEqual(web.TLSBinds, []string{"192.0.2.10:443"}) || plain.TLSBinds != nil {
+		t.Errorf("TLS binds: web %v, plain %v", web.TLSBinds, plain.TLSBinds)
+	}
+	want := map[string][][]string{"host_api": {{"hdr(host)", "-i", "api.example.com"}, {"hdr(host)", "-i", "api2.example.com"}}}
+	if !reflect.DeepEqual(web.ACLs, want) {
+		t.Errorf("ACLs: %v", web.ACLs)
 	}
 }
