@@ -26,6 +26,7 @@ Install, configure and operate Janus nodes and the Controller.
 - [Hypervisors](hypervisors.md)
 - [Auto-scaling](guide/auto-scaling.md)
 - [Clusters](guide/clusters.md)
+- [Usage report](guide/telemetry.md)
 
 ### janusctl
 

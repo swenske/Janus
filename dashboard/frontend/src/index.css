@@ -266,6 +266,10 @@ a.card.cluster-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, 
 .settings-grid .field small { display: block; margin-top: 0.3rem; }
 .settings-checks { margin-top: 1rem; gap: 0.6rem; }
 .settings-checks .check { align-items: flex-start; }
+/* The setup screen's choices wrap: the box keeps its size, by the first line. */
+label.check.setup-check { align-items: flex-start; }
+.setup-check input { flex-shrink: 0; margin-top: 0.2rem; }
+.setup-why { margin: 0.3rem 0 0 1.6rem; }
 .settings-checks .check small { display: block; }
 .settings-checks .check.disabled { opacity: 0.6; }
 .settings-section { font-size: 1.05rem; margin: 0.6rem 0 0; }

@@ -283,6 +283,9 @@ type signIn struct {
 	// MFARequired is the policy for second factors, at setup only
 	// (auth.Settings.MFARequired; empty: admins).
 	MFARequired string `json:"mfa_required"`
+	// Telemetry turns the daily usage report on, at setup only
+	// (telemetry.go).
+	Telemetry bool `json:"telemetry"`
 }
 
 func (c *signIn) name() string {
@@ -305,6 +308,11 @@ func (a *app) handleAuthSetup(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if req.Telemetry && a.telemetry != nil {
+		if err := a.telemetry.SetEnabled(true, time.Now()); err != nil {
+			log.Printf("telemetry: %v", err)
+		}
 	}
 	a.startSession(w, u.Name, false)
 }

@@ -68,6 +68,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/secrets"
 	"github.com/swenske/Janus/dashboard/backend/internal/sso"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
+	"github.com/swenske/Janus/dashboard/backend/internal/telemetry"
 	"github.com/swenske/Janus/dashboard/backend/internal/uitls"
 	"github.com/swenske/Janus/dashboard/updater/updaterapi"
 	"github.com/swenske/Janus/internal/clusters"
@@ -108,6 +109,8 @@ func main() {
 	acmeClient := flag.String("acme-client", envOr("JANUS_CONTROLLER_ACME_CLIENT", ""), "the ACME client the Controller orders its nodes' certificates with (cmd/janus-acme, docs/guide/letsencrypt-controller.md) - default: janus-acme next to dashboardd, as in the image; also settable via JANUS_CONTROLLER_ACME_CLIENT")
 	imageFactory := flag.String("image-factory", envOr("JANUS_CONTROLLER_IMAGE_FACTORY", nodeproxy.ImageFactoryURL), "image factory that builds and serves the updates of nodes whose image has optional extensions (docs/image-factory.md) - empty to disable, in which case such nodes have no update source; nodes with the default schematic update from GitHub Releases either way; also settable via JANUS_CONTROLLER_IMAGE_FACTORY")
 	updaterSocket := flag.String("updater-socket", envOr("JANUS_CONTROLLER_UPDATER_SOCKET", updaterapi.DefaultSocket), "Unix socket of janus-controller-updater, which updates this Controller when asked from its page (dashboard/README.md, Updating the Controller) - nothing happens when it isn't there; empty to never use one; also settable via JANUS_CONTROLLER_UPDATER_SOCKET")
+	telemetryMode := flag.String("telemetry", envOr("JANUS_CONTROLLER_TELEMETRY", ""), "\"off\": the daily usage report (docs/guide/telemetry.md) stays off, and the page can't turn it on; empty: an admin decides, at setup or on the Settings page (off until then); also settable via JANUS_CONTROLLER_TELEMETRY")
+	telemetryURL := flag.String("telemetry-url", envOr("JANUS_CONTROLLER_TELEMETRY_URL", telemetry.DefaultURL), "where the usage report goes, when an admin turned it on; also settable via JANUS_CONTROLLER_TELEMETRY_URL")
 	releasesURL := flag.String("releases-url", envOr("JANUS_CONTROLLER_RELEASES_URL", nodeproxy.ReleasesURL), "GitHub API URL listing Janus releases, newest first - where the Controller learns about new releases for itself and its nodes (a mirror, or a test's fake); also settable via JANUS_CONTROLLER_RELEASES_URL")
 	flag.Parse()
 	nodeproxy.ImageFactoryURL = *imageFactory
@@ -191,6 +194,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("open the single sign-on settings: %v", err)
 	}
+	if *telemetryMode != "" && *telemetryMode != "off" {
+		log.Fatalf("-telemetry: %q is neither \"off\" nor empty", *telemetryMode)
+	}
+	telemetryStore, err := telemetry.Open(*dataDir, *telemetryMode == "off")
+	if err != nil {
+		log.Fatalf("open the telemetry settings: %v", err)
+	}
 	clusterStore, err := clusters.Open(*dataDir, masterKey)
 	if err != nil {
 		log.Fatalf("open the clusters: %v", err)
@@ -220,6 +230,8 @@ func main() {
 		fleet:                 fleetStore,
 		trust:                 newTrustTracker(),
 		sso:                   newSingleSignOn(ssoStore),
+		telemetry:             telemetryStore,
+		telemetryURL:          *telemetryURL,
 	}
 	app.runner = newMachineRunner(app)
 	app.clusters = newClusterEngine(app, clusterStore)
@@ -236,6 +248,7 @@ func main() {
 	go app.trustLoop(context.Background())
 	go app.clusters.loop(context.Background())
 	go app.backupLoop(context.Background())
+	go app.telemetryLoop(context.Background())
 	if err := app.startLogForwarding(masterKey); err != nil {
 		log.Fatalf("log forwarding: %v", err)
 	}
@@ -345,6 +358,7 @@ func (a *app) routes(spa http.Handler) *http.ServeMux {
 	a.registerSSHKeyRoutes(mux)
 	a.registerCLIBrowserRoutes(mux)
 	a.registerBackupRoutes(mux)
+	a.registerTelemetryRoutes(mux)
 	a.registerLogForwardingRoutes(mux)
 	a.registerACMERelayRoutes(mux)
 	a.registerACMEOrderingRoutes(mux)
@@ -435,6 +449,10 @@ type app struct {
 	// nodeMetrics: the node list's curves (nodes_metrics.go); nil in
 	// tests that don't look at them.
 	nodeMetrics *nodemetrics.Sampler
+	// telemetry is the usage report's settings (telemetry.go), sent to
+	// telemetryURL; nil in tests that don't use it.
+	telemetry    *telemetry.Store
+	telemetryURL string
 }
 
 // addNodeRequest is the JSON form of "add a node": three raw PEM blocks

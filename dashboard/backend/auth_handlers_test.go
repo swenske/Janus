@@ -189,6 +189,10 @@ func TestRoutesNeedTheirRole(t *testing.T) {
 		{"PUT", "/api/clusters/c1/autoscale", auth.Admin},
 		{"POST", "/api/clusters/c1/certificates", auth.Admin},
 		{"POST", "/api/clusters/c1/check", auth.Admin},
+		{"GET", "/api/telemetry", auth.Admin},
+		{"PUT", "/api/telemetry", auth.Admin},
+		{"POST", "/api/telemetry/regenerate", auth.Admin},
+		{"POST", "/api/telemetry/send", auth.Admin},
 	} {
 		if code, _ := a.req(t, tc.method, tc.path, "", nil); code != http.StatusUnauthorized {
 			t.Errorf("%s %s with nothing: %d", tc.method, tc.path, code)

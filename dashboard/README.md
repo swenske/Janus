@@ -818,6 +818,8 @@ Environment variables, all optional:
 | `JANUS_CONTROLLER_MASTER_KEY_FILE` | Controller | `<data-dir>/master.key` | the master key sealing the fleet's issuing key - made there the first time; keep it outside the data directory |
 | `JANUS_CONTROLLER_UPDATER_SOCKET` | Controller | `/run/janus-updater/updater.sock` | where to find the updater (empty: never) |
 | `JANUS_CONTROLLER_TLS_CERT`, `JANUS_CONTROLLER_TLS_KEY` | Controller | - | the page's own certificate (then its chain) and key as files, read again when they change ([HTTPS certificate](#https-certificate)) |
+| `JANUS_CONTROLLER_TELEMETRY` | Controller | - | `off`: the daily [usage report](../docs/guide/telemetry.md) stays off, and the page can't turn it on (empty: an admin decides; off until then) |
+| `JANUS_CONTROLLER_TELEMETRY_URL` | Controller | `https://janus-telemetry.sw-servers.net/v1/report` | where the usage report goes |
 | `JANUS_UPDATER_SERVICE` | updater | `janus-controller` | the Controller's service name in `compose.yaml` |
 | `JANUS_UPDATER_VARIABLE` | updater | `JANUS_CONTROLLER_IMAGE` | the `.env` variable its `image:` comes from |
 | `JANUS_UPDATER_START_TIMEOUT` | updater | `2m` | how long a new version has to start |

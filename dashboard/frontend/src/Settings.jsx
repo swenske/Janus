@@ -4,6 +4,7 @@ import { call, postJSON } from './call.js'
 import { useCan } from './me.jsx'
 import { usePreferences } from './preferences.js'
 import HTTPSCertificate from './HTTPSCert.jsx'
+import Telemetry from './Telemetry.jsx'
 import { fmtRate, fmtTime } from './shared/units.js'
 import { bytes } from './node/format.js'
 import { Card, ErrorBox, useAction, useConfirm } from './shared/ui.jsx'
@@ -101,6 +102,7 @@ export default function SettingsPage() {
           <h2 className="settings-section">This Controller</h2>
           <RefreshFloors />
           <HTTPSCertificate />
+          <Telemetry />
         </>
       )}
     </div>

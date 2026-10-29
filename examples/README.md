@@ -17,4 +17,5 @@ nowhere.
 | [`nocloud/user-data.json`](nocloud/user-data.json) | [First boot](../docs/private-cloud/first-boot.md) | `go test ./internal/nocloud` - the node's own parser |
 | [`orchestrator/`](orchestrator/) | [Your own orchestrator](../docs/private-cloud/own-orchestrator.md) and its pages | `make qemu-orchestrator-test` drives three real nodes with them; `go test ./internal/pki` checks the certificates they make |
 | [`prometheus/`](prometheus/) | [Observability](../docs/private-cloud/observability.md), [metrics](../docs/metrics.md) | `make examples-check` (promtool) |
+| [`telemetry/report.json`](telemetry/report.json) | [Usage report](../docs/guide/telemetry.md) | `go test ./dashboard/backend/internal/telemetry` - the Controller's own report type, field for field |
 | [`compose/compose.yaml`](compose/compose.yaml) | [The Controller](../dashboard/README.md#the-compose-setup) | `make examples-check` (`docker compose config`) |

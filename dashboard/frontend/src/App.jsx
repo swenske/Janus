@@ -55,6 +55,7 @@ import { groupByCluster, health as clusterHealth, versionOf } from './clusters.j
 import { lazyView } from './shared/lazy.jsx'
 import { useSplash, useSplashStep } from './shared/Splash.jsx'
 import { fmtDateTime } from './shared/units.js'
+import { TELEMETRY_WHY } from './telemetry.js'
 
 // The nodes page comes with the page; the other tabs, the machines'
 // console, the CLI sign-in pages and the restore form in their own
@@ -816,6 +817,8 @@ function SetupForm({ onDone, onRestore }) {
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [mfa, setMFA] = useState(true)
+  // The usage report: off unless ticked (Telemetry.jsx).
+  const [telemetry, setTelemetry] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   async function submit(e) {
@@ -824,7 +827,7 @@ function SetupForm({ onDone, onRestore }) {
     setBusy(true)
     setError(null)
     try {
-      await postJSON('/api/auth/setup', { name: name.trim(), password, mfa_required: mfa ? 'admins' : 'nobody' })
+      await postJSON('/api/auth/setup', { name: name.trim(), password, mfa_required: mfa ? 'admins' : 'nobody', telemetry })
       onDone()
     } catch (err) {
       setError(err.message)
@@ -847,10 +850,17 @@ function SetupForm({ onDone, onRestore }) {
           <span>Confirm password</span>
           <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required minLength={8} maxLength={72} autoComplete="new-password" />
         </label>
-        <label className="check">
+        <label className="check setup-check">
           <input type="checkbox" checked={mfa} onChange={(e) => setMFA(e.target.checked)} />
           <span>Admins need a second factor - an authenticator app or a passkey (recommended; you set yours up next)</span>
         </label>
+        <div>
+          <label className="check setup-check">
+            <input type="checkbox" checked={telemetry} onChange={(e) => setTelemetry(e.target.checked)} />
+            <span>Send an anonymous usage report (optional - Settings changes it any time)</span>
+          </label>
+          <p className="muted small setup-why">{TELEMETRY_WHY}</p>
+        </div>
         <ErrorBox error={error} />
         <button className="primary" type="submit" disabled={busy}>
           {busy ? 'Setting up…' : 'Make the account and continue'}
