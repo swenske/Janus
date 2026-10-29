@@ -368,6 +368,10 @@ own [A/B update](updates.md):
    announcing its routes, with BGP -, its HAProxy answering, its peers
    connected and its stick tables in sync.
    Otherwise nothing is touched, and the answer names the member.
+   Its update is found while it still serves - the image factory's
+   build waited for: what fails there leaves it in service, and the
+   Controller's own requests never go through the traffic its drain
+   moves (a factory it reaches through the cluster's address).
 2. The member is **drained**: the [balancer](#a-balancer-in-front) told
    first and its drain delay waited, then its virtual IPs and routes
    move to the others. Its established connections finish.

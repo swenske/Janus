@@ -61,6 +61,8 @@ type memberUpgrade struct {
 	// change: its image changes.
 	change bool
 	mode   janusv1alpha1.RebootMode
+	// bundle: its update, found before it is drained (Prepare).
+	bundle *nodeproxy.Bundle
 }
 
 // upgradePlan is an update checked against its cluster.
@@ -189,6 +191,12 @@ func (a *app) planClusterUpgrade(ctx context.Context, c *clusters.Cluster, req c
 // upgradeJob is the update p of cluster id, as the cluster's operation.
 func (a *app) upgradeJob(id string, p *upgradePlan, actor string) func(ctx context.Context) error {
 	started := map[string]bool{}
+	p.opts.Prepare = func(ctx context.Context, m clusters.Member) error {
+		mu := p.members[m.Name]
+		b, err := a.memberBundle(ctx, id, m, mu, p.version, actor)
+		mu.bundle = b
+		return err
+	}
 	p.opts.Update = func(ctx context.Context, m clusters.Member) (string, error) {
 		mu := p.members[m.Name]
 		if mu.machineID != "" {
@@ -210,8 +218,6 @@ func (a *app) upgradeJob(id string, p *upgradePlan, actor string) func(ctx conte
 // it reboots: through its machine's update path when it is one, so the
 // machine's record says so.
 func (a *app) upgradeMemberNode(ctx context.Context, id string, m clusters.Member, mu *memberUpgrade, version, actor string) (string, error) {
-	var b *nodeproxy.Bundle
-	var err error
 	if mu.machineID != "" {
 		c, _ := a.clusters.Store.Get(id)
 		name := id
@@ -221,12 +227,13 @@ func (a *app) upgradeMemberNode(ctx context.Context, id string, m clusters.Membe
 		if err := a.runner.phase(mu.machineID, machines.PhaseUpdating, "updating: cluster %s's update to Janus %s", name, version); err != nil {
 			return "", err
 		}
-		b, err = a.runner.resolveBundle(ctx, mu.machineID, version, mu.target)
-	} else {
-		b, err = a.clusterBundle(ctx, id, m.Name, version, mu.target, actor)
 	}
-	if err != nil {
-		return "", err
+	b := mu.bundle
+	if b == nil {
+		var err error
+		if b, err = a.memberBundle(ctx, id, m, mu, version, actor); err != nil {
+			return "", err
+		}
 	}
 	if mu.machineID != "" {
 		a.runner.logEvent(mu.machineID, "updating the node to Janus %s, schematic %.8s", b.Version, b.Schematic)
@@ -245,6 +252,15 @@ func (a *app) upgradeMemberNode(ctx context.Context, id string, m clusters.Membe
 		a.runner.logEvent(mu.machineID, "the node is rebooting into Janus %s - %s", b.Version, how)
 	}
 	return how, nil
+}
+
+// memberBundle finds member m's update bundle, waiting while the image
+// factory builds it: its machine's events say so when it is one.
+func (a *app) memberBundle(ctx context.Context, id string, m clusters.Member, mu *memberUpgrade, version, actor string) (*nodeproxy.Bundle, error) {
+	if mu.machineID != "" {
+		return a.runner.resolveBundle(ctx, mu.machineID, version, mu.target)
+	}
+	return a.clusterBundle(ctx, id, m.Name, version, mu.target, actor)
 }
 
 // clusterBundle finds the update bundle for a member that isn't a
@@ -286,7 +302,9 @@ func (a *app) upgradedMachine(mu *memberUpgrade, version string, err error) {
 			return nil
 		}
 		m.Error = ""
-		m.Spec.Version = version
+		// What it runs too, seen on the node: ready says so at once (a
+		// Terraform apply reads it then), before the read-back below.
+		m.Spec.Version, m.Version, m.Schematic = version, version, mu.target.ID()
 		m.Spec.Extensions, m.Spec.HAProxy, m.Spec.Kernel = mu.target.Customization.Extensions, mu.target.Customization.HAProxy, mu.target.Customization.Kernel
 		m.Log("the node runs Janus %s - updated", version)
 		return nil

@@ -28,12 +28,19 @@ type upgradeNodes struct {
 	f          *clusterFake
 	byNode     map[string]string // store node ID -> member name
 	resolveErr error
-	mu         sync.Mutex
-	upgraded   []string // member names, in order
+	// resolveOK: the calls answered before resolveErr is.
+	resolveOK int
+	resolves  int
+	mu        sync.Mutex
+	upgraded  []string // member names, in order
 }
 
 func (u *upgradeNodes) ResolveBundle(ctx context.Context, version string, sc *schematic.Schematic) (*nodeproxy.Bundle, string, error) {
-	if u.resolveErr != nil {
+	u.mu.Lock()
+	u.resolves++
+	n := u.resolves
+	u.mu.Unlock()
+	if u.resolveErr != nil && n > u.resolveOK {
 		return nil, "missing", u.resolveErr
 	}
 	return u.fakeNodes.ResolveBundle(ctx, version, sc)
@@ -187,6 +194,34 @@ func TestClusterUpgradeThroughTheAPI(t *testing.T) {
 	raw, _ := json.Marshal(view)
 	if strings.Contains(string(raw), `"stage"`) {
 		t.Errorf("a stage left in the view: %s", raw)
+	}
+}
+
+// A member's bundle is found while it still serves: one that can't be
+// found when its turn comes - the image factory reached through the
+// cluster's own address, a connection the drain would have cut - leaves
+// it in service, its machine untouched.
+func TestClusterUpgradeFindsTheBundleBeforeTheDrain(t *testing.T) {
+	a, f, c, m, u := clusterUpgradeApp(t)
+	// The check before the update finds both members' bundles; the
+	// first member's turn doesn't.
+	u.resolveErr, u.resolveOK = errors.New("connection reset by peer"), 2
+	code, body := postUpgrade(t, a, c, map[string]any{"version": upgradeTo})
+	if code != http.StatusAccepted {
+		t.Fatalf("POST: %d %s", code, body)
+	}
+	a.clusters.wait()
+	a.runner.waitJobs()
+	cur, _ := a.clusters.Store.Get(c.ID)
+	if !strings.Contains(cur.Error, "not updating lb-1") || !strings.Contains(cur.Error, "connection reset by peer - still in service on Janus "+upgradeFrom) {
+		t.Fatalf("the update: %q", cur.Error)
+	}
+	if len(u.upgraded) > 0 || slices.Contains(f.callsOf("lb-1", 0), "ClusterDrain") || f.nodes["lb-1"].drained {
+		t.Errorf("lb-1 touched: updated %v, calls %v", u.upgraded, f.callsOf("lb-1", 0))
+	}
+	got, _ := a.machines.Get(m.ID)
+	if got.Phase != machines.PhaseReady || got.Error != "" || strings.Contains(eventsOf(got), "updating: cluster") {
+		t.Errorf("the machine: %s %q, history %s", got.Phase, got.Error, eventsOf(got))
 	}
 }
 

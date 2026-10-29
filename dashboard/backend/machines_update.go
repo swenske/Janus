@@ -818,7 +818,10 @@ func (r *machineRunner) updateSteps(ctx context.Context, id string, p *updatePla
 			return fmt.Errorf("after the update: %w", err)
 		}
 		if _, err := a.machines.Update(id, func(m *machines.Machine) error {
-			m.Spec.Version = p.next.Version
+			// What it runs too, as waitNode saw it: the machine is ready
+			// with it (a Terraform apply reads it then), not only once the
+			// read-back after the job has run.
+			m.Spec.Version, m.Version, m.Schematic = p.next.Version, b.Version, b.Schematic
 			m.Log("the node runs Janus %s", b.Version)
 			return nil
 		}); err != nil {
