@@ -169,7 +169,7 @@ starting `janus:`: your own `services {}` are never touched.
 | `node-exporter` | the [node exporter](../metrics.md#the-node-exporter) while its service runs, where it listens, the same way |
 | `haproxy-exporter` | each frontend or listen section that has HAProxy's own exporter answer (`http-request use-service prometheus-exporter`): its first bind's address and port, `metrics_path` from the rule's condition (`path /metrics`, `path_beg /prom`) - else `/metrics` -, `scheme` `https` when that bind has `ssl`; a TCP check |
 | `haproxy-<name>` | each frontend and listen section: the port of its first bind, the bind's address when it names one (an anycast address) - else the node's -, tags `haproxy`, its mode, `tls`; a TCP check; meta `frontend`, `maps` |
-| `haproxy-url` | one instance per URL the configuration routes, ID `janus:url:<frontend>:<host>`, no check; meta `url`, `frontend`, `backend`, `source` |
+| `haproxy-url` | one instance per URL the configuration routes, ID `janus:url:<frontend>:<host>`, no check; meta `url`, `frontend`, `backend`, `source` - and `via` for a frontend behind a socket (below) |
 
 Every exporter's instance has the tag `prometheus` and meta
 `metrics_path` and `scheme`: one Prometheus job finds them all (below).
@@ -192,6 +192,17 @@ runtime (`janusctl haproxy map-set`) counts. `url` is `https://` when the
 frontend binds with `ssl` (or passes TLS through by its server name),
 `http://` otherwise, with the port when it isn't the scheme's own;
 `source` is `map:<path>` or `acl`. A node registers 1000 URLs at most.
+
+A frontend that listens only on a socket - `abns@`, `unix@`, the
+loopback - is reached through another: a TCP frontend on `:443` that
+splits TLS by server name and passes it on (`server fe_https
+abns@lb-https send-proxy-v2`), say. Its URLs are registered at the bind
+of the frontend relaying to it, chains of a few hops followed -
+`https://` when either one has `ssl` -, with meta `via` naming that
+frontend; the relay's own URL for the same host (by its server name)
+isn't registered twice. It has no `haproxy-<name>` service of its own -
+nothing a TCP check reaches -: the relaying frontend's is, at that
+address and port.
 
 With this frontend and `hosts.map` holding `www.example.com be_www`,
 

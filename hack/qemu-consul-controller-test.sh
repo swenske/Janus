@@ -17,8 +17,9 @@
 #     Consul. Each node gets its own token (node identity + janus-nodes),
 #     its agent joins (alive), its node metadata carries its labels and
 #     its ID, it registers janus, one haproxy-<frontend> per frontend and
-#     one haproxy-url per host its hosts.map and its Host ACL route - and
-#     its exporters where they really listen, while they run, tag
+#     one haproxy-url per host its hosts.map and its Host ACLs route (a
+#     frontend behind an abstract socket's at the bind relaying to it) -
+#     and its exporters where they really listen, while they run, tag
 #     prometheus with metrics_path and scheme: janus-exporter (its main
 #     address, then the one it's moved to, absent while off),
 #     node-exporter (absent while stopped), haproxy-exporter (a frontend
@@ -269,6 +270,24 @@ frontend fe_sites
     use_backend %[req.hdr(host),lower,map(/etc/haproxy/files/hosts.map,be_default)]
     default_backend be_default
 
+# A frontend only on an abstract socket, behind a TCP one (PROXY v2) -
+# as a TCP :443 splitting TLS by server name passes it on.
+frontend fe_in
+    mode tcp
+    bind :8444
+    default_backend be_to_inner
+
+backend be_to_inner
+    mode tcp
+    server inner abns@consul-test-inner send-proxy-v2
+
+frontend fe_inner
+    mode http
+    bind abns@consul-test-inner accept-proxy
+    acl host_inner hdr(host) -i inner.example.test
+    use_backend be_www if host_inner
+    default_backend be_default
+
 frontend fe_stats
     mode http
     bind :8405
@@ -284,7 +303,9 @@ backend be_default
     http-request return status 404 content-type text/plain string "unknown\n"
 EOF
 out="$(ctl a haproxy apply-config "$WORKDIR/a-haproxy.cfg" 2>&1)" || fail "A's haproxy.cfg: $out"
-echo "  ok: A serves sites from a hosts.map and a Host ACL"
+out="$(curl -s -m 5 -H 'Host: inner.example.test' "http://$NET.11:8444/")"
+[ "$out" = www ] || fail "A's fe_in -> abns@ -> fe_inner: $out"
+echo "  ok: A serves sites from a hosts.map and a Host ACL, and through a frontend behind an abstract socket"
 
 # --- the Controller ---------------------------------------------------------------
 "$DASHBOARDD" -addr "127.0.0.1:$P_DASH" -register-addr "127.0.0.1:$P_REG" -data-dir "$WORKDIR/data" > "$WORKDIR/dash.log" 2>&1 &
@@ -372,7 +393,8 @@ done
 for want in "janus:janus janus" "janus:janus-exporter janus-exporter" "janus:node-exporter node-exporter" \
   "janus:haproxy-exporter:fe_stats haproxy-exporter" "janus:haproxy:fe_sites haproxy-fe-sites" \
   "janus:url:fe_sites:www.example.test haproxy-url" "janus:url:fe_sites:shop.example.test haproxy-url" \
-  "janus:url:fe_sites:status.example.test haproxy-url"; do
+  "janus:url:fe_sites:status.example.test haproxy-url" "janus:haproxy:fe_in haproxy-fe-in" \
+  "janus:url:fe_inner:inner.example.test haproxy-url"; do
   grep -qx "$want" <<<"$out" || fail "A's catalog has no $want: $out"
 done
 if grep -q "wild\|10.0.0.1" <<<"$out"; then fail "a wildcard or an IP became a URL: $out"; fi
@@ -385,7 +407,13 @@ assert www["ServiceMeta"] == {"url": "http://www.example.test:8081", "frontend":
                               "source": "map:/etc/haproxy/files/hosts.map"}, www["ServiceMeta"]
 assert www["ServiceAddress"] == sys.argv[2] and www["ServicePort"] == 8081, www
 assert urls["janus:url:fe_sites:status.example.test"]["ServiceMeta"]["source"] == "acl"
+# Behind the abstract socket: at fe_in's bind, which relays to it.
+inner = urls["janus:url:fe_inner:inner.example.test"]
+assert inner["ServiceMeta"] == {"url": "http://inner.example.test:8444", "frontend": "fe_inner", "backend": "be_www",
+                                "source": "acl", "via": "fe_in"}, inner["ServiceMeta"]
+assert inner["ServiceAddress"] == sys.argv[2] and inner["ServicePort"] == 8444, inner
 PY
+if grep -q "^janus:haproxy:fe_inner " <<<"$out"; then fail "fe_inner, only on a socket, has a service of its own: $out"; fi
 # The exporters: where they really listen - the Janus and node exporters
 # on the main interface (eth0 here, the default route's), HAProxy's on
 # fe_stats's bind (every address: the node's) -, for one Prometheus job.

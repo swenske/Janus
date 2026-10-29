@@ -26,6 +26,10 @@ type Topology struct {
 	Backends []string
 	// Maps are the map files a dynamic use_backend reads.
 	Maps []string
+	// Servers are each backend's (and listen section's) servers'
+	// addresses, as written - abns@x for a frontend chained behind it.
+	// Only Go reads them (internal/consul); flow.js has no such field.
+	Servers map[string][]string
 }
 
 // Frontend is a frontend or listen section.
@@ -349,6 +353,12 @@ func Parse(cfg string) Topology {
 				cur = nil
 			}
 			continue
+		}
+		if cur != nil && (cur.kind == "backend" || cur.kind == "listen") && w[0] == "server" && len(w) > 2 {
+			if t.Servers == nil {
+				t.Servers = map[string][]string{}
+			}
+			t.Servers[cur.name] = append(t.Servers[cur.name], w[2])
 		}
 		if cur == nil || cur.kind == "backend" {
 			continue

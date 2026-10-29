@@ -30,7 +30,9 @@ import (
 //     maps a use_backend reads by the Host header (or the TLS server
 //     name, in TCP mode), and the literal hosts of the Host ACLs a
 //     use_backend's condition names; meta url, frontend, backend,
-//     source. No check: what answers is the probe's to say.
+//     source. No check: what answers is the probe's to say. A frontend
+//     only on a socket (abns@...) has its URLs at the bind of the one
+//     relaying to it - meta via.
 
 // IDPrefix starts the IDs of the services janusd registers.
 const IDPrefix = "janus:"
@@ -141,10 +143,67 @@ func Desired(t Toggles, src Sources) (services []Service, truncated bool, err er
 		maps[path] = m
 		return m, nil
 	}
+	// A frontend only on a socket is reached through the one relaying to
+	// it (fe_tls :443 -> server abns@x -> fe_https): its URLs are at that
+	// one's bind, and the relay's own for the same URL is left out.
+	entries, relayTo := relays(top, readMap)
+	inner := map[string]map[string]bool{} // socket-only frontend: its URLs
+	if t.URLs {
+		for _, f := range top.Frontends {
+			r, ok := entries[f.Name]
+			if !ok {
+				continue
+			}
+			refs, err := hostsOf(f, readMap)
+			if err != nil {
+				return nil, false, err
+			}
+			inner[f.Name] = map[string]bool{}
+			for _, ref := range refs {
+				_, u := urlOf(ref, r.scheme(), r.port)
+				inner[f.Name][u] = true
+			}
+		}
+	}
 	urls := 0
+	addURLs := func(f haproxyflow.Frontend, scheme, uaddr string, uport int, entry string) error {
+		refs, err := hostsOf(f, readMap)
+		if err != nil {
+			return err
+		}
+		uhost := cmpOr(uaddr, src.Address)
+	next:
+		for _, r := range refs {
+			if urls >= MaxURLs {
+				truncated = true
+				break
+			}
+			sch, u := urlOf(r, scheme, uport)
+			for _, s := range relayTo[r.backend] {
+				if inner[s][u] {
+					continue next
+				}
+			}
+			meta := map[string]string{"url": u, "frontend": f.Name, "backend": r.backend, "source": r.source}
+			if entry != "" {
+				meta["via"] = entry
+			}
+			services = append(services, Service{ID: IDPrefix + "url:" + f.Name + ":" + r.host, Name: "haproxy-url",
+				Tags: []string{"haproxy", "url", sch}, Address: uhost, Port: uport, Meta: meta})
+			urls++
+		}
+		return nil
+	}
 	for _, f := range top.Frontends {
 		raw, addr, port, ok := firstBind(f.Binds)
 		if !ok {
+			// Its own service has nothing a check reaches - the entry's
+			// is registered, at the same address and port.
+			if r, found := entries[f.Name]; found && t.URLs {
+				if err := addURLs(f, r.scheme(), r.addr, r.port, r.entry); err != nil {
+					return nil, false, err
+				}
+			}
 			continue
 		}
 		host := cmpOr(addr, src.Address)
@@ -174,38 +233,196 @@ func Desired(t Toggles, src Sources) (services []Service, truncated bool, err er
 		if !t.URLs {
 			continue
 		}
-		refs, err := hostsOf(f, readMap)
-		if err != nil {
-			return nil, false, err
-		}
-		if len(refs) == 0 {
-			continue
-		}
 		scheme, uaddr, uport := "http", addr, port
 		if _, a, p, ok := firstBind(f.TLSBinds); ok {
 			scheme, uaddr, uport = "https", a, p
 		}
-		uhost := cmpOr(uaddr, src.Address)
-		for _, r := range refs {
-			if urls >= MaxURLs {
-				truncated = true
-				break
-			}
-			sch := scheme
-			if r.sni {
-				sch = "https"
-			}
-			u := sch + "://" + r.host
-			if !strings.Contains(r.host, ":") && uport != defaultPort(sch) {
-				u += ":" + strconv.Itoa(uport)
-			}
-			services = append(services, Service{ID: IDPrefix + "url:" + f.Name + ":" + r.host, Name: "haproxy-url",
-				Tags: []string{"haproxy", "url", sch}, Address: uhost, Port: uport,
-				Meta: map[string]string{"url": u, "frontend": f.Name, "backend": r.backend, "source": r.source}})
-			urls++
+		if err := addURLs(f, scheme, uaddr, uport, ""); err != nil {
+			return nil, false, err
 		}
 	}
 	return services, truncated, nil
+}
+
+// urlOf is the URL of a host a frontend routes, its scheme (https by a
+// TLS server name too) and the port when it isn't the scheme's own.
+func urlOf(r hostRef, scheme string, port int) (sch, u string) {
+	if r.sni {
+		scheme = "https"
+	}
+	u = scheme + "://" + r.host
+	if !strings.Contains(r.host, ":") && port != defaultPort(scheme) {
+		u += ":" + strconv.Itoa(port)
+	}
+	return scheme, u
+}
+
+// relay is how clients reach a frontend that listens only on a socket:
+// through entry, at its bind's address ("" every address) and port,
+// with TLS on the way (the entry's bind, or the socket's) or not.
+type relay struct {
+	entry string
+	addr  string
+	port  int
+	tls   bool
+}
+
+func (r relay) scheme() string {
+	if r.tls {
+		return "https"
+	}
+	return "http"
+}
+
+// maxRelayHops bounds a chain of frontends behind sockets.
+const maxRelayHops = 4
+
+// relays finds, for each frontend listening only on sockets (abns@,
+// unix@, the loopback), the frontend clients reach it through: one with
+// a bind a check reaches whose backend - use_backend, default_backend,
+// a listen's own, a dynamic one's literals, map values and default - has
+// a server on one of its sockets, followed through other socket-only
+// frontends a few hops; the first in the configuration's order. relayTo
+// is, for each backend sending to such a frontend, the frontends it
+// reaches.
+func relays(top haproxyflow.Topology, readMap func(string) (map[string]string, error)) (entries map[string]relay, relayTo map[string][]string) {
+	type hop struct {
+		front string
+		tls   bool // the socket's bind has ssl
+	}
+	byName := map[string]haproxyflow.Frontend{}
+	sockets := map[string]hop{}
+	for _, f := range top.Frontends {
+		byName[f.Name] = f
+		if _, _, _, ok := firstBind(f.Binds); ok {
+			continue
+		}
+		for _, b := range f.Binds {
+			if k := socketKey(b); k != "" {
+				sockets[k] = hop{f.Name, slices.Contains(f.TLSBinds, b)}
+			}
+		}
+	}
+	if len(sockets) == 0 {
+		return nil, nil
+	}
+	to := map[string][]hop{}
+	for be, servers := range top.Servers {
+		for _, s := range servers {
+			if h, ok := sockets[socketKey(s)]; ok && !slices.Contains(to[be], h) {
+				to[be] = append(to[be], h)
+			}
+		}
+	}
+	from := map[string][]hop{} // socket-only frontend: who sends to it
+	for _, f := range top.Frontends {
+		for _, be := range backendsOf(f, readMap) {
+			for _, h := range to[be] {
+				from[h.front] = append(from[h.front], hop{f.Name, h.tls})
+			}
+		}
+	}
+	var resolve func(name string, seen map[string]bool) (relay, bool)
+	resolve = func(name string, seen map[string]bool) (relay, bool) {
+		if seen[name] || len(seen) >= maxRelayHops {
+			return relay{}, false
+		}
+		seen[name] = true
+		defer delete(seen, name)
+		for _, h := range from[name] {
+			f := byName[h.front]
+			if _, a, p, ok := firstBind(f.TLSBinds); ok {
+				return relay{entry: f.Name, addr: a, port: p, tls: true}, true
+			}
+			if _, a, p, ok := firstBind(f.Binds); ok {
+				return relay{entry: f.Name, addr: a, port: p, tls: h.tls}, true
+			}
+			if r, ok := resolve(h.front, seen); ok {
+				r.tls = r.tls || h.tls
+				return r, true
+			}
+		}
+		return relay{}, false
+	}
+	entries = map[string]relay{}
+	for name := range from {
+		if r, ok := resolve(name, map[string]bool{}); ok {
+			entries[name] = r
+		}
+	}
+	relayTo = map[string][]string{}
+	for be, hs := range to {
+		for _, h := range hs {
+			if _, ok := entries[h.front]; ok {
+				relayTo[be] = append(relayTo[be], h.front)
+			}
+		}
+	}
+	return entries, relayTo
+}
+
+// backendsOf are the backends f may send to. A map it can't read adds
+// none: hostsOf says so, when its keys are hosts.
+func backendsOf(f haproxyflow.Frontend, readMap func(string) (map[string]string, error)) []string {
+	var out []string
+	for _, r := range f.Rules {
+		switch r.Type {
+		case "use", "default", "self":
+			out = append(out, r.Backend)
+		case "dynamic":
+			for _, l := range r.Literals {
+				out = append(out, r.Prefix+l+r.Suffix)
+			}
+			for _, mc := range r.MapCalls {
+				if mc.Default != "" {
+					out = append(out, r.Prefix+mc.Default+r.Suffix)
+				}
+				m, err := readMap(mc.Path)
+				if err != nil {
+					continue
+				}
+				for _, v := range m {
+					out = append(out, r.Prefix+v+r.Suffix)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// socketKey is a bind's or a server's address when it is a socket on
+// the node itself - abns@name, unix@path (a bare path too), a loopback
+// port - written the same way for both; "" otherwise.
+func socketKey(a string) string {
+	a, _, _ = strings.Cut(a, ",")
+	if fam, rest, found := strings.Cut(a, "@"); found {
+		switch fam {
+		case "abns", "abnsz":
+			return a
+		case "unix":
+			return "unix@" + rest
+		case "ipv4", "ipv6", "tcp", "tcp4", "tcp6":
+			a = rest
+		default:
+			return ""
+		}
+	}
+	if strings.HasPrefix(a, "/") {
+		return "unix@" + a
+	}
+	i := strings.LastIndex(a, ":")
+	if i < 0 {
+		return ""
+	}
+	host := strings.Trim(a[:i], "[]")
+	p, err := strconv.Atoi(a[i+1:])
+	if err != nil || p <= 0 || p > 65535 {
+		return ""
+	}
+	if ip := net.ParseIP(host); (ip != nil && ip.IsLoopback()) || host == "localhost" {
+		return "lo:" + strconv.Itoa(p)
+	}
+	return ""
 }
 
 func defaultPort(scheme string) int {

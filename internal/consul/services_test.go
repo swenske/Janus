@@ -269,3 +269,168 @@ func TestHostname(t *testing.T) {
 		}
 	}
 }
+
+// A TCP frontend on :443 splitting TLS by server name and passing it,
+// in PROXY v2, to HTTP frontends that listen only on abstract sockets -
+// their URLs are the :443's; a two-hop chain through a Unix socket; a
+// frontend on the loopback behind a TLS one; two sockets sending to each
+// other that nothing reaches.
+const chainedConfig = `
+defaults
+    mode http
+frontend fe_https
+    bind abns@lb-https name https accept-proxy ssl crt /etc/haproxy/acme/
+    http-request redirect prefix https://www.example.net code 301 if { req.hdr(host),lower,word(1,:) -m str example.net }
+    http-request set-var(txn.backend) req.hdr(host),lower,word(1,:),map(/etc/haproxy/files/maps/hosts.map,be_landing)
+    use_backend %[var(txn.backend)]
+    default_backend be_landing
+frontend fe_tunnel
+    bind abns@lb-tunnel accept-proxy ssl crt /etc/haproxy/acme/
+    acl tunnel_host req.hdr(host),lower,word(1,:) -m str static.example.net
+    use_backend be_tunnel if tunnel_host
+    default_backend be_landing
+frontend fe_plain
+    bind :8080
+    default_backend be_to_mid
+backend be_to_mid
+    server mid unix@/run/haproxy/mid.sock
+frontend fe_mid
+    bind /run/haproxy/mid.sock
+    default_backend be_to_deep
+backend be_to_deep
+    server deep abns@deep
+frontend fe_deep
+    bind abns@deep
+    acl app hdr(host) -i app.example.net
+    use_backend be_app if app
+frontend fe_loop_a
+    bind abns@loop-a
+    acl a hdr(host) -i loop.example.net
+    use_backend be_to_b if a
+backend be_to_b
+    server b abns@loop-b
+frontend fe_loop_b
+    bind abns@loop-b
+    default_backend be_to_a
+backend be_to_a
+    server a abns@loop-a
+frontend fe_front
+    bind :8443 ssl crt /etc/haproxy/files/certs/
+    default_backend be_local
+backend be_local
+    server local 127.0.0.1:8081
+frontend fe_local
+    bind 127.0.0.1:8081
+    acl adm hdr(host) -i admin.example.net
+    use_backend be_admin if adm
+backend be_landing
+backend be_tunnel
+defaults tcp
+    mode tcp
+frontend fe_tls from tcp
+    bind 0.0.0.0:443 name https-sni
+    bind :::443 v6only name https-sni6
+    tcp-request content accept if { req.ssl_hello_type 1 }
+    use_backend be_tls_tunnel if { req.ssl_sni -i static.example.net }
+    use_backend be_tls_media if { req.ssl_sni -i media.example.net }
+    default_backend be_tls_https
+frontend fe_edge from tcp
+    bind 192.0.2.151:4443 name edge
+    default_backend be_tls_https
+backend be_tls_https from tcp
+    server fe_https abns@lb-https send-proxy-v2 no-check
+backend be_tls_tunnel from tcp
+    server fe_tunnel abns@lb-tunnel send-proxy-v2 no-check
+backend be_tls_media from tcp
+    server media 10.0.0.20:443
+`
+
+func TestDesiredThroughSockets(t *testing.T) {
+	src := Sources{Address: "192.0.2.5", HAProxyConfig: chainedConfig, Map: func(path string) (map[string]string, error) {
+		if path != "/etc/haproxy/files/maps/hosts.map" {
+			return nil, errors.New("unknown map")
+		}
+		return map[string]string{"www.example.net": "be_www", "shop.example.net": "be_shop", "*.example.org": "be_x"}, nil
+	}}
+	got, _, err := Desired(Toggles{Frontends: true, URLs: true}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]Service{}
+	var ids []string
+	for _, s := range got {
+		byID[s.ID] = s
+		ids = append(ids, s.ID)
+	}
+	want := []string{
+		"janus:url:fe_https:shop.example.net", "janus:url:fe_https:www.example.net",
+		"janus:url:fe_tunnel:static.example.net",
+		"janus:haproxy:fe_plain",
+		"janus:url:fe_deep:app.example.net",
+		"janus:haproxy:fe_front",
+		"janus:url:fe_local:admin.example.net",
+		// static.example.net by its server name is fe_tunnel's: not twice.
+		"janus:haproxy:fe_tls", "janus:url:fe_tls:media.example.net",
+		"janus:haproxy:fe_edge",
+	}
+	if !reflect.DeepEqual(ids, want) {
+		t.Fatalf("services:\n got %q\nwant %q", ids, want)
+	}
+	for id, w := range map[string]struct {
+		url, via, backend string
+		port              int
+	}{
+		"janus:url:fe_https:www.example.net":     {"https://www.example.net", "fe_tls", "be_www", 443},
+		"janus:url:fe_tunnel:static.example.net": {"https://static.example.net", "fe_tls", "be_tunnel", 443},
+		"janus:url:fe_deep:app.example.net":      {"http://app.example.net:8080", "fe_plain", "be_app", 8080},
+		"janus:url:fe_local:admin.example.net":   {"https://admin.example.net:8443", "fe_front", "be_admin", 8443},
+		"janus:url:fe_tls:media.example.net":     {"https://media.example.net", "", "be_tls_media", 443},
+	} {
+		s := byID[id]
+		if s.Meta["url"] != w.url || s.Meta["via"] != w.via || s.Meta["backend"] != w.backend || s.Port != w.port || s.Address != "192.0.2.5" {
+			t.Errorf("%s: %+v", id, s)
+		}
+	}
+	if s := byID["janus:url:fe_https:www.example.net"]; s.Meta["source"] != "map:/etc/haproxy/files/maps/hosts.map" || s.Meta["frontend"] != "fe_https" ||
+		!reflect.DeepEqual(s.Tags, []string{"haproxy", "url", "https"}) {
+		t.Errorf("through a map: %+v", s)
+	}
+
+	// The relay only through a map's value: found the same way.
+	src.HAProxyConfig = `
+frontend fe_sni
+    mode tcp
+    bind :443
+    use_backend %[req.ssl_sni,lower,map(/etc/haproxy/files/sni.map)]
+backend be_tls_api
+    mode tcp
+    server api abns@api send-proxy-v2
+frontend fe_api
+    mode http
+    bind abns@api accept-proxy ssl crt /etc/haproxy/acme/
+    acl api hdr(host) -i api.example.net
+    use_backend be_api if api
+`
+	src.Map = func(path string) (map[string]string, error) {
+		return map[string]string{"api.example.net": "be_tls_api"}, nil
+	}
+	got, _, err = Desired(Toggles{URLs: true}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "janus:url:fe_api:api.example.net" || got[0].Meta["via"] != "fe_sni" || got[0].Meta["url"] != "https://api.example.net" {
+		t.Errorf("through an SNI map: %+v", got)
+	}
+}
+
+func TestSocketKey(t *testing.T) {
+	for in, want := range map[string]string{
+		"abns@lb-https": "abns@lb-https", "abnsz@x": "abnsz@x", "unix@/run/a.sock": "unix@/run/a.sock", "/run/a.sock": "unix@/run/a.sock",
+		"127.0.0.1:8081": "lo:8081", "ipv4@127.0.0.1:08081": "lo:8081", "[::1]:80": "lo:80", "localhost:80": "lo:80",
+		"10.0.0.20:443": "", ":443": "", "fd@3": "", "127.0.0.1": "", "sockpair@4": "",
+	} {
+		if got := socketKey(in); got != want {
+			t.Errorf("socketKey(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

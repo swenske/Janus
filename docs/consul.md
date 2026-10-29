@@ -90,7 +90,8 @@ healthy instances - their addresses and ports.
 ## The node's services
 
 Managed by the Controller, the node registers its own services itself -
-janusd, its exporters, its frontends, the URLs its maps route
+janusd, its exporters, its frontends, the URLs its maps route - a
+frontend behind a socket (`abns@`) at the bind of the one relaying to it
 ([the guide](guide/consul-controller.md#the-nodes-services)). Otherwise,
 or besides, register what the node serves in your configuration, with
 checks HAProxy answers:
