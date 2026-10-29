@@ -387,7 +387,9 @@ export default function Update({ route = '' }) {
                   <span className="muted">The update is built with the new names: installing it changes the node's schematic (the same extensions).</span>
                 </div>
               )}
-              <div className="muted small">Source: {uc.source === 'github' ? 'GitHub Releases' : 'image factory'}</div>
+              <div className="muted small">
+                Source: {uc.source === 'github' ? 'GitHub Releases' : uc.via === 'mirror' ? "the image factory's mirror - the image factory can't be reached" : 'image factory'}
+              </div>
               {canUpgrade && (uc.update_available || uc.renamed) && (
                 <div>
                   <button className="primary small" onClick={useLatest} disabled={uc.state !== 'ready' || !uc.bundle_base_url}>
