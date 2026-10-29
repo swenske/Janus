@@ -489,7 +489,16 @@ on a node it only fills the installation form in (a node with
 extensions asks `POST /api/factory/prerelease` for the factory's build,
 only then - viewing the page never starts one), and the installation's
 confirmation repeats the warning; the Controller's `POST` needs
-`"prerelease": true`. `PrereleaseBadge.jsx` marks what runs one.
+`"prerelease": true`. `PrereleaseBadge.jsx` marks what runs one. A node
+running a pre-release changes its image on its pre-release track
+(`ReleaseInfo.PrereleaseTrack`: the one it runs, or the newest when
+newer), never back to the release: the node page's `GET
+/api/factory/catalog` is that version's catalog (`prerelease: true`) and
+`POST /api/factory/update` resolves that version itself with
+`ResolveBundle` (`target_prerelease` in its answer) - the site's
+`/api/v1/updates` never names a pre-release. The machine catalog takes
+`?version=`: the create-a-node form asks it for the pre-release once it's
+typed in.
 
 ## The node page
 
@@ -656,7 +665,8 @@ track, from what the node's image reports (`VersionResponse`'s
 extensions alone for a node from before images said), and installing a
 bundle from another schematic takes an explicit checkbox
 (`allow_schematic_change`). **Change the image…** opens a panel with the
-factory's catalog for the newest release (`GET /api/factory/catalog`:
+factory's catalog for the version it builds - the newest release, or a
+node's pre-release (`imageCatalog`, above) - (`GET /api/factory/catalog`:
 extensions, HAProxy branches with their end of upstream support, kernel
 tracks); **Prepare the update** sends the choices to `POST
 /api/factory/update` (`extensions`, and `haproxy`/`kernel` - left out,

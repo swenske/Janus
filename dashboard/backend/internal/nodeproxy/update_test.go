@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/schematic"
 )
@@ -248,7 +247,9 @@ func fakeCatalogFactory(t *testing.T, calls *atomic.Int32) *httptest.Server {
 		calls.Add(1)
 		switch r.URL.Path {
 		case "/api/v1/versions":
-			_, _ = io.WriteString(w, `[{"version":"v3","schematics":false},{"version":"v2","schematics":true},{"version":"v1","schematics":true}]`)
+			_, _ = io.WriteString(w, `[{"version":"v4","schematics":true,"prerelease":true},{"version":"v3","schematics":false},{"version":"v2","schematics":true},{"version":"v1","schematics":true}]`)
+		case "/api/v1/versions/v4/extensions":
+			_, _ = io.WriteString(w, `{"version":"v4","extensions":[{"name":"node-exporter","version":"1.9.1","description":"Prometheus exporter","arches":["amd64","arm64"]},{"name":"only-in-v4","version":"1.0","description":"new","arches":["amd64"]}]}`)
 		case "/api/v1/versions/v2/extensions":
 			_, _ = io.WriteString(w, `{"version":"v2","extensions":[{"name":"node-exporter","version":"1.9.1","description":"Prometheus exporter","arches":["amd64","arm64"]},{"name":"qemu-guest-agent","version":"10.0.0","description":"QEMU guest agent","arches":["amd64"]}]}`)
 		default:
@@ -262,7 +263,7 @@ func fakeCatalogFactory(t *testing.T, calls *atomic.Int32) *httptest.Server {
 func resetCatalog(t *testing.T) {
 	t.Helper()
 	catalogCache.mu.Lock()
-	catalogCache.base, catalogCache.view, catalogCache.err = "", nil, nil
+	catalogCache.entries = nil
 	catalogCache.mu.Unlock()
 }
 
@@ -276,12 +277,21 @@ func TestFactoryCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// v3 publishes no catalog (an older build pipeline): the newest one is v2's.
-	if view.Version != "v2" || len(view.Extensions) != 2 || view.Extensions[1].Name != "qemu-guest-agent" || view.Extensions[1].Arches[0] != "amd64" || view.Factory != srv.URL {
+	// v4 is a pre-release, v3 publishes no catalog (an older build
+	// pipeline): the newest release's is v2's.
+	if view.Version != "v2" || view.Prerelease || len(view.Extensions) != 2 || view.Extensions[1].Name != "qemu-guest-agent" || view.Extensions[1].Arches[0] != "amd64" || view.Factory != srv.URL {
 		t.Fatalf("catalog = %+v", view)
 	}
 	if _, err := factoryCatalog(context.Background()); err != nil || calls.Load() != 2 {
 		t.Fatalf("second call: %v, factory asked %d times, want 2 (cached)", err, calls.Load())
+	}
+	// A version's own, cached apart.
+	view, err = factoryCatalogFor(context.Background(), "v4")
+	if err != nil || view.Version != "v4" || len(view.Extensions) != 2 || view.Extensions[1].Name != "only-in-v4" || calls.Load() != 3 {
+		t.Fatalf("v4's catalog = %+v, %v (factory asked %d times)", view, err, calls.Load())
+	}
+	if view, _ := factoryCatalog(context.Background()); view.Version != "v2" || calls.Load() != 3 {
+		t.Fatalf("the newest release's after v4's: %+v (factory asked %d times)", view, calls.Load())
 	}
 }
 
@@ -298,8 +308,9 @@ func TestFactoryRoutes(t *testing.T) {
 	srv := fakeCatalogFactory(t, &calls)
 	resetFactory(t, srv.URL)
 	resetCatalog(t)
+	seedRelease(t, &ReleaseInfo{TagName: "v2"})
 	mux := http.NewServeMux()
-	registerUpdateRoutes(mux, &store.Node{})
+	registerUpdateRoutes(mux, versionNode(t, nodeWith()))
 
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/factory/catalog", nil))
@@ -338,8 +349,9 @@ func TestFactoryUpdateRequirements(t *testing.T) {
 	t.Cleanup(srv.Close)
 	resetFactory(t, srv.URL)
 	resetCatalog(t)
+	seedRelease(t, &ReleaseInfo{TagName: "v2"})
 	mux := http.NewServeMux()
-	registerUpdateRoutes(mux, &store.Node{})
+	registerUpdateRoutes(mux, versionNode(t, nodeWith()))
 
 	want := `extension "prometheus-bird-exporter" requires the "bird" extension: choose it too`
 	rec := httptest.NewRecorder()
@@ -565,9 +577,7 @@ func TestEndOfSupport(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	resetFactory(t, srv.URL)
-	catalogCache.mu.Lock()
-	catalogCache.base = ""
-	catalogCache.mu.Unlock()
+	resetCatalog(t)
 
 	ctx := context.Background()
 	if s := EndOfSupport(ctx, ""); s != nil {

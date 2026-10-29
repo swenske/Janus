@@ -872,13 +872,26 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
   useEffect(() => {
     call('/api/catalog').then(setCatalog, () => setCatalog({}))
   }, [])
+  // The pre-release typed in: what its own catalog offers - the
+  // extensions, branches and tracks the image factory builds it with.
+  const pre = catalog?.prerelease && version.trim() === catalog.prerelease ? catalog.prerelease : ''
+  const [preCatalog, setPreCatalog] = useState(null)
+  useEffect(() => {
+    if (!pre || preCatalog?.version === pre) return
+    call(`/api/catalog?version=${encodeURIComponent(pre)}`).then(
+      (c) => setPreCatalog({ ...c, version: pre }),
+      (err) => setPreCatalog({ version: pre, catalog_error: err.message }),
+    )
+  }, [pre]) // eslint-disable-line react-hooks/exhaustive-deps
+  // offer: the catalog of the version created (null while it loads).
+  const offer = pre ? (preCatalog?.version === pre ? preCatalog : null) : catalog
 
   const setNIC = (i, patch) => setNics(nics.map((n, j) => (j === i ? { ...n, ...patch } : n)))
   // Ticking an extension ticks what it requires, unticking one unticks
   // what requires it - said under the list.
   const [extNote, setExtNote] = useState('')
   const toggleExt = (e) => {
-    const r = toggleExtension(exts, e, !exts.includes(e), catalog?.extensions)
+    const r = toggleExtension(exts, e, !exts.includes(e), offer?.extensions)
     setExts(r.extensions)
     setExtNote(r.note)
   }
@@ -923,7 +936,7 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
     if (created) onCreated(created)
   }
 
-  const extensions = catalog?.extensions || []
+  const extensions = offer?.extensions || []
   return (
     <Card
       title="Create a node"
@@ -1048,12 +1061,12 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
           </label>
           <div className="field">
             <span className="field-label">Extensions {exts.length > 0 && <span className="muted">· built by the image factory</span>}</span>
-            {catalog === null ? (
+            {offer === null ? (
               <span className="muted small">
                 <Loader2 size={13} className="spin" /> loading the catalog…
               </span>
             ) : extensions.length === 0 ? (
-              <span className="muted small">{catalog.catalog_error || 'none offered'}</span>
+              <span className="muted small">{offer.catalog_error || 'none offered'}</span>
             ) : (
               <div className="ext-list">
                 {extensions.map((e) => (
@@ -1063,22 +1076,22 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
                 ))}
               </div>
             )}
-            {!imageURL.trim() && requirementError(exts, extensions, catalog?.catalog_version) ? (
+            {!imageURL.trim() && requirementError(exts, extensions, offer?.catalog_version) ? (
               <div className="notice warn small" role="alert">
-                {requirementError(exts, extensions, catalog?.catalog_version)}
+                {requirementError(exts, extensions, offer?.catalog_version)}
               </div>
             ) : (
               extNote && <span className="muted small">{extNote}</span>
             )}
           </div>
         </div>
-        {catalog?.haproxy?.length > 0 && (
+        {offer?.haproxy?.length > 0 && (
           <div className="grid grid-2">
             <label className="field">
               <span>HAProxy branch {haproxy && <span className="muted">· built by the image factory</span>}</span>
               <select value={haproxy} onChange={(e) => setHAProxy(e.target.value)} disabled={!!imageURL.trim()}>
-                <option value="">The newest LTS branch, following it ({catalog.haproxy.find((v) => v.default)?.name} now)</option>
-                {catalog.haproxy
+                <option value="">The newest LTS branch, following it ({offer.haproxy.find((v) => v.default)?.name} now)</option>
+                {offer.haproxy
                   .filter((v) => v.arches.includes('amd64'))
                   .map((v) => (
                     <option key={v.name} value={v.name}>
@@ -1091,8 +1104,8 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
             <label className="field">
               <span>Kernel track {kernel && <span className="muted">· built by the image factory</span>}</span>
               <select value={kernel} onChange={(e) => setKernel(e.target.value)} disabled={!!imageURL.trim()}>
-                <option value="">The release's default ({catalog.kernel.find((v) => v.default)?.name} now)</option>
-                {catalog.kernel
+                <option value="">The release's default ({offer.kernel.find((v) => v.default)?.name} now)</option>
+                {offer.kernel
                   .filter((v) => v.arches.includes('amd64'))
                   .map((v) => (
                     <option key={v.name} value={v.name}>

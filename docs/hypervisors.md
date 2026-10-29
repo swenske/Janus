@@ -581,7 +581,7 @@ name}`). A node the Controller didn't create inherits nothing.
 - DNS and NTP servers;
 - the Janus version (the newest release by default; the form also
   suggests the newest [pre-release](guide/updates.md#pre-releases), for
-  a lab testing it);
+  a lab testing it - typed in, the extensions offered are its own);
 - the image factory's extensions.
 
 Static addresses or DHCP: a node renews its DHCP lease, and a static
