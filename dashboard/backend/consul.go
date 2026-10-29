@@ -103,6 +103,9 @@ type consulNodeState struct {
 	Services int       `json:"services"`
 	URLs     int       `json:"urls"`
 	Checked  time.Time `json:"checked,omitzero"`
+	// Pushed: this pass gave it its layer - the next one, soon, sees its
+	// agent join and its services come.
+	Pushed bool `json:"-"`
 }
 
 // Poke has the nodes' layers checked now.
@@ -325,7 +328,7 @@ func (a *app) consulPass(ctx context.Context) (again bool) {
 		}
 		cancel()
 		st.Checked = time.Now().UTC()
-		if st.State == "error" || st.State == "unsupported" {
+		if st.State == "error" || st.State == "unsupported" || st.Pushed {
 			again = true
 		}
 		view[n.ID] = st
@@ -375,6 +378,11 @@ func (a *app) consulNode(ctx context.Context, n *store.Node, set consulctl.Setti
 	name := consulName(n.Name)
 	st := consulNodeState{NodeName: name}
 	tok, hasTok := c.store.Token(n.ID)
+	if hasTok && tok.Removed {
+		// Leaving the Controller (consulNodeRemoved): its layer is off,
+		// its token goes with this pass - nothing given back meanwhile.
+		return consulNodeState{State: "removed", NodeName: name}
+	}
 	if hasTok {
 		st.TokenAccessor = tok.AccessorID
 	}
@@ -503,7 +511,7 @@ func (a *app) consulNode(ctx context.Context, n *store.Node, set consulctl.Setti
 		return st
 	}
 	log.Printf("node %s (%s): Consul layer %s applied", n.Name, n.ID, want.ManagedBy)
-	st.State = "applied"
+	st.State, st.Pushed = "applied", true
 	return st
 }
 

@@ -225,6 +225,13 @@ func TestConsulPass(t *testing.T) {
 	if srv.TokenFor("edge-1") == nil {
 		t.Fatal("no token picked again")
 	}
+	// A pass between the layer's removal and the node's: nothing given
+	// back.
+	a.consulNodeRemoved(edge)
+	a.consulPass(ctx)
+	if m, _ := nodes.get(edge.ID); m.GetManagedBy() != "" {
+		t.Fatal("a pass gave the layer back to a node being removed")
+	}
 	if err := a.removeNode(ctx, edge.ID); err != nil {
 		t.Fatal(err)
 	}
