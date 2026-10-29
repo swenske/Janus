@@ -253,6 +253,14 @@ func TestImageChangeKeepsThePrerelease(t *testing.T) {
 		t.Errorf("the newest release's catalog: %+v", cat)
 	}
 
+	// An arm64 node: no update built for it (the site's updates say so
+	// too), not amd64's.
+	arm := nodeWith("node-exporter")
+	arm.Version, arm.Arch = "v2026.10.05", "arm64"
+	if eu := updateFor(ctx, arm, birdImage(t, "consul")); eu.State != "unavailable" || eu.BundleURL != "" || !strings.Contains(eu.Message, "amd64 only") {
+		t.Errorf("on arm64: %+v", eu)
+	}
+
 	// Back to the default image on the pre-release: its GitHub release.
 	v := nodeWith("bird")
 	v.Version = "v2026.10.05"

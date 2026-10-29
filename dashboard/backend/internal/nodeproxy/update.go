@@ -417,6 +417,11 @@ func resolvePrerelease(ctx context.Context, uc *updateCheck, pre *ReleaseInfo) {
 		return
 	}
 	uc.Source = "image-factory"
+	if uc.Arch != "amd64" {
+		// As the site's updates say: ResolveBundle would build amd64's.
+		uc.State, uc.Message = "unavailable", "updates are published for amd64 only"
+		return
+	}
 	b, state, err := ResolveBundle(ctx, pre.TagName, uc.schematic)
 	switch {
 	case err == nil:
