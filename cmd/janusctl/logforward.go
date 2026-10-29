@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/emptypb"
 
@@ -57,6 +59,24 @@ func runLogForwarding(conn *grpc.ClientConn, args []string) {
 		check("LogForwardingSet", err)
 		printLogForwarding(resp)
 
+	case "pause", "resume":
+		if len(args) != 1 {
+			fmt.Fprintf(os.Stderr, "usage: janusctl system log-forwarding %s TARGET\n", sub)
+			os.Exit(2)
+		}
+		resp, changed, err := pauseTarget(c, client, args[0], sub == "pause")
+		if _, rpc := status.FromError(err); err != nil && rpc {
+			check("LogForwarding", err)
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s%v\n", styleFor(os.Stderr).red("✖ "), err)
+			os.Exit(1)
+		}
+		if !changed {
+			fmt.Printf("%s: already %s\n", args[0], map[bool]string{true: "paused", false: "sending"}[sub == "pause"])
+		}
+		printLogForwarding(resp)
+
 	case "test":
 		fs := flag.NewFlagSet("system log-forwarding test", flag.ExitOnError)
 		file := fs.String("file", "", "a configuration (JSON) to take the target from, rather than the saved one")
@@ -94,9 +114,53 @@ func runLogForwarding(conn *grpc.ClientConn, args []string) {
 		fmt.Printf("%s: %s\n", target.GetName(), resp.GetDetail())
 
 	default:
-		fmt.Fprintln(os.Stderr, "usage: janusctl system log-forwarding [status|get|set FILE|test [-file FILE] TARGET]")
+		fmt.Fprintln(os.Stderr, "usage: janusctl system log-forwarding [status|get|set FILE|pause TARGET|resume TARGET|test [-file FILE] TARGET]")
 		os.Exit(2)
 	}
+}
+
+// pauseTarget pauses or resumes the node's target name: its
+// configuration read, the target flipped, sent back - without its
+// secrets, which the node keeps (LogForwardingSet). changed is false
+// when the target already was.
+func pauseTarget(c context.Context, client janusv1alpha1.SystemServiceClient, name string, paused bool) (resp *janusv1alpha1.LogForwardingResponse, changed bool, err error) {
+	resp, err = client.LogForwardingGet(c, &emptypb.Empty{})
+	if err != nil {
+		return nil, false, err
+	}
+	cfg := resp.GetConfig()
+	if changed, err = setPaused(cfg, name, paused); err != nil || !changed {
+		return resp, false, err
+	}
+	resp, err = client.LogForwardingSet(c, cfg)
+	return resp, err == nil, err
+}
+
+// setPaused pauses or resumes the target name of cfg - a configuration
+// as LogForwardingGet gives it. It says whether that changed anything: a
+// target already paused (or sending) is left as it is. A configuration a
+// Controller's profile set isn't changed here: the Controller would put
+// it back (docs/guide/log-forwarding.md, "Pausing a target").
+func setPaused(cfg *janusv1alpha1.LogForwardingConfig, name string, paused bool) (bool, error) {
+	if m := cfg.GetManagedBy(); m != "" {
+		by := strings.Join(strings.Fields(m)[:min(4, len(strings.Fields(m)))], " ")
+		return false, fmt.Errorf("set by the Controller (%s): pause or resume the target on its profile, the Controller's Log forwarding page - it would undo a change made here", by)
+	}
+	var names []string
+	for _, t := range cfg.GetTargets() {
+		if t.GetName() == name {
+			if t.GetDisabled() == paused {
+				return false, nil
+			}
+			t.Disabled = paused
+			return true, nil
+		}
+		names = append(names, t.GetName())
+	}
+	if len(names) == 0 {
+		return false, fmt.Errorf("no target %q: the node sends its logs nowhere", name)
+	}
+	return false, fmt.Errorf("no target %q - the node's: %s", name, strings.Join(names, ", "))
 }
 
 func printLogForwarding(resp *janusv1alpha1.LogForwardingResponse) {

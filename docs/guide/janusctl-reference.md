@@ -218,6 +218,22 @@ Replace the configuration (JSON, as get prints it; a secret left out keeps its s
 janusctl system log-forwarding set FILE
 ```
 
+##### janusctl system log-forwarding pause
+
+Stop sending to a target, keeping its place: what the node keeps on disk meanwhile goes once resumed.
+
+```text
+janusctl system log-forwarding pause TARGET
+```
+
+##### janusctl system log-forwarding resume
+
+Send to a paused target again, from where it stopped.
+
+```text
+janusctl system log-forwarding resume TARGET
+```
+
 ##### janusctl system log-forwarding test
 
 Send one record to a target now.

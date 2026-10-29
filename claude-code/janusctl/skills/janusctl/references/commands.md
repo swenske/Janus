@@ -38,6 +38,8 @@ janusctl -endpoint HOST:PORT -ca FILE -cert FILE -key FILE COMMAND ...
 - `janusctl system log-forwarding status` - reads - each target's state: sent, dropped, waiting, the last error
 - `janusctl system log-forwarding get` - reads - the configuration as JSON, without its secrets
 - `janusctl system log-forwarding set FILE` - **changes** - replace the configuration (JSON, as get prints it; a secret left out keeps its saved value)
+- `janusctl system log-forwarding pause TARGET` - **changes** - stop sending to a target, keeping its place: what the node keeps on disk meanwhile goes once resumed. The target gets nothing until resumed: what the node keeps only in memory meanwhile is lost to it
+- `janusctl system log-forwarding resume TARGET` - **changes** - send to a paused target again, from where it stopped
 - `janusctl system log-forwarding test [-file FILE] TARGET` - **changes** - send one record to a target now. Sends a record to the target
 - `janusctl system stats` - reads - CPU and memory of janusd and haproxy
 - `janusctl system systemstat` - reads - boot time, context switches, processes created, the CPUs' ticks (idle, steal)
