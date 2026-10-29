@@ -39,6 +39,7 @@ import { useNodeMetrics } from './nodeMetrics.js'
 import { usePreferences } from './preferences.js'
 import PreferencesProvider from './PreferencesProvider.jsx'
 import { labelString, MeContext, parseLabels, useCan, useMe } from './me.jsx'
+import { effectiveLabels, inheritedRows } from './labels.js'
 import { EnrollMFA, MFAPanel, SecondFactorForm, TrustedBrowsers } from './MFA.jsx'
 import { SSHKeys } from './SSHKeys.jsx'
 import { Identities, LINK, SSO_DONE, SSOButtons, SSODone } from './SSO.jsx'
@@ -93,7 +94,9 @@ function uptime(bootUnix) {
 // state, and the hypervisor-level actions - what's left when the node
 // itself doesn't answer.
 // NodeLabels shows a node's labels - what grants and scoped tokens pick
-// it by -, edited in place by an admin.
+// it by -, its own edited in place by an admin, and those it inherits
+// from its machine's hypervisor, read-only (changed on the hypervisor),
+// struck through where its own override them.
 function NodeLabels({ node, onChanged }) {
   const can = useCan()
   const toast = useToast()
@@ -127,7 +130,8 @@ function NodeLabels({ node, onChanged }) {
       </form>
     )
   const keys = Object.keys(l).sort()
-  if (!keys.length && !can('admin')) return null
+  const inherited = inheritedRows(node)
+  if (!keys.length && !inherited.length && !can('admin')) return null
   return (
     <div className="row node-labels" style={{ gap: '0.3rem', flexWrap: 'wrap' }}>
       {keys.map((k) => (
@@ -138,11 +142,30 @@ function NodeLabels({ node, onChanged }) {
         </Badge>
       ))}
       {can('admin') && (
-        <button className="ghost small" onClick={() => setEditing(labelString(l))} title="Its labels: grants and scoped tokens pick nodes by them">
+        <button className="ghost small" onClick={() => setEditing(labelString(l))} title="Its own labels: grants and scoped tokens pick nodes by them, and by those it inherits">
           <Tag size={13} /> {keys.length ? 'Edit' : 'Labels'}
         </button>
       )}
+      {inherited.length > 0 && <InheritedLabels node={node} rows={inherited} />}
     </div>
+  )
+}
+
+// InheritedLabels are the labels a node has from its hypervisor: "from
+// kvm01", each a dashed badge, one its own label overrides struck through.
+function InheritedLabels({ node, rows }) {
+  const from = node.inherited_from?.name || 'its hypervisor'
+  return (
+    <span className="row inherited-labels" title={`Inherited from the hypervisor ${from} - changed there; the node's own label wins on the same key`}>
+      <span className="muted small">from {from}</span>
+      {rows.map((r) => (
+        <span key={r.key} className={`badge inherited${r.overridden ? ' overridden' : ''}`}>
+          <span className="mono">
+            {r.key}={r.value}
+          </span>
+        </span>
+      ))}
+    </span>
   )
 }
 
@@ -184,7 +207,7 @@ function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet, 
             <PowerBadge power={vm?.power} />
             {machine.phase !== 'ready' && <PhaseBadge phase={machine.phase} />}
             <span className="grow" />
-            <PowerButtons machine={machine} vm={vm} actions={machineActions} labels={node.labels} />
+            <PowerButtons machine={machine} vm={vm} actions={machineActions} labels={effectiveLabels(node)} />
           </div>
         </div>
       )}
@@ -310,18 +333,20 @@ function NodeTable({ groups, statuses, metrics, clock, machineOf, vmOf, fleet, o
               const m = machineOf(n)
               const vm = vmOf(m)
               const up = st?.reachable
+              const inherited = inheritedRows(n)
               return (
                 <tr key={n.id}>
                   <td>
                     <div className="node-card-name">{n.name}</div>
                     <div className="muted small mono">{n.address}</div>
-                    {Object.keys(n.labels || {}).length > 0 && (
+                    {(Object.keys(n.labels || {}).length > 0 || inherited.length > 0) && (
                       <div className="row node-table-labels">
-                        {Object.entries(n.labels).map(([k, v]) => (
+                        {Object.entries(n.labels || {}).map(([k, v]) => (
                           <span key={k} className="badge mono">
                             {k}={v}
                           </span>
                         ))}
+                        {inherited.length > 0 && <InheritedLabels node={n} rows={inherited} />}
                       </div>
                     )}
                   </td>

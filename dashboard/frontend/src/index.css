@@ -242,6 +242,12 @@ a.card.cluster-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, 
   overflow: hidden;
 }
 .kv dd .badge, .node-labels .badge, .node-table-labels .badge { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+/* A node's labels from its hypervisor (NodeLabels): "from kvm01", dashed,
+   struck through where its own label overrides one. */
+.inherited-labels { gap: 0.3rem; flex-wrap: wrap; min-width: 0; }
+.badge.inherited { border-style: dashed; }
+.badge.inherited.overridden { text-decoration: line-through; }
+.node-table-labels .inherited-labels .small { font-size: 0.7rem; }
 
 /* Settings: the account's pages, then this Controller's. */
 .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }

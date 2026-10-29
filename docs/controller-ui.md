@@ -213,7 +213,11 @@ token's secret is write-only: `has_token_secret`) - added in steps (for
 libvirt the command that authorizes the Controller's key; then the SSH
 host key or the API's certificate read and compared with the host's
 own, then trusted - a Proxmox node given its CA needs none), then its
-software, CPU, memory, pool and networks - and below, the machines: their
+software, CPU, memory, pool and networks; its labels (`HVLabels`, under
+its name on the card and in the list; the form's **Labels its nodes
+inherit** field, `dc`, `room`, `rack` suggested - `saveBody` sends them,
+`{}` when the field is empty, while `HostPrep`'s body leaves them
+out) - and below, the machines: their
 phase while they're created (the page polls every 3 s while one is under
 way), their virtual machine's state, history, retry, destroy (type the
 name) and the console. A machine waiting for its node shows the
@@ -224,7 +228,8 @@ from a card not trusted yet, key included - shows the steps the backend
 writes (`POST /api/hypervisors/preparation`, again 250 ms after each
 change), each with Copy, plus Copy all and Download; the edit form warns
 when a change to the account, pool, networks or prefix means preparing
-the host again. **Create node** takes the hypervisor, name, size,
+the host again. **Create node** takes the hypervisor (with the labels its node will
+inherit, when it has some), name, size,
 interfaces (network, name, static/DHCP/none), DNS/NTP, the version and the
 image factory's extensions, or an image by URL and SHA-256. The console
 (`Console.jsx`) is read-only, follows the SSE stream from
@@ -287,7 +292,11 @@ role, labels, domains), a default role, the accounts' life, the second
 factor's mode, the switches a provider may need, and **Test**
 (`/api/sso/test`: discovery, keys, warnings); the
 audit's newest 500 entries, filtered by account on submit. A node card
-shows its labels (`NodeLabels`), edited in place by an admin. Under the
+shows its labels (`NodeLabels`): its own, edited in place by an admin,
+then those it inherits from its machine's hypervisor (`InheritedLabels`:
+"from kvm01", dashed badges, one its own label overrides struck
+through - `inheritedRows` in `labels.js`, `npm test`), read-only; the
+node list shows both under each name. Under the
 Provision panel (which takes an enrollment token into its commands),
 **Enrollment tokens** (`Enroll.jsx`, admins): made with a name, a
 number of nodes, a validity and labels, shown once with where it goes;
@@ -367,8 +376,9 @@ and one for changes per route; `TestRoutesNeedTheirRole`). Reader:
 reads. Operator: + `PowerButtons` (start/reset/force-off, console).
 Admin: the rest. An account's grants (`me.grants`) count where a node is:
 `nodeCan(me, labels, role, domain)` (`me.jsx`, the Controller's
-`access.go` mirrored) - `PowerButtons` takes the node's labels and the
-machines domain. An account without a role over everything gets neither
+`access.go` mirrored) - `PowerButtons` takes the node's effective labels
+(`effectiveLabels` in `labels.js`: the inherited ones, its own on top,
+as the Controller's `nodeLabels`) and the machines domain. An account without a role over everything gets neither
 the Hypervisors tab, nor the Controller's update card, nor the fleet's
 (`/api/fleet` isn't asked); the Controller answers its node list and
 statuses with the nodes it reaches, hypervisors and pending ones empty. A session that needs something first (`needs`) gets only that:
