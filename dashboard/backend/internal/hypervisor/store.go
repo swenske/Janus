@@ -8,6 +8,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
@@ -18,6 +19,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/swenske/Janus/dashboard/backend/internal/labels"
 )
 
 // Hypervisor is one configured hypervisor. SSHKey is the key the
@@ -39,6 +42,10 @@ type Hypervisor struct {
 	// counts two records with the same HostID as one host.
 	HostID   string `json:"host_id,omitempty"`
 	HostName string `json:"host_name,omitempty"`
+	// Labels say where it is (dc=lgs, room=a, rack=12): the nodes the
+	// Controller creates on it inherit them, under their own - a node's
+	// own label wins on the same key.
+	Labels map[string]string `json:"labels,omitempty"`
 
 	SSHKey ed25519.PrivateKey `json:"-"`
 	// TokenSecret is a Proxmox API token's secret - kept in its own
@@ -118,6 +125,9 @@ func (h *Hypervisor) Validate() error {
 	if strings.TrimSpace(h.Name) == "" {
 		return errors.New("a name is required")
 	}
+	if err := labels.Check(h.Labels); err != nil {
+		return err
+	}
 	if h.ControllerAddress != "" {
 		if host, port, err := net.SplitHostPort(h.ControllerAddress); err != nil || host == "" || port == "" {
 			return fmt.Errorf("controller address %q isn't host:port", h.ControllerAddress)
@@ -191,6 +201,7 @@ func (h *Hypervisor) Signer() (ssh.Signer, error) {
 
 func (h *Hypervisor) clone() *Hypervisor {
 	c := *h
+	c.Labels = maps.Clone(h.Labels)
 	if h.Libvirt != nil {
 		l := *h.Libvirt
 		l.Networks = append([]string(nil), h.Libvirt.Networks...)

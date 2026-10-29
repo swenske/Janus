@@ -41,6 +41,16 @@ type hypervisorModel struct {
 	HostKeyFingerprint types.String `tfsdk:"host_key_fingerprint"`
 	AuthorizedKey      types.String `tfsdk:"authorized_key"`
 	Trusted            types.Bool   `tfsdk:"trusted"`
+	Labels             types.Map    `tfsdk:"labels"`
+}
+
+// labelsAttribute is a hypervisor's labels, either kind's.
+func labelsAttribute() schema.MapAttribute {
+	return schema.MapAttribute{
+		ElementType: types.StringType, Optional: true,
+		Description: "Its labels (dc = \"lgs\", room, rack...): the nodes the Controller creates on it inherit them, under their own - a node's own label wins on the same key - so grants, scoped tokens and log forwarding profiles pick those nodes by them too. " +
+			"Unset, Terraform leaves them alone; set, it owns them - an empty map clears them.",
+	}
 }
 
 func (r *hypervisorResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -69,6 +79,7 @@ func (r *hypervisorResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"trusted": schema.BoolAttribute{Computed: true, Description: "Whether its host key is pinned."},
+			"labels":  labelsAttribute(),
 		},
 	}
 }
@@ -86,6 +97,7 @@ func (r *hypervisorResource) ImportState(ctx context.Context, req resource.Impor
 func hypervisorRequest(ctx context.Context, m *hypervisorModel, diags *diag.Diagnostics) client.HypervisorRequest {
 	return client.HypervisorRequest{
 		Name: m.Name.ValueString(), Kind: "libvirt", ControllerAddress: strOrEmpty(m.ControllerAddress),
+		Labels: labelsOf(ctx, m.Labels, diags),
 		Libvirt: &client.LibvirtConfig{
 			Host: m.Host.ValueString(), User: m.User.ValueString(), Socket: strOrEmpty(m.Socket), Pool: m.Pool.ValueString(),
 			Networks: stringsOf(ctx, m.Networks, diags), NamePrefix: strOrEmpty(m.NamePrefix),
@@ -105,6 +117,7 @@ func fromHypervisor(h *client.Hypervisor, m *hypervisorModel) {
 	}
 	m.AuthorizedKey = types.StringValue(h.AuthorizedKey)
 	m.Trusted = types.BoolValue(h.Trusted)
+	m.Labels = ownedMapOf(h.Labels, m.Labels)
 	// The fingerprint the Controller pinned - another one than the
 	// configuration's (the host moved) shows as a change to trust again.
 	m.HostKeyFingerprint = strOrNull(h.HostKeyFingerprint, m.HostKeyFingerprint)
@@ -212,6 +225,7 @@ type hypervisorDataModel struct {
 	Networks      types.List   `tfsdk:"networks"`
 	Trusted       types.Bool   `tfsdk:"trusted"`
 	AuthorizedKey types.String `tfsdk:"authorized_key"`
+	Labels        types.Map    `tfsdk:"labels"`
 }
 
 func (d *hypervisorDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -230,6 +244,7 @@ func (d *hypervisorDataSource) Schema(_ context.Context, _ datasource.SchemaRequ
 			"networks":       dsschema.ListAttribute{Computed: true, ElementType: types.StringType},
 			"trusted":        dsschema.BoolAttribute{Computed: true},
 			"authorized_key": dsschema.StringAttribute{Computed: true},
+			"labels":         dsschema.MapAttribute{Computed: true, ElementType: types.StringType, Description: "Its labels, which the nodes of its machines inherit."},
 		},
 	}
 }
@@ -256,6 +271,7 @@ func (d *hypervisorDataSource) Read(ctx context.Context, req datasource.ReadRequ
 			continue
 		}
 		m.ID, m.Kind, m.Trusted, m.AuthorizedKey = types.StringValue(h.ID), types.StringValue(h.Kind), types.BoolValue(h.Trusted), types.StringValue(h.AuthorizedKey)
+		m.Labels = mapOf(h.Labels)
 		m.Host, m.Pool, m.Networks = types.StringNull(), types.StringNull(), types.ListNull(types.StringType)
 		if l := h.Libvirt; l != nil {
 			m.Host, m.Pool = types.StringValue(l.Host), types.StringValue(l.Pool)

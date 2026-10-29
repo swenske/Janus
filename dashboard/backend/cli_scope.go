@@ -80,7 +80,7 @@ func (a *app) cliIdentityFor(p principal) (cliIdentity, error) {
 	groups := map[string]int{}
 	for _, n := range a.store.List() {
 		var perms []pki.ScopePerm
-		for _, pm := range p.nodePerms(n.LabelSet()) {
+		for _, pm := range p.nodePerms(a.nodeLabels(n)) {
 			sp := scopePerm(pm)
 			if slices.ContainsFunc(s.Any, sameScopePerm(sp)) || slices.ContainsFunc(perms, sameScopePerm(sp)) {
 				continue
