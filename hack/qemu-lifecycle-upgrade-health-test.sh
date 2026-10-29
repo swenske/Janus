@@ -304,7 +304,12 @@ echo "Part 1 OK: healthy upgrade confirmed, no revert, still live on slot B"
 # to give up on - the marker is gone - and restart janusd as on any boot
 # (v2026.10.29-4's lab: janusd never came back after a Restart on a node
 # booted from an update, until a power reset).
+# The deadline runs from init's start of janusd, and janusd can confirm
+# the boot before it passes (v2026.10.29-5's first build: the restart's
+# exit came ~5 s after boot, at the deadline - the ordinary restart path,
+# not the one under test): wait past it first.
 # =========================================================================
+sleep $((HEALTH_TIMEOUT_SECS + 10))
 if ! "$CTL" "${CTL_ARGS[@]}" system restart; then
   echo "Upgrade health test FAILED: janusctl system restart refused" >&2
   exit 1
