@@ -185,13 +185,27 @@ func (r *Registrar) sync(ctx context.Context) error {
 		r.mu.Unlock()
 		return nil
 	}
+	c := &agentClient{token: managed.AgentToken, addr: r.addr}
+	maint := r.maintenance()
 	src, err := r.Sources()
-	if err != nil {
-		return err
+	var desired []Service
+	truncated := false
+	if err == nil {
+		desired, truncated, err = Desired(managed.Services, src)
 	}
-	desired, truncated, err := Desired(managed.Services, src)
 	if err != nil {
-		return err
+		if maint == "" {
+			return err
+		}
+		// Out of service, and what it serves can't be read now: HAProxy
+		// stopped, its maps with it (they're read from its stats socket).
+		// The services registered go in maintenance all the same - the
+		// sync once it serves again reads them.
+		n, merr := r.maintainRegistered(ctx, c, maint)
+		r.mu.Lock()
+		r.status.Registered, r.status.Maintenance = n, merr == nil
+		r.mu.Unlock()
+		return merr
 	}
 	warn := ""
 	if truncated {
@@ -203,8 +217,7 @@ func (r *Registrar) sync(ctx context.Context) error {
 	}
 	r.lastWarns = warn
 	r.mu.Unlock()
-	maint := r.maintenance()
-	n, err := r.reconcile(ctx, &agentClient{token: managed.AgentToken, addr: r.addr}, desired, maint)
+	n, err := r.reconcile(ctx, c, desired, maint)
 	r.mu.Lock()
 	r.status.Registered, r.status.Maintenance = n, maint != ""
 	r.mu.Unlock()
@@ -360,11 +373,23 @@ func (r *Registrar) GoingDown(why string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	c := &agentClient{token: managed.AgentToken, addr: r.addr}
+	n, err := r.maintainRegistered(ctx, &agentClient{token: managed.AgentToken, addr: r.addr}, why)
+	if err != nil {
+		log.Printf("consul: services not all put in maintenance: %v", err)
+		return
+	}
+	if n > 0 {
+		log.Printf("consul: %d services in maintenance (%s)", n, why)
+	}
+}
+
+// maintainRegistered puts every janus:* service the agent has in
+// maintenance (why) - without reading what the node serves; it returns
+// how many there are.
+func (r *Registrar) maintainRegistered(ctx context.Context, c *agentClient, why string) (int, error) {
 	have, err := c.services(ctx)
 	if err != nil {
-		log.Printf("consul: services not put in maintenance: %v", err)
-		return
+		return 0, err
 	}
 	var mine []Service
 	for id := range have {
@@ -372,13 +397,7 @@ func (r *Registrar) GoingDown(why string) {
 			mine = append(mine, Service{ID: id})
 		}
 	}
-	if err := r.setMaintenance(ctx, c, mine, why); err != nil {
-		log.Printf("consul: services not all put in maintenance: %v", err)
-		return
-	}
-	if len(mine) > 0 {
-		log.Printf("consul: %d services in maintenance (%s)", len(mine), why)
-	}
+	return len(mine), r.setMaintenance(ctx, c, mine, why)
 }
 
 // Forget deregisters every janus:* service, with the layer's token -

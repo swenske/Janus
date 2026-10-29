@@ -3,6 +3,7 @@ package consul
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -242,6 +243,78 @@ func TestRegistrarReconciles(t *testing.T) {
 	}
 	if ids := agent.ids(); !slices.Equal(ids, []string{"web"}) {
 		t.Fatalf("after Forget: %q", ids)
+	}
+}
+
+// HAProxy stopped: its maps can't be read (the stats socket is gone),
+// so what the node serves can't be either - the services registered
+// still go in maintenance; once it serves again, they come out. The same
+// failure while in service is an error, and nothing changes.
+func TestRegistrarMaintenanceWithoutSources(t *testing.T) {
+	r, agent, _, mu, _, maint := registrarFor(t, Toggles{Janus: true, Frontends: true, URLs: true})
+	stopped := false
+	r.Sources = func() (Sources, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		src := sitesSources()
+		if stopped {
+			src.Map = func(string) (map[string]string, error) {
+				return nil, errors.New("dial stats socket: connection refused")
+			}
+		}
+		return src, nil
+	}
+	ctx := context.Background()
+	if err := r.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ids := agent.ids()
+	if !slices.Contains(ids, "janus:url:fe_https:www.example.com") {
+		t.Fatalf("after a first sync: %q", ids)
+	}
+
+	// The maps can't be read, the node in service: an error, nothing changes.
+	mu.Lock()
+	stopped = true
+	mu.Unlock()
+	agent.takeCalls()
+	if err := r.Sync(ctx); err == nil || !strings.Contains(err.Error(), "connection refused") {
+		t.Fatalf("sync without the maps, in service: %v", err)
+	}
+	if calls := agent.takeCalls(); len(calls) > 0 {
+		t.Fatalf("a failed sync sent %q", calls)
+	}
+
+	// HAProxy stopped: every janus:* service in maintenance.
+	mu.Lock()
+	*maint = "HAProxy is stopped"
+	mu.Unlock()
+	if err := r.Sync(ctx); err != nil {
+		t.Fatalf("sync without the maps, out of service: %v", err)
+	}
+	for _, id := range ids {
+		if !agent.inMaintenance(id) {
+			t.Errorf("%s not in maintenance", id)
+		}
+	}
+	if st := r.Status(); !st.Maintenance || st.Registered != len(ids) || st.Err != "" {
+		t.Errorf("status %+v (%d services)", st, len(ids))
+	}
+	if !slices.Equal(agent.ids(), ids) {
+		t.Errorf("services changed: %q, were %q", agent.ids(), ids)
+	}
+
+	// Started again: read, out of maintenance.
+	mu.Lock()
+	stopped, *maint = false, ""
+	mu.Unlock()
+	if err := r.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids {
+		if agent.inMaintenance(id) {
+			t.Errorf("%s still in maintenance", id)
+		}
 	}
 }
 

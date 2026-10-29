@@ -25,6 +25,8 @@
 #     serving HAProxy's prometheus-exporter);
 #   - a map entry added at runtime is a URL in the catalog within 60 s;
 #   - drained, the node's services are in maintenance; undrained, passing;
+#   - HAProxy stopped (its configuration reads a map): in maintenance;
+#     started, back;
 #   - a node removed from the Controller: its layer off, its token
 #     deleted, its entry deregistered;
 #   - no AVC denial on either node.
@@ -342,14 +344,21 @@ for name, nid in (("node-a", a), ("node-b", b)):
 PY
 echo "  ok: one token per node - its node identity and janus-nodes, described by its name and ID"
 
-consul_api GET /v1/catalog/node/node-a > "$WORKDIR/node-a.json"
-python3 - "$WORKDIR/node-a.json" "${ID[a]}" "$NET.11" <<'PY' || fail "A's node metadata: $(cat "$WORKDIR/node-a.json")"
+# The node's metadata reaches the catalog with its agent's sync - a
+# moment after it joined: read at once, it was missing once.
+deadline=$((SECONDS + 30))
+until consul_api GET /v1/catalog/node/node-a > "$WORKDIR/node-a.json" &&
+  python3 - "$WORKDIR/node-a.json" "${ID[a]}" "$NET.11" <<'PY'
 import json, sys
 n, nid, addr = json.load(open(sys.argv[1]))["Node"], sys.argv[2], sys.argv[3]
 assert n["Address"] == addr, n
 m = n["Meta"]
-assert m["dc"] == "lgs" and m["room"] == "lab" and m["janus_node_id"] == nid, m
+assert m.get("dc") == "lgs" and m.get("room") == "lab" and m.get("janus_node_id") == nid, m
 PY
+do
+  [ "$SECONDS" -lt "$deadline" ] || fail "A's node metadata: $(cat "$WORKDIR/node-a.json")"
+  sleep 1
+done
 echo "  ok: A's node metadata: its labels (dc=lgs, room=lab) and its ID; its address the LAN's"
 
 services() { # services NODE: its services in the catalog, "ID name" per line
@@ -488,6 +497,25 @@ until [ "$(health node-a janus:janus)" = passing ]; do
 done
 echo "  ok: undrained, they pass again"
 
+# --- HAProxy stopped ------------------------------------------------------------------
+# A's configuration reads a map: with HAProxy stopped it can't be read
+# (the stats socket is gone) - its services go in maintenance all the
+# same (v2026.10.29-2's lab: they didn't).
+out="$(ctl a system service stop haproxy 2>&1)" || fail "stop A's HAProxy: $out"
+deadline=$((SECONDS + 30))
+until [ "$(health node-a janus:janus)" = maintenance ] && [ "$(health node-a janus:url:fe_sites:www.example.test)" = maintenance ]; do
+  [ "$SECONDS" -lt "$deadline" ] || fail "HAProxy stopped, A's services aren't in maintenance: janus $(health node-a janus:janus), URL $(health node-a janus:url:fe_sites:www.example.test)"
+  sleep 1
+done
+echo "  ok: HAProxy stopped, A's services are in maintenance (its map unread)"
+out="$(ctl a system service start haproxy 2>&1)" || fail "start A's HAProxy: $out"
+deadline=$((SECONDS + 30))
+until [ "$(health node-a janus:janus)" = passing ] && [ "$(health node-a janus:url:fe_sites:www.example.test)" = none ]; do
+  [ "$SECONDS" -lt "$deadline" ] || fail "HAProxy started, A's services: janus $(health node-a janus:janus), URL $(health node-a janus:url:fe_sites:www.example.test)"
+  sleep 1
+done
+echo "  ok: HAProxy started, they're back"
+
 # --- a node removed ---------------------------------------------------------------------
 acc_b="$(python3 -c '
 import json, sys
@@ -526,4 +554,4 @@ if [ -n "$denials" ]; then
     fail "AVC denials under enforcing"
   fi
 fi
-echo "Consul Controller test OK: the Controller made each node's token and its layer from what Consul says, the nodes joined and registered their services and URLs, a map change followed, drain meant maintenance, a node removed was cleaned up - zero AVC denials"
+echo "Consul Controller test OK: the Controller made each node's token and its layer from what Consul says, the nodes joined and registered their services and URLs, a map change followed, drain and a stopped HAProxy meant maintenance, a node removed was cleaned up - zero AVC denials"

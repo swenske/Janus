@@ -316,9 +316,10 @@ scrape_configs:
       - source_labels: [__meta_consul_metadata_janus_cluster]
         target_label: cluster
       # A drained or stopping node's instances are in maintenance
-      # (critical): the other members serve the same URLs.
+      # ("maintenance" here; a failing check: "critical"): the other
+      # members serve the same URLs.
       - source_labels: [__meta_consul_health]
-        regex: critical
+        regex: critical|maintenance
         action: drop
       # A URL meant to answer 401 or 403: left out.
       - source_labels: [__meta_consul_service_metadata_url]
@@ -329,8 +330,11 @@ scrape_configs:
 ```
 
 Each target carries its instance's health (`__meta_consul_health`): a
-drained node's URLs, in maintenance, are `critical` - dropped above, the
-other members of its cluster still probed for them.
+drained node's URLs, in maintenance, are `maintenance` - dropped above
+with those whose check fails (`critical`), the other members of its
+cluster still probed for them. With Consul's own HTTPS port and its own
+CA, give each `consul_sd_configs` entry the CA: `tls_config: {ca_file:
+/etc/prometheus/consul-ca.pem}`.
 
 ## The API
 
