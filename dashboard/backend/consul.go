@@ -382,14 +382,17 @@ func (a *app) consulNode(ctx context.Context, n *store.Node, set consulctl.Setti
 		st.TokenAccessor = tok.AccessorID
 	}
 	cur, err := c.nodes.ManagedGet(ctx, n)
-	if status.Code(err) == codes.Unimplemented {
+	// A release without the managed layer has none to take off: it says
+	// so only when it should have one - else it's off or not picked.
+	old := status.Code(err) == codes.Unimplemented
+	if old && set.Enabled && set.Picks(a.nodeLabels(n)) {
 		return consulNodeState{State: "unsupported", Error: "this node's release can't take a managed Consul layer: update it"}
 	}
-	if err != nil {
+	if err != nil && !old {
 		st.State, st.Error = "error", status.Convert(err).Message()
 		return st
 	}
-	if cur.GetState() == janusv1alpha1.ModuleState_MODULE_STATE_NOT_ENABLED {
+	if !old && cur.GetState() == janusv1alpha1.ModuleState_MODULE_STATE_NOT_ENABLED {
 		st.State = "no extension"
 	}
 	have := cur.GetManaged().GetManagedBy()
