@@ -326,6 +326,14 @@ example:
   Controller for the test; the libvirt preparation's UEFI firmware step
   on the lab's hosts; the longterm and Let's Encrypt machines updated
   through the Controller.
+- v2026.10.29: the cluster's update in place under load in place of the
+  rolling update, and a drained member rebooted (Clusters, below); two
+  machines on networks without DHCP, one per version, their boots read
+  from the console through the Controller; a machine with the guest
+  agent and its management network in DHCP mode; the new VRRP and BGP
+  counters read from both nodes' exporters; headless Claude Code with
+  the plugin's hook against a node, a reader certificate; HAProxy's
+  throughput again with node 01 alternating both versions (`abrun`).
 
 ### HAProxy killed by the kernel
 
@@ -422,6 +430,8 @@ through `janusctl` along the way, its counts compared with the requests
 | Applies with and without VRRP | rolling applies of a `haproxy.cfg` change under load, VRRP managed then not | requests lost, `wrk`'s worst latency and errors |
 | In sync under load | `wrk` through the VIP, each request a stick-table update; each member's `cluster status`, its exporter's `janus_cluster_peer_table_synced` and the Controller's check, sampled during the load and after (since v2026.10.24-2) | in sync or "catching up", member by member, under load and idle |
 | A member removed under load | the backup removed through the API, with a TLS frontend naming the ticket key ring on both and a session saved from the master before (since v2026.10.24-2) | time, requests lost; the rings' SHA-256 after - the departed node's own, the master's renewed; the session resumed nowhere; the departed node's drain, as it reports it |
+| Updated in place under load | `POST /api/clusters/{id}/upgrade` from the previous release to the pre-release, `wrk` and the probes running (since v2026.10.29, in place of the rolling update) | requests lost, each member's drained-to-back time, the journal's steps, the tables and slots after |
+| A drained member rebooted | the backup drained, rebooted through the firmware, the router's routes read every 0.75 s until undrained (since v2026.10.29) | the member's VRRP state and BGP protocols at boot, the router's routes, which node the probes reached |
 | Deleted | | time; the nodes on their own - each with a ring of its own -, the lab's configuration put back |
 | The page | the Clusters list and the cluster's tabs with these data | both themes, axe, console errors, failed requests |
 
@@ -754,3 +764,12 @@ ran:
   of new connections and one of 256 keep-alive connections, per request;
   `consul54`, a Consul server in a container next to the Controller
   (v2026.10.28-2).
+- `cluster-lab upgrade VERSION`: the cluster updated in place, each
+  member's stage printed as it changes; `drain-reboot MEMBER
+  firmware|kexec`: a member drained, rebooted and watched (VRRP, BGP,
+  the router's routes) until undrained; `boot-console NAME SECONDS OUT`:
+  a Controller machine reset with its console recorded; `new-machine`
+  with `NOMGMT=1` (front and backend only) or `MGMT_DHCP=1`; `snap DIR`:
+  both nodes' configurations, to compare with the campaign before;
+  `abrun N`: `cpuab` on node 01, alternating versions by rollbacks
+  (v2026.10.29).
