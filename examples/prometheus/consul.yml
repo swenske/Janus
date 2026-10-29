@@ -1,22 +1,36 @@
 # Prometheus finding the Janus nodes and what they serve in Consul
-# (docs/guide/consul-controller.md): the Janus exporter of every node
-# (the janus-exporter service), and every URL the nodes' maps and Host
-# ACLs route (the haproxy-url service) probed by the blackbox exporter.
-# Its token reads the catalog: node_prefix and service_prefix "" read.
-# Checked by promtool (make examples-check).
+# (docs/guide/consul-controller.md): every exporter the nodes run - the
+# services tagged prometheus: janus-exporter, node-exporter,
+# haproxy-exporter -, each on its own path and scheme, and every URL the
+# nodes' maps and Host ACLs route (the haproxy-url service) probed by the
+# blackbox exporter. Its token reads the catalog: node_prefix and
+# service_prefix "" read. Checked by promtool (make examples-check).
 global:
   scrape_interval: 30s
 
 scrape_configs:
-  - job_name: janus
+  - job_name: consul_exporters
     consul_sd_configs:
       - server: consul.example.net:443
         scheme: https
         datacenter: lgs
-        services: [janus-exporter]
+        tags: [prometheus]
         authorization:
           credentials_file: /etc/prometheus/consul-token
+    # haproxy-exporter on a bind with ssl: its certificate, checked
+    # against your CA.
+    tls_config:
+      ca_file: /etc/prometheus/internal-ca.pem
     relabel_configs:
+      # Each exporter where it says: its path, its scheme.
+      - source_labels: [__meta_consul_service_metadata_metrics_path]
+        target_label: __metrics_path__
+      - source_labels: [__meta_consul_service_metadata_scheme]
+        target_label: __scheme__
+      - source_labels: [__meta_consul_service]
+        target_label: exporter
+      - source_labels: [__meta_consul_service_metadata_frontend]
+        target_label: frontend
       - source_labels: [__meta_consul_node]
         target_label: node
       - source_labels: [__meta_consul_metadata_dc]

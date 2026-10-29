@@ -162,10 +162,16 @@ starting `janus:`: your own `services {}` are never touched.
 | Service | What |
 |---|---|
 | `janus` | janusd's API, `:9505`, a TCP check |
-| `janus-exporter` | the [Janus exporter](../metrics.md), its port, meta `metrics_path` |
-| `node-exporter` | the node exporter, when that extension runs |
+| `janus-exporter` | the [Janus exporter](../metrics.md) while it's on, where it listens: its main address (`auto`), the address it's set to, else the node's; an HTTP check on its metrics |
+| `node-exporter` | the [node exporter](../metrics.md#the-node-exporter) while its service runs, where it listens, the same way |
+| `haproxy-exporter` | each frontend or listen section that has HAProxy's own exporter answer (`http-request use-service prometheus-exporter`): its first bind's address and port, `metrics_path` from the rule's condition (`path /metrics`, `path_beg /prom`) - else `/metrics` -, `scheme` `https` when that bind has `ssl`; a TCP check |
 | `haproxy-<name>` | each frontend and listen section: the port of its first bind, the bind's address when it names one (an anycast address) - else the node's -, tags `haproxy`, its mode, `tls`; a TCP check; meta `frontend`, `maps` |
 | `haproxy-url` | one instance per URL the configuration routes, ID `janus:url:<frontend>:<host>`, no check; meta `url`, `frontend`, `backend`, `source` |
+
+Every exporter's instance has the tag `prometheus` and meta
+`metrics_path` and `scheme`: one Prometheus job finds them all (below).
+Turned off, stopped, moved: the node registers it again, or takes it off,
+within seconds. No other extension declares an exporter yet.
 
 The URLs' hosts:
 
@@ -206,10 +212,13 @@ services it no longer has. `janusctl network consul services` lists the
 agent's services, its own and yours, with their checks:
 
 ```text
-ID                                     NAME              ADDRESS            STATUS   BY      META
-janus:haproxy:fe_https                 haproxy-fe-https  192.0.2.151:443    passing  janusd  fe_https
-janus:janus                            janus             192.0.2.11:9505    passing  janusd  -
-janus:url:fe_https:www.example.com     haproxy-url       192.0.2.151:443    -        janusd  https://www.example.com
+NAME              ID                                  ADDRESS          TAGS                  META                      HEALTH   BY
+haproxy-exporter  janus:haproxy-exporter:fe_stats     192.0.2.11:8405  haproxy,prometheus    http /metrics, frontend fe_stats  passing  Janus
+haproxy-fe-https  janus:haproxy:fe_https              192.0.2.151:443  haproxy,http,tls      frontend fe_https         passing  Janus
+janus             janus:janus                         192.0.2.11:9505  janus,grpc            -                         passing  Janus
+janus-exporter    janus:janus-exporter                192.0.2.11:10056 janus,prometheus      http /metrics             passing  Janus
+haproxy-url       janus:url:fe_https:www.example.com  192.0.2.151:443  haproxy,url,https     https://www.example.com   -        Janus
+web               web                                 192.0.2.11:8080  -                     -                         passing  configuration
 ```
 
 ## Drained, stopped, going down
@@ -228,33 +237,49 @@ deleted, its entry in the catalog deregistered. A node another
 Controller manages is left alone. Turning the integration off does the
 same on every node.
 
-## Prometheus: the URLs probed
+## Prometheus: the exporters and the URLs
 
-The `haproxy-url` instances are what Prometheus's
+Prometheus's
 [Consul service discovery](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#consul_sd_config)
-hands the [blackbox exporter](https://github.com/prometheus/blackbox_exporter)
-- each URL in the instance's metadata, the node's labels in the node's:
+finds the exporters by their tag `prometheus` - each scraped on its own
+path and scheme -, and hands each `haproxy-url` instance to the
+[blackbox exporter](https://github.com/prometheus/blackbox_exporter) -
+its URL in the instance's metadata, the node's labels in the node's:
 
 ```yaml title="examples/prometheus/consul.yml"
 # Prometheus finding the Janus nodes and what they serve in Consul
-# (docs/guide/consul-controller.md): the Janus exporter of every node
-# (the janus-exporter service), and every URL the nodes' maps and Host
-# ACLs route (the haproxy-url service) probed by the blackbox exporter.
-# Its token reads the catalog: node_prefix and service_prefix "" read.
-# Checked by promtool (make examples-check).
+# (docs/guide/consul-controller.md): every exporter the nodes run - the
+# services tagged prometheus: janus-exporter, node-exporter,
+# haproxy-exporter -, each on its own path and scheme, and every URL the
+# nodes' maps and Host ACLs route (the haproxy-url service) probed by the
+# blackbox exporter. Its token reads the catalog: node_prefix and
+# service_prefix "" read. Checked by promtool (make examples-check).
 global:
   scrape_interval: 30s
 
 scrape_configs:
-  - job_name: janus
+  - job_name: consul_exporters
     consul_sd_configs:
       - server: consul.example.net:443
         scheme: https
         datacenter: lgs
-        services: [janus-exporter]
+        tags: [prometheus]
         authorization:
           credentials_file: /etc/prometheus/consul-token
+    # haproxy-exporter on a bind with ssl: its certificate, checked
+    # against your CA.
+    tls_config:
+      ca_file: /etc/prometheus/internal-ca.pem
     relabel_configs:
+      # Each exporter where it says: its path, its scheme.
+      - source_labels: [__meta_consul_service_metadata_metrics_path]
+        target_label: __metrics_path__
+      - source_labels: [__meta_consul_service_metadata_scheme]
+        target_label: __scheme__
+      - source_labels: [__meta_consul_service]
+        target_label: exporter
+      - source_labels: [__meta_consul_service_metadata_frontend]
+        target_label: frontend
       - source_labels: [__meta_consul_node]
         target_label: node
       - source_labels: [__meta_consul_metadata_dc]

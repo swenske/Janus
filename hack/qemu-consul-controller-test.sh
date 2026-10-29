@@ -16,9 +16,13 @@
 #     saved; the datacenter, the servers and the gossip key come from
 #     Consul. Each node gets its own token (node identity + janus-nodes),
 #     its agent joins (alive), its node metadata carries its labels and
-#     its ID, it registers janus, janus-exporter, one haproxy-<frontend>
-#     per frontend and one haproxy-url per host its hosts.map and its Host
-#     ACL route;
+#     its ID, it registers janus, one haproxy-<frontend> per frontend and
+#     one haproxy-url per host its hosts.map and its Host ACL route - and
+#     its exporters where they really listen, while they run, tag
+#     prometheus with metrics_path and scheme: janus-exporter (its main
+#     address, then the one it's moved to, absent while off),
+#     node-exporter (absent while stopped), haproxy-exporter (a frontend
+#     serving HAProxy's prometheus-exporter);
 #   - a map entry added at runtime is a URL in the catalog within 60 s;
 #   - drained, the node's services are in maintenance; undrained, passing;
 #   - a node removed from the Controller: its layer off, its token
@@ -260,6 +264,12 @@ frontend fe_sites
     use_backend %[req.hdr(host),lower,map(/etc/haproxy/files/hosts.map,be_default)]
     default_backend be_default
 
+frontend fe_stats
+    mode http
+    bind :8405
+    http-request use-service prometheus-exporter if { path /metrics }
+    http-request return status 404
+
 backend be_www
     mode http
     http-request return status 200 content-type text/plain string "www\n"
@@ -347,7 +357,8 @@ until out="$(services node-a)" && grep -q "^janus:url:fe_sites:www.example.test 
   [ "$SECONDS" -lt "$deadline" ] || fail "A's services never all came: $out; node: $(ctl a network consul managed 2>&1)"
   sleep 3
 done
-for want in "janus:janus janus" "janus:janus-exporter janus-exporter" "janus:haproxy:fe_sites haproxy-fe-sites" \
+for want in "janus:janus janus" "janus:janus-exporter janus-exporter" "janus:node-exporter node-exporter" \
+  "janus:haproxy-exporter:fe_stats haproxy-exporter" "janus:haproxy:fe_sites haproxy-fe-sites" \
   "janus:url:fe_sites:www.example.test haproxy-url" "janus:url:fe_sites:shop.example.test haproxy-url" \
   "janus:url:fe_sites:status.example.test haproxy-url"; do
   grep -qx "$want" <<<"$out" || fail "A's catalog has no $want: $out"
@@ -363,6 +374,21 @@ assert www["ServiceMeta"] == {"url": "http://www.example.test:8081", "frontend":
 assert www["ServiceAddress"] == sys.argv[2] and www["ServicePort"] == 8081, www
 assert urls["janus:url:fe_sites:status.example.test"]["ServiceMeta"]["source"] == "acl"
 PY
+# The exporters: where they really listen - the Janus and node exporters
+# on the main interface (eth0 here, the default route's), HAProxy's on
+# fe_stats's bind (every address: the node's) -, for one Prometheus job.
+exporter() { # exporter SERVICE: "address:port metrics_path scheme tags" of A's instances
+  consul_api GET "/v1/catalog/service/$1" | python3 -c '
+import json, sys
+for s in json.load(sys.stdin):
+    if s["Node"] == "node-a":
+        print("%s:%d %s %s %s" % (s["ServiceAddress"], s["ServicePort"], s["ServiceMeta"].get("metrics_path"), s["ServiceMeta"].get("scheme"), ",".join(s["ServiceTags"])))'
+}
+MAIN_A="$(ctl a system metrics | sed -n 's|^Exporter: http://\([0-9.]*\):10056/metrics.*|\1|p')"
+[ -n "$MAIN_A" ] || fail "A's exporter address: $(ctl a system metrics)"
+check "janus-exporter where it listens" "^$MAIN_A:10056 /metrics http janus,prometheus$" "$(exporter janus-exporter)"
+check "node-exporter where it listens" "^$MAIN_A:9100 /metrics http janus,prometheus$" "$(exporter node-exporter)"
+check "haproxy-exporter on fe_stats" "^$NET.11:8405 /metrics http haproxy,prometheus$" "$(exporter haproxy-exporter)"
 health() { # health NODE SERVICE-ID: its checks' worst status
   consul_api GET "/v1/health/node/$1" | python3 -c '
 import json, sys
@@ -385,7 +411,8 @@ check "janusctl shows the managed layer" "^Managed by: janus-controller " "$out"
 check "the token never comes back" "^ACL token: +set" "$out"
 check "the services registered" "^Services: +[0-9]+ registered" "$out"
 out="$(ctl a network consul services)"
-check "janusctl lists the agent's services" "janus:url:fe_sites:www.example.test +haproxy-url .* janusd" "$out"
+check "janusctl lists the agent's services" "^haproxy-url +janus:url:fe_sites:www.example.test +$NET.11:8081 +haproxy,url,http +http://www.example.test:8081 +- +Janus$" "$out"
+check "janusctl shows an exporter's path" "^haproxy-exporter +janus:haproxy-exporter:fe_stats .* http /metrics, frontend fe_stats +passing +Janus$" "$out"
 api -X POST "$API/api/consul/run" >/dev/null
 deadline=$((SECONDS + 30))
 until api "$API/api/consul/nodes" > "$WORKDIR/nodes.json" && python3 - "$WORKDIR/nodes.json" <<'PY'; do
@@ -396,7 +423,40 @@ PY
   [ "$SECONDS" -lt "$deadline" ] || fail "the Controller's view of A: $(cat "$WORKDIR/nodes.json")"
   sleep 2
 done
-echo "  ok: A registered janus, janus-exporter, haproxy-fe-sites and a haproxy-url per host (the map's, the ACL's - no wildcard, no IP); their checks pass; B its own"
+deadline=$((SECONDS + 60))
+until [ "$(health node-a janus:janus-exporter)" = passing ] && [ "$(health node-a janus:node-exporter)" = passing ] && [ "$(health node-a janus:haproxy-exporter:fe_stats)" = passing ]; do
+  [ "$SECONDS" -lt "$deadline" ] || fail "A's exporters' checks: $(health node-a janus:janus-exporter) $(health node-a janus:node-exporter) $(health node-a janus:haproxy-exporter:fe_stats)"
+  sleep 2
+done
+echo "  ok: A registered janus, haproxy-fe-sites and a haproxy-url per host (the map's, the ACL's - no wildcard, no IP), its exporters where they listen ($MAIN_A:10056, $MAIN_A:9100, $NET.11:8405, tag prometheus); their checks pass; B its own"
+
+# --- the exporters follow ---------------------------------------------------------
+out="$(ctl a system metrics -address "$NET.11" 2>&1)" || fail "move A's exporter: $out"
+deadline=$((SECONDS + 30))
+until [ "$(exporter janus-exporter | cut -d' ' -f1)" = "$NET.11:10056" ]; do
+  [ "$SECONDS" -lt "$deadline" ] || fail "the exporter moved, its service didn't: $(exporter janus-exporter)"
+  sleep 1
+done
+out="$(ctl a system metrics -disable 2>&1)" || fail "turn A's exporter off: $out"
+deadline=$((SECONDS + 30))
+until [ -z "$(exporter janus-exporter)" ]; do
+  [ "$SECONDS" -lt "$deadline" ] || fail "the exporter off, its service stayed: $(exporter janus-exporter)"
+  sleep 1
+done
+out="$(ctl a system metrics -enable -address auto 2>&1)" || fail "turn A's exporter on: $out"
+out="$(ctl a system service stop prometheus-node-exporter 2>&1)" || fail "stop node_exporter: $out"
+deadline=$((SECONDS + 30))
+until [ -z "$(exporter node-exporter)" ] && [ "$(exporter janus-exporter | cut -d' ' -f1)" = "$MAIN_A:10056" ]; do
+  [ "$SECONDS" -lt "$deadline" ] || fail "node_exporter stopped: $(exporter node-exporter); janus-exporter back: $(exporter janus-exporter)"
+  sleep 1
+done
+out="$(ctl a system service start prometheus-node-exporter 2>&1)" || fail "start node_exporter: $out"
+deadline=$((SECONDS + 30))
+until [ -n "$(exporter node-exporter)" ]; do
+  [ "$SECONDS" -lt "$deadline" ] || fail "node_exporter started again, its service didn't come back"
+  sleep 1
+done
+echo "  ok: the exporter moved to $NET.11: its service followed; off: gone; node_exporter stopped: gone, started: back"
 
 # --- a map entry added at runtime -------------------------------------------------
 t0=$SECONDS

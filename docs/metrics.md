@@ -453,12 +453,15 @@ the nodes' dashboard; each links to the other (**Janus dashboards**).
 ## Discovery through Consul
 
 With the Controller [managing the nodes' Consul agents](guide/consul-controller.md),
-every node registers its exporter as the service `janus-exporter` (and
-`node-exporter` where that extension runs), meta `metrics_path`: Prometheus
-finds them with `consul_sd_configs` instead of a static list - and the
-URLs the nodes route, `haproxy-url`, for the blackbox exporter to probe.
+every node registers each exporter it runs, where it really listens: this
+one as `janus-exporter`, `node-exporter` while that extension's service
+runs, `haproxy-exporter` for each frontend serving HAProxy's own - all
+tagged `prometheus`, with meta `metrics_path` and `scheme`. One
+Prometheus job with `consul_sd_configs` filtered on the tag scrapes them
+all, instead of a static list - and the URLs the nodes route,
+`haproxy-url`, go to the blackbox exporter.
 The example: [examples/prometheus/consul.yml](../examples/prometheus/consul.yml),
-shown and explained in [the guide](guide/consul-controller.md#prometheus-the-urls-probed).
+shown and explained in [the guide](guide/consul-controller.md#prometheus-the-exporters-and-the-urls).
 
 ## HAProxy's own metrics
 

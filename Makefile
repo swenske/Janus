@@ -1269,8 +1269,8 @@ qemu-consul-test: build extension-consul-amd64
 # The Controller managing the nodes' Consul agents: a Consul server in a
 # container (hack/consul-server), a native dashboardd, two enforcing
 # nodes on a bridge with it - see the script. Needs sudo and Docker.
-qemu-consul-controller-test: SCHEMATIC = hack/testdata/schematic-consul.json
-qemu-consul-controller-test: build dashboard-bin extension-consul-amd64
+qemu-consul-controller-test: SCHEMATIC = hack/testdata/schematic-consul-exporters.json
+qemu-consul-controller-test: build dashboard-bin extension-consul-amd64 extension-prometheus-node-exporter-amd64
 	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)
 	./hack/qemu-consul-controller-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl $(BIN_DIR)/dashboardd
 
