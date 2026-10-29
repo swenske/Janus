@@ -714,6 +714,27 @@ both members drained - and a node out of the selector.
 Since v2026.10.29-4, the example's `tags: [url, proto=http]`
 against `tags: [url, proto=tcp]` and the `filter` the notes suggest.
 
+### The image factory's mirror
+
+Since v2026.10.29-6: a machine the Controller makes on the release
+before the newest, with a schematic the production mirror holds for the
+newest; then the Controller's image factory set to a closed port and the
+mirror named (`JANUS_CONTROLLER_IMAGE_FACTORY`,
+`JANUS_CONTROLLER_IMAGE_FACTORY_MIRROR`), the Controller's settings
+restored after. Measured: the node page's update check (its `source`,
+`via`, the time it takes), the machine's update to the newest release -
+the Controller's and the node's requests in the mirror's access log, the
+time from the change to the node running it, the node's health - and the
+mirror's download count.
+
+### The usage report
+
+Since v2026.10.29-6, on the lab's Controller: the report's state after
+its update (off, what **Exactly what is sent** holds), turned on and
+sent at once to the production receiver - checked there, nothing of the
+lab's addresses in it -, **New ID** (the receiver forgets the previous
+one), turned off (nothing due, **Send now** refused).
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
