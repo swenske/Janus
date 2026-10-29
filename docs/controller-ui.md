@@ -141,7 +141,7 @@ row, then two of three, then three of two (`.overview-six`); without
 
 ## The main page
 
-Five tabs (hash routes `#/`, `#/clusters`, `#/hypervisors`, `#/tokens`, `#/settings`), and five more for an admin (`#/accounts`, `#/audit`, `#/log-forwarding`, `#/letsencrypt`, `#/backups`).
+Five tabs (hash routes `#/`, `#/clusters`, `#/hypervisors`, `#/tokens`, `#/settings`), and six more for an admin (`#/accounts`, `#/audit`, `#/log-forwarding`, `#/letsencrypt`, `#/consul`, `#/backups`).
 
 **Nodes**: until the fleet is set up, **Secure your fleet**
 (`Fleet.jsx`: create it, store the recovery kit and its passphrase,
@@ -547,8 +547,28 @@ has its drawer. Its groups:
   challenges -; then the account, the HTTP-01 rule, certificates and DNS
   providers as forms - secrets never shown, kept when left empty - and
   the configuration as JSON) and Consul
-  (agent, members, the configuration's files, the configuration in the
-  shared ModuleConfigEditor). An app the node doesn't have
+  (agent, the layer the Controller manages - **Managed by the
+  Controller**, read only, from `GET /api/network/consul/managed`
+  (`ConsulManagedGet`, readers: its secrets come back as `has_*`):
+  datacenter, node name, servers, advertised address, gossip key and
+  token set or not, RPC TLS, what it registers, the last sync and its
+  error, the node metadata; only when `managed_by` is set -, the agent's
+  **Services** (`services` of `GET /api/network/consul`, every reader:
+  an instance a row - service, ID, address:port, tags, the meta that
+  matters (a URL's `url`, an exporter's `scheme` and `metrics_path`, a
+  frontend's name), its health - passing, warning, critical,
+  maintenance -, the checks' outputs on hover and a failing one's or a
+  maintenance's reason under it, and who declared it: Janus (`janus:*`)
+  or the configuration; chips by kind - frontends, URLs (dozens, on a
+  node with a big hosts.map), exporters (tag `prometheus`), other - with
+  their counts, the table's own filter and sort (`DataTable`, 60 vh);
+  its model in `src/node/consulServices.js` (`npm test`). Instead of
+  the table: why it can't be read - the agent not running, or refusing
+  anonymous reads without a managed layer - or that nothing is
+  registered yet), members, the configuration's files, the
+  configuration in the shared ModuleConfigEditor - the agent runs on
+  the managed layer alone when nothing is saved). Polled every 5 s, the
+  managed layer every 15 s. An app the node doesn't have
   isn't listed - "Add or remove apps…", last, opens the Update page's
   image panel.
   Firewall: ruleset editor (check, diff, apply on trial - the Controller
@@ -1010,6 +1030,24 @@ for every chart (`scheduler.js`).
   (`GET`/`PUT /api/acme`, `POST /api/acme/run`) - the account, its DNS
   providers (`src/shared/ACMEProviderForm.jsx`, shared with a node's
   page) and the ordered certificates by node.
+- **Consul** (the Controller's tab, admins, `src/Consul.jsx`, its model
+  in `src/consul.js` - `npm test`; docs/guide/consul-controller.md):
+  the **Consul server** (on/off, its https address, how its certificate
+  is trusted, the Controller's token - write-only, "set - leave empty
+  to keep it" its placeholder -, the servers' RPC CA, folded: what the
+  token needs), **Test** with the settings as shown - saved or not, the
+  saved token where it's left empty (`POST /api/consul/test`: each
+  check a line, ok or why not); **The nodes' layer** (the label
+  selector, which services each node registers, the labels as node
+  metadata); an `UnsavedBar` until saved (`PUT /api/consul`, session
+  only). **Read from Consul** is the last pass's (datacenter, version,
+  servers, gossip key, its error), **Check the nodes now** `POST
+  /api/consul/run`; **Nodes** (`GET /api/consul/nodes`): each node's
+  name in Consul, its layer's state (applied, not picked, removed, no
+  extension, unsupported, another controller, error with its message,
+  off, waiting), its agent in the LAN pool (alive, failed...), its
+  services and URLs in the catalog, its token's accessor. Refreshed
+  every 15 s as background requests; the draft is kept.
 - **Previous boots** (Logs › Service logs, Logs › Kernel): a node with a
   LOGS partition lists its earlier boots (`/api/log-boots`) in a
   `BootSelect` next to the page's other controls - only once there is
