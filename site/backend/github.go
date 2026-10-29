@@ -42,6 +42,9 @@ type release struct {
 	Prerelease  bool      `json:"prerelease"`
 	// Assets by name -> download URL.
 	Assets map[string]string `json:"-"`
+	// Downloads by asset name: GitHub's count of each asset's downloads
+	// since the release was published (downloadStats.sampleGitHub).
+	Downloads map[string]int64 `json:"-"`
 	// Schematics: the release publishes the inputs a custom schematic is
 	// built from (schematic-catalog.json and friends).
 	Schematics bool `json:"schematics"`
@@ -119,15 +122,18 @@ type rawRelease struct {
 	Prerelease  bool      `json:"prerelease"`
 	PublishedAt time.Time `json:"published_at"`
 	Assets      []struct {
-		Name string `json:"name"`
-		URL  string `json:"browser_download_url"`
+		Name      string `json:"name"`
+		URL       string `json:"browser_download_url"`
+		Downloads int64  `json:"download_count"`
 	} `json:"assets"`
 }
 
 func (r rawRelease) release() *release {
-	rel := &release{Version: r.TagName, Name: r.Name, URL: r.HTMLURL, PublishedAt: r.PublishedAt, Prerelease: r.Prerelease, Assets: map[string]string{}}
+	rel := &release{Version: r.TagName, Name: r.Name, URL: r.HTMLURL, PublishedAt: r.PublishedAt, Prerelease: r.Prerelease,
+		Assets: map[string]string{}, Downloads: map[string]int64{}}
 	for _, a := range r.Assets {
 		rel.Assets[a.Name] = a.URL
+		rel.Downloads[a.Name] = a.Downloads
 	}
 	_, rel.Schematics = rel.Assets["schematic-catalog.json"]
 	return rel

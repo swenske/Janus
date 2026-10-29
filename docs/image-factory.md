@@ -182,11 +182,14 @@ The companion site's **Image builder** (<https://janus.sw-servers.net/builder>)
 walks through the choices - platform, release, extensions - and gives
 the schematic's ID, its YAML and the download links:
 
-- the **default schematic** downloads straight from the GitHub Release;
+- the **default schematic** downloads from the GitHub Release (the
+  builder's links go through the site, which redirects to the asset -
+  and counts it, see [Download counts](#download-counts));
 - any other is built on demand, the first time someone asks for it, from
   the build inputs that release published (below). It takes a few
   minutes; the page follows the build and offers the files when it's
-  done. Built images stay available, for the latest releases.
+  done. Built images stay available for each schematic's three newest
+  releases, and for its pre-releases newer than those.
 
 The same service answers nodes' update questions, per schematic:
 
@@ -206,6 +209,29 @@ update once it's built. When a new
 release comes out, the site builds the update bundle of every schematic
 it has already served, so a node with extensions finds its update ready
 like one without.
+
+### Download counts
+
+Each choice of the builder - platform, HAProxy branch, kernel track,
+console, extension - shows how often images with it were downloaded in
+the last 30 days. The site counts **what** was downloaded, never who:
+a day, a schematic, a release and what was fetched, without an address,
+a user agent or anything else about the client.
+
+- A **platform's image** counts once per download from its start, from
+  the builder or a Controller creating a machine - not a `HEAD`, nor a
+  resumed transfer's later range.
+- An **update** is a schematic's `rootfs.squashfs`, fetched by a node or
+  its Controller. The default schematic's never reach the site - nodes
+  fetch them from the GitHub Release - so they come from GitHub's own
+  count of each release's `rootfs.squashfs`, sampled every 15 minutes
+  (a pre-release's downloads are tests, not updates: left out).
+
+`GET /api/v1/stats/downloads?days=N` (1 to 365, 30 by default) gives the
+totals by platform, release, HAProxy branch and kernel track (the ones
+each release built: an image following the default counts on the branch
+it got), console and extension - never by schematic. The site keeps 400
+days of them.
 
 ### How a custom image is built
 

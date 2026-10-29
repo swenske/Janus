@@ -116,6 +116,9 @@ a.button.primary:hover { filter: brightness(1.07); }
 .choice.disabled { opacity: 0.55; cursor: not-allowed; }
 .choice-title { font-weight: 650; display: inline-flex; align-items: center; gap: 0.35rem; }
 .choice-meta { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; color: var(--muted); font-family: var(--mono); }
+.downloads { display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.35rem; }
+.nowrap { white-space: nowrap; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .warn-text { color: var(--warn); }
 .copy-block { display: flex; align-items: flex-start; gap: 0.3rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.45rem 0.4rem 0.45rem 0.7rem; }
 .copy-block pre { margin: 0; flex: 1; white-space: pre-wrap; word-break: break-all; font-size: 0.85rem; }
