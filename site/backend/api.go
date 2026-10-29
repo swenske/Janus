@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -28,6 +29,7 @@ type app struct {
 	repo      string
 
 	builds *buildLimiter
+	stats  *downloadStats
 }
 
 // buildLimiter bounds how many builds visitors can start: every build
@@ -114,6 +116,7 @@ func (a *app) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/images/{id}/{version}/{arch}", a.handleImageBuild)
 	mux.HandleFunc("GET /api/v1/updates/{id}", a.handleUpdates)
 	mux.HandleFunc("GET /image/{id}/{version}/{arch}/{file}", a.handleDownload)
+	mux.HandleFunc("GET /api/v1/stats/downloads", a.handleDownloadStats)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok\n") })
 }
 
@@ -336,13 +339,22 @@ func (a *app) status(ctx context.Context, id, version, arch string) (*imageStatu
 	}
 	st := &imageStatus{Schematic: id, Version: version, Arch: arch}
 
-	// The default schematic is what the release itself published.
+	// The default schematic is what the release itself published. Its
+	// platforms' images are linked through the site (/image/..., a
+	// redirect to the asset) to be counted; its update bundle straight
+	// to the asset, which nodes fetch from GitHub with or without the
+	// site (GitHub counts those - downloadStats).
 	if id == schematic.DefaultID() {
 		st.State = "ready"
 		for _, name := range a.filesFor(arch) {
-			if url, ok := rel.Assets[name]; ok {
-				st.Files = append(st.Files, statusFile{Name: name, URL: url})
+			url, ok := rel.Assets[name]
+			if !ok {
+				continue
 			}
+			if k := downloadKind(arch, name); k != "" && k != kindUpdate {
+				url = a.fileURL(id, version, arch, name)
+			}
+			st.Files = append(st.Files, statusFile{Name: name, URL: url})
 		}
 		return st, sc, http.StatusOK, nil
 	}
@@ -624,12 +636,17 @@ func (a *app) releaseSHA256(ctx context.Context, rel *release) string {
 }
 
 // handleDownload serves a built file, or redirects to the release asset
-// for the default schematic.
+// for the default schematic - counting the platforms' images and the
+// updates (downloadStats).
 func (a *app) handleDownload(w http.ResponseWriter, r *http.Request) {
 	id, version, arch, file := r.PathValue("id"), r.PathValue("version"), r.PathValue("arch"), r.PathValue("file")
 	if !schematic.ValidID(id) || !validVersion(version) || !validArch(arch) || !servedFile(arch, file) {
 		http.NotFound(w, r)
 		return
+	}
+	kind := ""
+	if countable(r) {
+		kind = downloadKind(arch, file)
 	}
 	if id == schematic.DefaultID() {
 		rel, err := a.gh.Release(r.Context(), version)
@@ -641,6 +658,9 @@ func (a *app) handleDownload(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			http.NotFound(w, r)
 			return
+		}
+		if kind != kindUpdate { // GitHub counts the updates (sampleGitHub)
+			a.stats.count(id, version, kind)
 		}
 		http.Redirect(w, r, url, http.StatusFound)
 		return
@@ -654,8 +674,14 @@ func (a *app) handleDownload(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	path := filepath.Join(a.store.ImageDir(id, version, arch), file)
+	if _, err := os.Stat(path); err != nil {
+		http.NotFound(w, r)
+		return
+	}
 	if strings.HasSuffix(file, ".img") || strings.HasSuffix(file, ".iso") || strings.HasSuffix(file, ".qcow2") || strings.HasSuffix(file, ".vmdk") {
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", "janus-"+version+"-"+id[:8]+"-"+file))
 	}
-	http.ServeFile(w, r, filepath.Join(a.store.ImageDir(id, version, arch), file))
+	a.stats.count(id, version, kind)
+	http.ServeFile(w, r, path)
 }

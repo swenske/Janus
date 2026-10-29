@@ -10,13 +10,16 @@ package main
 import (
 	"context"
 	"embed"
+	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/swenske/Janus/internal/schematic"
@@ -33,7 +36,7 @@ func main() {
 	repo := flag.String("repo", "swenske/Janus", "GitHub repository")
 	githubAPI := flag.String("github-api", "https://api.github.com", "GitHub API base URL")
 	tokenFile := flag.String("github-token-file", "", "file holding a GitHub token allowed to start the schematic-build workflow (Actions: read and write); without it, custom builds can't be started")
-	keep := flag.Int("keep-versions", 3, "built versions kept per schematic")
+	keep := flag.Int("keep-versions", 3, "releases whose builds are kept per schematic (with the pre-releases newer than them all)")
 	flag.Parse()
 
 	token := ""
@@ -48,7 +51,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	a := &app{store: st, gh: newGitHub(*githubAPI, *repo, token, "schematic-build.yml"), publicURL: strings.TrimRight(*publicURL, "/"), repo: *repo, builds: newBuildLimiter()}
+	stats, err := newDownloadStats(*dataDir)
+	if err != nil {
+		log.Fatalf("download counts: %v", err)
+	}
+	a := &app{store: st, gh: newGitHub(*githubAPI, *repo, token, "schematic-build.yml"), publicURL: strings.TrimRight(*publicURL, "/"), repo: *repo,
+		builds: newBuildLimiter(), stats: stats}
 
 	mux := http.NewServeMux()
 	a.routes(mux)
@@ -76,11 +84,27 @@ func main() {
 		log.Printf("docs: %s = %s (%s, %d files)", name, ch.build.Version, ch.build.Commit, len(ch.files))
 	}
 
-	go a.maintain(context.Background(), *keep)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	defer stop()
+	go a.maintain(ctx, *keep)
+	counted := make(chan struct{})
+	go func() {
+		stats.run(ctx) // the counts are written once more when the site stops
+		close(counted)
+	}()
 
 	srv := &http.Server{Addr: *addr, Handler: securityHeaders(mux), ReadHeaderTimeout: 10 * time.Second}
+	go func() {
+		<-ctx.Done()
+		shut, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shut)
+	}()
 	log.Printf("janus-site listening on %s (data in %s, token: %v)", *addr, *dataDir, token != "")
-	log.Fatal(srv.ListenAndServe())
+	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
+	<-counted
 }
 
 // spaRoutes are the frontend's own pages (App.jsx): index.html answers
@@ -147,15 +171,27 @@ func securityHeaders(next http.Handler) http.Handler {
 // maintain runs the site's periodic work: when a release appears, build
 // its update bundle for every schematic already in use, so nodes find
 // their update ready (not for a pre-release: its testers' builds are
-// made when asked for, and a promoted one is a release then); and drop
-// old builds.
+// made when asked for, and a promoted one is a release then); count the
+// default schematic's updates GitHub served; and drop old builds - only
+// once the releases are known, to tell the pre-releases.
 func (a *app) maintain(ctx context.Context, keep int) {
 	for {
 		a.prebuild(ctx)
-		if err := a.store.Prune(keep, compareVersions); err != nil {
-			log.Printf("prune: %v", err)
+		if rels, err := a.gh.Releases(ctx); err == nil {
+			a.stats.sampleGitHub(rels)
+			pre := map[string]bool{}
+			for _, r := range rels {
+				pre[r.Version] = r.Prerelease
+			}
+			if err := a.store.Prune(keep, compareVersions, func(v string) bool { return pre[v] }); err != nil {
+				log.Printf("prune: %v", err)
+			}
 		}
-		time.Sleep(15 * time.Minute) //nolint:gosec // G118: runs for the process's life, there's nothing to cancel it
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(15 * time.Minute):
+		}
 	}
 }
 

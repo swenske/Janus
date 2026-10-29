@@ -95,7 +95,11 @@ func newTestApp(t *testing.T) (*app, *fakeGitHub, *httptest.Server) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := &app{store: st, gh: newGitHub(gh.srv.URL, "swenske/Janus", "tok", "schematic-build.yml"), publicURL: "https://site.test", builds: newBuildLimiter()}
+	stats, err := newDownloadStats(st.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &app{store: st, gh: newGitHub(gh.srv.URL, "swenske/Janus", "tok", "schematic-build.yml"), publicURL: "https://site.test", builds: newBuildLimiter(), stats: stats}
 	mux := http.NewServeMux()
 	a.routes(mux)
 	srv := httptest.NewServer(mux)
@@ -368,7 +372,7 @@ func TestPrune(t *testing.T) {
 	for _, v := range []string{"v2026.09.29", "v2026.09.30-2", "v2026.09.30-10", "v2026.10.01"} {
 		_ = os.MkdirAll(st.ImageDir(id, v, "amd64"), 0o755)
 	}
-	if err := st.Prune(2, compareVersions); err != nil {
+	if err := st.Prune(2, compareVersions, func(string) bool { return false }); err != nil {
 		t.Fatal(err)
 	}
 	entries, _ := os.ReadDir(filepath.Join(st.dir, "images", id))
@@ -377,6 +381,28 @@ func TestPrune(t *testing.T) {
 		got = append(got, e.Name())
 	}
 	if strings.Join(got, ",") != "v2026.09.30-10,v2026.10.01" {
+		t.Errorf("kept %v", got)
+	}
+}
+
+// Pre-releases newer than every release built stay, and don't count
+// against the releases kept; one a release superseded goes.
+func TestPruneKeepsReleasesPastPrereleases(t *testing.T) {
+	st, _ := newStore(t.TempDir())
+	id := strings.Repeat("e", 64)
+	pre := map[string]bool{"v2026.10.03": true, "v2026.10.05": true, "v2026.10.05-2": true}
+	for _, v := range []string{"v2026.10.01", "v2026.10.02", "v2026.10.03", "v2026.10.04", "v2026.10.05", "v2026.10.05-2"} {
+		_ = os.MkdirAll(st.ImageDir(id, v, "amd64"), 0o755)
+	}
+	if err := st.Prune(2, compareVersions, func(v string) bool { return pre[v] }); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := os.ReadDir(filepath.Join(st.dir, "images", id))
+	var got []string
+	for _, e := range entries {
+		got = append(got, e.Name())
+	}
+	if strings.Join(got, ",") != "v2026.10.02,v2026.10.04,v2026.10.05,v2026.10.05-2" {
 		t.Errorf("kept %v", got)
 	}
 }
