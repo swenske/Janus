@@ -435,6 +435,6 @@ func (c *Client) Test(ctx context.Context) (Cluster, []Check) {
 		add("acl", err, "")
 	}
 	members, err := c.Members(ctx)
-	add("members", err, fmt.Sprintf("%d members in the LAN pool", len(members)))
+	add("members", err, fmt.Sprintf("%d in the LAN pool", len(members)))
 	return cl, checks
 }
