@@ -50,10 +50,16 @@ func (s *SSE) Comment(text string) error { return s.s.write(": " + text + "\n\n"
 func (s *SSE) Send(event, payload string) error { return s.s.send(event, payload) }
 
 // FactoryCatalog is what the image factory builds - extensions, HAProxy
-// branches, kernel tracks - from its newest release that offers them
-// (cached).
+// branches, kernel tracks - from its newest release that offers them,
+// pre-releases left out (cached).
 func FactoryCatalog(ctx context.Context) (*FactoryCatalogView, error) {
 	return factoryCatalog(ctx)
+}
+
+// FactoryCatalogFor is what the image factory builds from version - a
+// pre-release a machine is created with, say (cached).
+func FactoryCatalogFor(ctx context.Context, version string) (*FactoryCatalogView, error) {
+	return factoryCatalogFor(ctx, version)
 }
 
 // FactoryCatalogView is GET /api/factory/catalog's answer.

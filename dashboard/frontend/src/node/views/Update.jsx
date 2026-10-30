@@ -144,11 +144,16 @@ export default function Update({ route = '' }) {
               , which the node runs: installing it takes the node back to an older release.
             </div>
           )}
-          {order === 0 && <p>The node already runs {installing}: it is installed again, on the other slot.</p>}
+          {order === 0 &&
+            (targetActive && target.schematic_change ? (
+              <p>The node already runs {installing}: it stays on that version, with another image (below).</p>
+            ) : (
+              <p>The node already runs {installing}: it is installed again, on the other slot.</p>
+            ))}
           {!installing && <p className="muted">This page doesn&apos;t know the version of this bundle: the node says it as it installs it.</p>}
-          {preActive && (
+          {(preActive || (targetActive && target.target_prerelease)) && (
             <div className="notice warn">
-              <strong>{pre.version} is a pre-release</strong>, for testing: not supported, and it may still change or be withdrawn.
+              <strong>{preActive ? pre.version : target.latest} is a pre-release</strong>, for testing: not supported, and it may still change or be withdrawn.
             </div>
           )}
           <p>
@@ -426,7 +431,9 @@ export default function Update({ route = '' }) {
           )}
           {targetActive && (
             <div className="notice" style={{ marginBottom: '0.75rem' }}>
-              Installs <strong className="mono">{target.latest}</strong> {target.source === 'github' ? 'from its GitHub release, ' : 'built by the image factory '}
+              Installs {target.target_prerelease && 'the pre-release '}
+              <strong className="mono">{target.latest}</strong>
+              {order === 0 && ', the version the node runs,'} {target.source === 'github' ? 'from its GitHub release, ' : 'built by the image factory '}
               {target.extensions.length ? (
                 <>
                   with <ExtensionBadges names={target.extensions} />
@@ -688,9 +695,11 @@ function ImageChanges({ target }) {
 
 // ChangeExtensions picks another set of extensions for the node and asks
 // the image factory (through the Controller) for an update built with
-// them - the newest release, signed with the Janus release key. A build
-// that doesn't exist yet is started and followed; once ready, onReady
-// fills in the installation below, which stays the usual A/B update.
+// them - the newest release, or on a node running a pre-release that
+// pre-release (the newest one), signed with the Janus release key; the
+// catalog shown is that version's. A build that doesn't exist yet is
+// started and followed; once ready, onReady fills in the installation
+// below, which stays the usual A/B update.
 function ChangeExtensions({ uc, onReady, onClose }) {
   const catalog = usePoll('/api/factory/catalog', { every: 0 })
   // null until changed: the node's extensions, under the catalog's names.
@@ -785,8 +794,15 @@ function ChangeExtensions({ uc, onReady, onClose }) {
         ) : (
           <div className="stack">
             <p className="muted small" style={{ margin: 0 }}>
-              A node runs the extensions, HAProxy and kernel built into its image. The image factory ({host}) builds the newest release, {catalog.data.version}, with what is chosen
-              here and signs it with the Janus release key; installing it is the usual update below - A/B, with automatic rollback.
+              A node runs the extensions, HAProxy and kernel built into its image.{' '}
+              {!catalog.data.prerelease ? (
+                <>The image factory ({host}) builds the newest release, {catalog.data.version}, with what is chosen here</>
+              ) : catalog.data.version === uc.version ? (
+                <>The node runs the pre-release {catalog.data.version}: the image factory ({host}) builds that pre-release again with what is chosen here - the node stays on it -</>
+              ) : (
+                <>The node runs a pre-release: the image factory ({host}) builds the newest one, {catalog.data.version}, with what is chosen here</>
+              )}{' '}
+              and signs it with the Janus release key; installing it is the usual update below - A/B, with automatic rollback.
             </p>
             {catalog.data.haproxy?.length > 0 && (
               <div className="grid grid-2">

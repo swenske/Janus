@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -326,8 +327,14 @@ func (a *app) handleMachineConsole(w http.ResponseWriter, r *http.Request) {
 // handleCatalog is what the "create a node" form offers: the newest
 // release (and the newest pre-release, when newer - for testing, never the
 // default), and the extensions, HAProxy branches and kernel tracks the
-// image factory builds.
+// image factory builds that release with - or ?version='s, the
+// pre-release typed in the form: what is offered is what is built.
 func (a *app) handleCatalog(w http.ResponseWriter, r *http.Request) {
+	version := r.URL.Query().Get("version")
+	if version != "" && !versionRe.MatchString(version) {
+		http.Error(w, fmt.Sprintf("version %q isn't a Janus release (vYYYY.MM.DD[-N])", version), http.StatusBadRequest)
+		return
+	}
 	out := struct {
 		Latest       string `json:"latest,omitempty"`
 		Prerelease   string `json:"prerelease,omitempty"`
@@ -348,7 +355,13 @@ func (a *app) handleCatalog(w http.ResponseWriter, r *http.Request) {
 			out.Prerelease = rel.Prerelease.TagName
 		}
 	}
-	if c, err := nodeproxy.FactoryCatalog(r.Context()); err != nil {
+	catalog := nodeproxy.FactoryCatalog
+	if version != "" {
+		catalog = func(ctx context.Context) (*nodeproxy.FactoryCatalogView, error) {
+			return nodeproxy.FactoryCatalogFor(ctx, version)
+		}
+	}
+	if c, err := catalog(r.Context()); err != nil {
 		out.CatalogError = err.Error()
 	} else {
 		out.Extensions, out.HAProxy, out.Kernel, out.CatalogVersion = c.Extensions, c.HAProxy, c.Kernel, c.Version

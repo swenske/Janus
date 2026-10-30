@@ -174,7 +174,10 @@ sha256, schematic change accepted), and the confirmation says what the
 node gains and loses. Installing is the usual update: A/B, automatic
 revert if HAProxy isn't healthy (always on for another HAProxy branch),
 and `Rollback` back to the previous image. Going back to no extension
-and the defaults is the default image, from the GitHub Release.
+and the defaults is the default image, from the GitHub Release. A node
+running a [pre-release](guide/updates.md#pre-releases) stays on it: the
+panel lists that pre-release's catalog - or the newest pre-release's,
+when a newer one is out - and prepares that version.
 
 ## Getting an image: janus.sw-servers.net
 

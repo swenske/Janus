@@ -51,7 +51,8 @@ back, then the next.
 
 **Changing the image** - its extensions, its HAProxy branch, its kernel
 track - is an update too: **Change the image…** on the same page asks
-the image factory for the newest release built with what you pick, and
+the image factory for the newest release built with what you pick (a
+node running a [pre-release](#pre-releases) stays on it), and
 the installation confirms what the node gains and loses ([images and
 extensions](../image-factory.md#updates-keep-the-schematic)). Another
 HAProxy branch may refuse the node's configuration: check it against
@@ -134,6 +135,12 @@ tests is never promoted, and the next release replaces it.
   update card. **Use this pre-release…** asks for its version, typed,
   then fills the usual A/B installation in; for a node with extensions
   the image factory builds it first, and the page follows the build.
+- **Changing its image keeps it on the pre-releases.** On a node running
+  one, **Change the image…** lists what that pre-release offers - or the
+  newest pre-release, when a newer one is out - and prepares it with what
+  you pick: adding or removing an extension doesn't take the node back
+  to the release. A node running a release changes its image on the
+  newest release, as always.
 - **It isn't supported** ([security policy](../../SECURITY.md)): install
   it where you test, not where your production depends on it. To leave
   it, **Rollback** goes back to the release the node ran before; the
