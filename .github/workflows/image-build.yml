@@ -1342,8 +1342,10 @@ jobs:
       # One make for the four images - the Proxmox and generic KVM qcow2s,
       # the VMware VMDK (image/kvm-proxmox, image/kvm, image/vmware:
       # image/disk/assemble.sh's GPT disk, the shape every UEFI boot test
-      # above proved, converted; unsigned, since Proxmox's and VMware's
-      # own firmware don't carry this project's Secure Boot certificate)
+      # above proved, converted; the UKIs on their ESPs signed like the
+      # bundle's, so a node boots them with Secure Boot on once the
+      # certificate is in its firmware's db - docs/guide/secure-boot.md -
+      # and checked by hack/uki-verify.sh)
       # and the installer ISO with its release bundle: rootfs-build runs
       # once, so the four carry the same rootfs and dm-verity root hash
       # (four make invocations built it four times, each a different hash
@@ -1366,7 +1368,9 @@ jobs:
             make release-images SIGNING_KEY="$KEY" SIGNING_CERT=image/secureboot/production-cert.pem
             sbverify --cert image/secureboot/production-cert.pem build/release/uki-a.efi
             sbverify --cert image/secureboot/production-cert.pem build/release/uki-b.efi
-            echo "Release bundle UKIs signed and verified against image/secureboot/production-cert.pem"
+            # shellcheck disable=SC2046 # a list of paths
+            ./hack/uki-verify.sh image/secureboot/production-cert.pem $(make -s release-image-files)
+            echo "Release bundle and images' UKIs signed and verified against image/secureboot/production-cert.pem"
           else
             echo "::warning::SECUREBOOT_SIGNING_KEY isn't set - release bundle left unsigned (can't be published as a release)"
             make release-images
@@ -1653,8 +1657,9 @@ jobs:
       # fetchBundleFile actually reads by these exact filenames.
       # Nodes verify an Upgrade bundle's UKI signature against this same
       # certificate, so an unsigned or wrongly signed bundle must never be
-      # published - fail here rather than ship one.
-      - name: Require a signed release bundle
+      # published - fail here rather than ship one. The images' UKIs too:
+      # a node installed from one must boot with Secure Boot on.
+      - name: Require a signed release bundle and signed images
         if: ${{ inputs.release_version != '' }}
         run: |
           set -euo pipefail
@@ -1662,6 +1667,9 @@ jobs:
             sbverify --cert image/secureboot/production-cert.pem "$uki" \
               || { echo "::error::$uki isn't signed with the production key - refusing to publish (is SECUREBOOT_SIGNING_KEY set, and does it match image/secureboot/production-cert.pem?)"; exit 1; }
           done
+          # shellcheck disable=SC2046 # a list of paths
+          ./hack/uki-verify.sh image/secureboot/production-cert.pem $(make -s release-image-files) \
+            || { echo "::error::an image's UKIs aren't signed with the production key - refusing to publish"; exit 1; }
 
       # The alpha warning (and what a pre-release is), this version's
       # hand-written notes, then GitHub's generated changes since the

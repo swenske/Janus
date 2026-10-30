@@ -772,14 +772,14 @@ disk-image: kernel-build rootfs-build state-image
 # qemu-img on top of disk-image's own tools. See
 # image/kvm-proxmox/assemble.sh.
 proxmox-image: kernel-build rootfs-build state-image
-	./image/kvm-proxmox/assemble.sh $(BUILD_DIR)/janus.qcow2 $(BUILD_DIR)/bzImage \
+	$(UKI_SIGNING) ./image/kvm-proxmox/assemble.sh $(BUILD_DIR)/janus.qcow2 $(BUILD_DIR)/bzImage \
 		$(BUILD_DIR)/rootfs $(BUILD_DIR)/rootfs/state.img A
 
 # Same conversion as proxmox-image, but as its own artifact for a
 # generic libvirt/KVM deployment (virt-install), not Proxmox's `qm`
 # import flow. See image/kvm/assemble.sh and image/kvm/README.md.
 kvm-image: kernel-build rootfs-build state-image
-	./image/kvm/assemble.sh $(BUILD_DIR)/janus-kvm.qcow2 $(BUILD_DIR)/bzImage \
+	$(UKI_SIGNING) ./image/kvm/assemble.sh $(BUILD_DIR)/janus-kvm.qcow2 $(BUILD_DIR)/bzImage \
 		$(BUILD_DIR)/rootfs $(BUILD_DIR)/rootfs/state.img A
 
 # disk-image's raw GPT disk converted to a streamOptimized VMDK -
@@ -790,7 +790,7 @@ kvm-image: kernel-build rootfs-build state-image
 # verified on a real ESXi host, waiting for testers): builds by hand,
 # left out of release-images.
 vmware-image: kernel-build rootfs-build state-image
-	./image/vmware/assemble.sh $(BUILD_DIR)/janus.vmdk $(BUILD_DIR)/bzImage \
+	$(UKI_SIGNING) ./image/vmware/assemble.sh $(BUILD_DIR)/janus.vmdk $(BUILD_DIR)/bzImage \
 		$(BUILD_DIR)/rootfs $(BUILD_DIR)/rootfs/state.img A
 
 # Suspended 2026-10-30 (baremetal in variants.mk's SUSPENDED_TARGETS:
@@ -804,7 +804,7 @@ vmware-image: kernel-build rootfs-build state-image
 # El Torito EFI path and as a raw disk (dd'd to USB). Requires xorriso
 # on top of uki-image's own tools (ukify, mtools/dosfstools).
 iso-image: kernel-build rootfs-build
-	./image/iso/assemble.sh $(BUILD_DIR)/janus.iso $(BUILD_DIR)/bzImage $(BUILD_DIR)/rootfs
+	$(UKI_SIGNING) ./image/iso/assemble.sh $(BUILD_DIR)/janus.iso $(BUILD_DIR)/bzImage $(BUILD_DIR)/rootfs
 
 # Proves iso-image's hybrid ISO boots under real OVMF as a raw GPT disk
 # - see hack/qemu-iso-boot-test.sh. Requires OVMF (package: ovmf).
@@ -822,7 +822,12 @@ qemu-iso-boot-test: iso-image
 # Its $(BUILD_DIR)/release is also the bundle a GitHub Release publishes
 # (image-build.yml), so it's the one that has to be signed: pass
 # SIGNING_KEY=<key.pem> SIGNING_CERT=<cert.pem> to sign both UKIs (left
-# unsigned when unset). Signing a separately built bundle instead
+# unsigned when unset). The same pair signs the UKIs on the published
+# images' ESPs - the qcow2s, the VMDK, the ISO (UKI_SIGNING: image/uki/
+# assemble.sh's UKI_SIGNING_KEY/CERT) - so a node installed from one
+# boots with Secure Boot on once the release certificate is in its
+# firmware's db (docs/guide/secure-boot.md). Not disk-image: the boot
+# tests' disk, never published. Signing a separately built bundle instead
 # isn't safe - rootfs-build reruns in every make invocation, and its
 # UKIs pin that rootfs.squashfs's dm-verity root hash: the same only
 # while the rootfs builds byte for byte the same (hack/reproducible.sh,
@@ -830,9 +835,10 @@ qemu-iso-boot-test: iso-image
 # invocation (release-images): one rootfs for the four.
 SIGNING_KEY ?=
 SIGNING_CERT ?=
+UKI_SIGNING = UKI_SIGNING_KEY="$(SIGNING_KEY)" UKI_SIGNING_CERT="$(SIGNING_CERT)"
 iso-image-with-bundle: kernel-build rootfs-build
 	./image/release/assemble.sh $(BUILD_DIR)/release $(BUILD_DIR)/bzImage $(BUILD_DIR)/rootfs "$(SIGNING_KEY)" "$(SIGNING_CERT)"
-	./image/iso/assemble.sh $(BUILD_DIR)/janus.iso $(BUILD_DIR)/bzImage $(BUILD_DIR)/rootfs $(BUILD_DIR)/release
+	$(UKI_SIGNING) ./image/iso/assemble.sh $(BUILD_DIR)/janus.iso $(BUILD_DIR)/bzImage $(BUILD_DIR)/rootfs $(BUILD_DIR)/release
 
 # Bare-metal Machine tranche cont'd: proves a node booted from the ISO
 # with an embedded release bundle (image/iso/assemble.sh's own optional

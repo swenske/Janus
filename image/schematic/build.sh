@@ -13,9 +13,11 @@
 # (extension-<name>-<arch>.tar).
 # <out-dir> gets, with the release's own file names:
 #   amd64: the update bundle (rootfs.squashfs, .sha256, rootfs.verity,
-#          uki-a.efi, uki-b.efi - signed when a key is given), janus.qcow2,
-#          janus-kvm.qcow2, janus.vmdk, janus.iso; and disk.img, for a
-#          boot test, which isn't published
+#          uki-a.efi, uki-b.efi), janus.qcow2, janus-kvm.qcow2,
+#          janus.vmdk, janus.iso - every UKI, the bundle's and those on
+#          the images' ESPs, signed when a key is given (checked by
+#          hack/uki-verify.sh); and disk.img, for a boot test, which
+#          isn't published
 #   arm64: pi4-disk.img, pi5-disk.img
 # and manifest.json (schematic, version, files with size and sha256).
 # A target variants.mk suspends (hack/target-suspended.sh) isn't built:
@@ -82,6 +84,8 @@ amd64)
   fi
   cp "$WORK/bundle"/{rootfs.squashfs,rootfs.squashfs.sha256,rootfs.verity,uki-a.efi,uki-b.efi} "$OUT/"
   echo "== disk images"
+  # Their ESPs' UKIs signed like the bundle's (image/uki/assemble.sh).
+  export UKI_SIGNING_KEY="$SIGNING_KEY" UKI_SIGNING_CERT="$SIGNING_CERT"
   ./image/disk/assemble.sh "$OUT/disk.img" "$KERNEL" "$WORK/rootfs" "$WORK/state.img" A
   ./image/kvm-proxmox/assemble.sh "$OUT/janus.qcow2" "$KERNEL" "$WORK/rootfs" "$WORK/state.img" A
   ./image/kvm/assemble.sh "$OUT/janus-kvm.qcow2" "$KERNEL" "$WORK/rootfs" "$WORK/state.img" A
@@ -95,6 +99,12 @@ amd64)
   else
     echo "== installer ISO"
     ./image/iso/assemble.sh "$OUT/janus.iso" "$KERNEL" "$WORK/rootfs" "$WORK/bundle"
+  fi
+  if [ -n "$SIGNING_CERT" ]; then
+    images=("$OUT/disk.img" "$OUT/janus.qcow2" "$OUT/janus-kvm.qcow2")
+    [ ! -e "$OUT/janus.vmdk" ] || images+=("$OUT/janus.vmdk")
+    [ ! -e "$OUT/janus.iso" ] || images+=("$OUT/janus.iso")
+    ./hack/uki-verify.sh "$SIGNING_CERT" "${images[@]}"
   fi
   ;;
 arm64)
