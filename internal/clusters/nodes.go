@@ -93,6 +93,24 @@ func nodeError(err error) error {
 	return err
 }
 
+// onceMore runs call, and once more if the connection turned out dead:
+// a member's shared connection from before its reboot looks fine until
+// the first bytes sent on it come back as a reset (no keepalive pings
+// it - see the Controller's nodeproxy.onceMore), so the first call after
+// the member is back fails with Unavailable while grpc reconnects
+// underneath; the second waits for the new connection, or the caller's
+// deadline. An undrain sent as soon as a member answered again was lost
+// that way (#438). Only for the calls a second run can't harm: reads,
+// drain, undrain, ClusterSet - never an apply, an upload or anything a
+// node makes anew.
+func onceMore[T any](call func(opts ...grpc.CallOption) (T, error)) (T, error) {
+	out, err := call()
+	if status.Code(err) != codes.Unavailable {
+		return out, err
+	}
+	return call(grpc.WaitForReady(true))
+}
+
 func (g GRPC) system(ctx context.Context, m Member) (janusv1alpha1.SystemServiceClient, error) {
 	conn, err := g.Conn(ctx, m)
 	if err != nil {
@@ -130,7 +148,9 @@ func (g GRPC) Version(ctx context.Context, m Member) (*janusv1alpha1.VersionResp
 	if err != nil {
 		return nil, err
 	}
-	v, err := c.Version(ctx, &emptypb.Empty{})
+	v, err := onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.VersionResponse, error) {
+		return c.Version(ctx, &emptypb.Empty{}, opts...)
+	})
 	return v, nodeError(err)
 }
 
@@ -139,7 +159,9 @@ func (g GRPC) Healthy(ctx context.Context, m Member) error {
 	if err != nil {
 		return err
 	}
-	_, err = c.ShowInfo(ctx, &emptypb.Empty{})
+	_, err = onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.ShowInfoResponse, error) {
+		return c.ShowInfo(ctx, &emptypb.Empty{}, opts...)
+	})
 	return nodeError(err)
 }
 
@@ -191,7 +213,9 @@ func (g GRPC) ACMEStatus(ctx context.Context, m Member) (*janusv1alpha1.ACMEStat
 	if err != nil {
 		return nil, err
 	}
-	st, err := c.ACMEStatus(ctx, &emptypb.Empty{})
+	st, err := onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.ACMEStatusResponse, error) {
+		return c.ACMEStatus(ctx, &emptypb.Empty{}, opts...)
+	})
 	return st, nodeError(err)
 }
 
@@ -233,7 +257,9 @@ func (g GRPC) ClusterGet(ctx context.Context, m Member) (*janusv1alpha1.ClusterI
 	if err != nil {
 		return nil, err
 	}
-	info, err := c.ClusterGet(ctx, &emptypb.Empty{})
+	info, err := onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.ClusterInfo, error) {
+		return c.ClusterGet(ctx, &emptypb.Empty{}, opts...)
+	})
 	return info, nodeError(err)
 }
 
@@ -242,7 +268,9 @@ func (g GRPC) ClusterSet(ctx context.Context, m Member, req *janusv1alpha1.Clust
 	if err != nil {
 		return nil, err
 	}
-	info, err := c.ClusterSet(ctx, req)
+	info, err := onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.ClusterInfo, error) {
+		return c.ClusterSet(ctx, req, opts...)
+	})
 	return info, nodeError(err)
 }
 
@@ -260,7 +288,9 @@ func (g GRPC) ClusterStatus(ctx context.Context, m Member) (*janusv1alpha1.Clust
 	if err != nil {
 		return nil, err
 	}
-	st, err := c.ClusterStatus(ctx, &emptypb.Empty{})
+	st, err := onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.ClusterStatusResponse, error) {
+		return c.ClusterStatus(ctx, &emptypb.Empty{}, opts...)
+	})
 	return st, nodeError(err)
 }
 
@@ -269,20 +299,29 @@ func (g GRPC) ClusterDrain(ctx context.Context, m Member, timeout time.Duration)
 	if err != nil {
 		return "", err
 	}
-	stream, err := c.ClusterDrain(ctx, &janusv1alpha1.ClusterDrainRequest{TimeoutSeconds: uint32(timeout.Seconds())})
+	last, err := onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.ClusterDrainProgress, error) {
+		stream, err := c.ClusterDrain(ctx, &janusv1alpha1.ClusterDrainRequest{TimeoutSeconds: uint32(timeout.Seconds())}, opts...)
+		if err != nil {
+			return nil, err
+		}
+		var last *janusv1alpha1.ClusterDrainProgress
+		for {
+			p, err := stream.Recv()
+			if err == io.EOF {
+				return last, nil
+			}
+			if err != nil {
+				if last != nil {
+					// The node had begun: what it said stands, not a retry.
+					return last, status.Error(codes.Aborted, status.Convert(err).Message())
+				}
+				return nil, err
+			}
+			last = p
+		}
+	})
 	if err != nil {
 		return "", nodeError(err)
-	}
-	var last *janusv1alpha1.ClusterDrainProgress
-	for {
-		p, err := stream.Recv()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return "", nodeError(err)
-		}
-		last = p
 	}
 	if last == nil {
 		return "", errors.New("the node said nothing of the drain")
@@ -298,7 +337,9 @@ func (g GRPC) ClusterUndrain(ctx context.Context, m Member) error {
 	if err != nil {
 		return err
 	}
-	_, err = c.ClusterUndrain(ctx, &emptypb.Empty{})
+	_, err = onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.ClusterInfo, error) {
+		return c.ClusterUndrain(ctx, &emptypb.Empty{}, opts...)
+	})
 	return nodeError(err)
 }
 
@@ -342,7 +383,9 @@ func (g GRPC) HAProxyConfig(ctx context.Context, m Member) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.GetConfig(ctx, &emptypb.Empty{})
+	resp, err := onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.GetConfigResponse, error) {
+		return c.GetConfig(ctx, &emptypb.Empty{}, opts...)
+	})
 	if err != nil {
 		return nil, nodeError(err)
 	}
@@ -401,7 +444,9 @@ func (g GRPC) Files(ctx context.Context, m Member) ([]*janusv1alpha1.HAProxyFile
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.FileList(ctx, &emptypb.Empty{})
+	resp, err := onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.FileListResponse, error) {
+		return c.FileList(ctx, &emptypb.Empty{}, opts...)
+	})
 	if err != nil {
 		return nil, nodeError(err)
 	}
@@ -413,7 +458,9 @@ func (g GRPC) FileGet(ctx context.Context, m Member, name string) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.FileGet(ctx, &janusv1alpha1.FileGetRequest{Name: name})
+	resp, err := onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.FileGetResponse, error) {
+		return c.FileGet(ctx, &janusv1alpha1.FileGetRequest{Name: name}, opts...)
+	})
 	if err != nil {
 		return nil, nodeError(err)
 	}
@@ -502,7 +549,9 @@ func (g GRPC) Addresses(ctx context.Context, m Member) ([]netip.Addr, error) {
 	if err != nil {
 		return nil, err
 	}
-	st, err := c.NetworkStatus(ctx, &emptypb.Empty{})
+	st, err := onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.NetworkStatusResponse, error) {
+		return c.NetworkStatus(ctx, &emptypb.Empty{}, opts...)
+	})
 	if err != nil {
 		return nil, nodeError(err)
 	}
@@ -522,7 +571,9 @@ func (g GRPC) BootTime(ctx context.Context, m Member) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, err
 	}
-	st, err := c.SystemStat(ctx, &emptypb.Empty{})
+	st, err := onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.SystemStatResponse, error) {
+		return c.SystemStat(ctx, &emptypb.Empty{}, opts...)
+	})
 	if err != nil {
 		return time.Time{}, nodeError(err)
 	}
@@ -534,7 +585,9 @@ func (g GRPC) VRRPMasters(ctx context.Context, m Member) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	st, err := c.VRRPStatus(ctx, &emptypb.Empty{})
+	st, err := onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.VRRPStatusResponse, error) {
+		return c.VRRPStatus(ctx, &emptypb.Empty{}, opts...)
+	})
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.FailedPrecondition {
 			return nil, nil // no keepalived in its image
@@ -555,7 +608,9 @@ func (g GRPC) Announcing(ctx context.Context, m Member) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	st, err := c.BGPStatus(ctx, &emptypb.Empty{})
+	st, err := onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.BGPStatusResponse, error) {
+		return c.BGPStatus(ctx, &emptypb.Empty{}, opts...)
+	})
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.FailedPrecondition {
 			return "", nil // no BIRD in its image
