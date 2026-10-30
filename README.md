@@ -13,7 +13,7 @@
   <a href="https://github.com/swenske/Janus/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/swenske/Janus?sort=date&display_name=tag&label=release"></a>
   <a href="docs/architecture.md#roadmap"><img alt="Status: alpha" src="https://img.shields.io/badge/status-alpha-orange"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/swenske/Janus"></a>
-  <a href="go.mod"><img alt="Go version" src="https://img.shields.io/github/go-mod/go-version/swenske/Janus?logo=go&logoColor=white"></a>
+  <a href="go.mod"><img alt="Go version" src="https://img.shields.io/badge/Go-1.27.3-00ADD8?logo=go&logoColor=white"></a>
   <br>
   <a href="https://janus.sw-servers.net/"><img alt="Website" src="https://img.shields.io/badge/website-janus.sw--servers.net-2f6feb?logo=googlechrome&logoColor=white"></a>
   <a href="https://janus.sw-servers.net/docs/"><img alt="Documentation" src="https://img.shields.io/badge/docs-janus.sw--servers.net%2Fdocs-2f6feb?logo=readthedocs&logoColor=white"></a>
