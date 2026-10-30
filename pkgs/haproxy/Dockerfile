@@ -97,11 +97,27 @@ RUN test -n "${ZLIB_SHA256}" \
 FROM fetch-base AS fetch-haproxy
 ARG HAPROXY_VERSION
 ARG HAPROXY_SHA256
+# haproxy.org first, then the same tarball from Gentoo's distfiles (a
+# directory named by the first byte of the file name's BLAKE2b) and
+# FreeBSD's: haproxy.org refused every connection, worldwide, the night
+# of 2026-10-30, and the build waited on it. versions.mk's sha256
+# decides, whoever served the file.
 RUN test -n "${HAPROXY_SHA256}" \
     && branch="$(echo "${HAPROXY_VERSION}" | cut -d. -f1,2)" \
-    && curl -fsSLO "https://www.haproxy.org/download/${branch}/src/haproxy-${HAPROXY_VERSION}.tar.gz" \
-    && echo "${HAPROXY_SHA256}  haproxy-${HAPROXY_VERSION}.tar.gz" | sha256sum -c - \
-    && tar xf haproxy-${HAPROXY_VERSION}.tar.gz
+    && f="haproxy-${HAPROXY_VERSION}.tar.gz" \
+    && gentoo="$(printf %s "$f" | b2sum | cut -c1-2)" \
+    && for url in "https://www.haproxy.org/download/${branch}/src/$f" \
+        "https://distfiles.gentoo.org/distfiles/${gentoo}/$f" \
+        "http://distcache.freebsd.org/ports-distfiles/$f"; do \
+        if curl -fsSL --connect-timeout 20 -o "$f" "$url" \
+            && echo "${HAPROXY_SHA256}  $f" | sha256sum -c -; then \
+            break; \
+        fi; \
+        echo "$url: unreachable, or not the pinned tarball" >&2; \
+        rm -f "$f"; \
+    done \
+    && test -f "$f" \
+    && tar xf "$f"
 
 FROM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS deps
 ARG AWSLC_VERSION
