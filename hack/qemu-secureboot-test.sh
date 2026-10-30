@@ -15,7 +15,9 @@
 #      its UKIs signed through UKI_SIGNING_KEY/CERT as the Makefile
 #      signs them: hack/uki-verify.sh accepts its ESP against the test
 #      certificate and refuses it against another, and it boots under
-#      Secure Boot with the kernel saying so.
+#      Secure Boot with the kernel saying so - and, given janusctl, the
+#      node itself: `janusctl version` says "Secure Boot: on" (janusd
+#      reading its UEFI variables), with zero AVC denials.
 #
 # Needs the secboot-capable OVMF firmware variant (OVMF_CODE_4M.secboot.fd,
 # not the plain OVMF_CODE_4M.fd every other boot test here uses) *and*
@@ -25,11 +27,18 @@
 # (confirmed empirically: identical command, only the machine type
 # changed, before it worked at all).
 #
-# Usage: hack/qemu-secureboot-test.sh <bzImage> <rootfs-dir>
+# Usage: hack/qemu-secureboot-test.sh <bzImage> <rootfs-dir> [janusctl-bin]
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 
-KERNEL="${1:?usage: $0 <bzImage> <rootfs-dir>}"
-ROOTFS_DIR="${2:?usage: $0 <bzImage> <rootfs-dir>}"
+# sgdisk, e2fsck and debugfs (state-read.sh) live in /usr/sbin.
+export PATH="$PATH:/usr/sbin:/sbin"
+
+KERNEL="${1:?usage: $0 <bzImage> <rootfs-dir> [janusctl-bin]}"
+ROOTFS_DIR="${2:?usage: $0 <bzImage> <rootfs-dir> [janusctl-bin]}"
+CTL_BIN="${3:-}"
+HOST_GRPC_PORT="$((18330 + ${JANUS_TEST_PORT_OFFSET:-0}))"
 BOOT_TIMEOUT_SECS="${QEMU_SECUREBOOT_TIMEOUT:-30}"
 MARKER="JANUS_INIT_BOOT_OK"
 
@@ -116,20 +125,49 @@ if "$SELF_DIR/uki-verify.sh" "$SELF_DIR/../image/secureboot/production-cert.pem"
   exit 1
 fi
 DISK_LOG="$WORKDIR/disk.log"
-timeout "${BOOT_TIMEOUT_SECS}" qemu-system-x86_64 -accel kvm -accel tcg \
+disk_fail() {
+  echo "Secure Boot test FAILED: $*" >&2
+  echo "--- console output ---" >&2
+  cat "$DISK_LOG" >&2
+  exit 1
+}
+: >"$DISK_LOG"
+qemu-system-x86_64 -accel kvm -accel tcg \
   -machine q35,smm=on \
   -global driver=cfi.pflash01,property=secure,value=on \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file="$WORKDIR/vars.fd" \
   -drive file="$WORKDIR/disk.img",format=raw,if=virtio \
   -nographic -no-reboot -display none -m 1G \
+  -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:${HOST_GRPC_PORT}-:9505" \
+  -device virtio-net-pci,netdev=net0 \
   -serial file:"$DISK_LOG" \
-  >/dev/null 2>&1 || true
-if ! grep -q "$MARKER" "$DISK_LOG" || ! grep -q "Secure boot enabled" "$DISK_LOG"; then
-  echo "Secure Boot test FAILED: the signed disk image didn't boot under Secure Boot ($MARKER and the kernel's \"Secure boot enabled\" expected)" >&2
-  echo "--- console output ---" >&2
-  cat "$DISK_LOG" >&2
-  exit 1
-fi
+  </dev/null >/dev/null 2>&1 &
+QEMU_PID=$!
+deadline=$((SECONDS + BOOT_TIMEOUT_SECS))
+until grep -aq "$MARKER" "$DISK_LOG"; do
+  [ "$SECONDS" -lt "$deadline" ] || disk_fail "the signed disk image didn't boot under Secure Boot: no $MARKER within ${BOOT_TIMEOUT_SECS}s"
+  sleep 0.5
+done
+grep -aq "Secure boot enabled" "$DISK_LOG" || disk_fail "the signed disk image booted, but the kernel didn't say \"Secure boot enabled\""
 echo "Signed disk image OK: hack/uki-verify.sh checks its ESP, and it boots under Secure Boot"
+
+if [ -n "$CTL_BIN" ]; then
+  deadline=$((SECONDS + 90))
+  until grep -aq "janusd .* listening on" "$DISK_LOG"; do
+    [ "$SECONDS" -lt "$deadline" ] || disk_fail "janusd never listened within 90s"
+    sleep 0.5
+  done
+  state_pki "$WORKDIR/disk.img" "$WORKDIR" || disk_fail "the first boot's credentials never reached STATE"
+  ctl() { "$CTL_BIN" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" "$@"; }
+  deadline=$((SECONDS + 60))
+  until version="$(ctl version 2>&1)"; do
+    [ "$SECONDS" -lt "$deadline" ] || disk_fail "janusd's API never answered: $version"
+    sleep 1
+  done
+  grep -qx "Secure Boot: on" <<<"$version" || disk_fail "janusctl version doesn't say Secure Boot: on: $version"
+  if grep -a "avc:.*denied" "$DISK_LOG"; then disk_fail "AVC denials"; fi
+  grep -aq "SELinux:  Initializing" "$DISK_LOG" || disk_fail "no SELinux initialization in the console log"
+  echo "Node OK: janusctl version says Secure Boot: on, zero AVC denials"
+fi
 echo "Secure Boot test OK: only correctly signed images boot"

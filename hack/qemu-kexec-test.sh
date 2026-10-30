@@ -123,6 +123,12 @@ wait_api "first boot"
 [ "$(firmware_boots)" -eq 1 ] || fail "the first boot: OVMF's '$FIRMWARE_LINE' seen $(firmware_boots) time(s), want 1"
 [ "$(kexecs)" -eq 0 ] || fail "a kexec before any was asked for"
 echo "  ok: first boot through the firmware, API up"
+# What the node reports (VersionResponse.secure_boot): a UEFI boot that
+# enforces nothing, under either firmware - the plain one has no
+# SecureBoot variable at all.
+version="$(ctl version)" || fail "janusctl version failed"
+grep -qx "Secure Boot: off" <<<"$version" || fail "janusctl version doesn't say Secure Boot: off: $version"
+echo "  ok: the node reports Secure Boot off"
 
 # --- 2. a firmware reboot, timed ---
 t0=$(now_ms)

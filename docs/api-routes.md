@@ -63,7 +63,7 @@ certificate the root signed itself lets in too. Its own CA always does.
 
 | Method | Streaming | Status | Purpose |
 |---|---|---|---|
-| `Version` | | ✅ | Daemon version, Go version, kernel version, active A/B slot, architecture, image schematic (ID and canonical JSON) and extensions, and the HAProxy branch and kernel track the image is built with, pinned or default ([image-factory.md](image-factory.md)); the other slot's image (`inactive_slot`: release, schematic, HAProxy, kernel - its `image.json`, read off its data partition with `internal/slotimage`, kept until an update writes there; `error` for an image before v2026.10.06-3) - connectivity check |
+| `Version` | | ✅ | Daemon version, Go version, kernel version, active A/B slot, architecture, image schematic (ID and canonical JSON) and extensions, and the HAProxy branch and kernel track the image is built with, pinned or default ([image-factory.md](image-factory.md)); the other slot's image (`inactive_slot`: release, schematic, HAProxy, kernel - its `image.json`, read off its data partition with `internal/slotimage`, kept until an update writes there; `error` for an image before v2026.10.06-3); `secure_boot`: what the firmware does with Secure Boot (`ON`, `OFF`, `NO_UEFI`, read from its UEFI variables - [secure-boot.md](guide/secure-boot.md)) - connectivity check |
 | `Hostname` | | ✅ | `janusctl system hostname` |
 | `Reboot` | | ✅ | Soft-stops HAProxy (in-flight connections get 5s), syncs, reboots - through the firmware (DEFAULT and POWERCYCLE, the same full reboot), or into the active kernel without it (KEXEC: refused, nothing rebooted, when Secure Boot is on and the image isn't signed by Janus) |
 | `Shutdown` | | ✅ | Same graceful stop, then powers off |

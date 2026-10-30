@@ -1163,8 +1163,8 @@ local-dev-image: daemon-static haproxy-build
 # See hack/qemu-secureboot-test.sh for why this needs
 # OVMF_CODE_4M.secboot.fd and -machine q35,smm=on specifically, unlike
 # every other UEFI boot test here.
-qemu-secureboot-test: kernel-build rootfs-build
-	./hack/qemu-secureboot-test.sh $(BUILD_DIR)/bzImage $(BUILD_DIR)/rootfs
+qemu-secureboot-test: build kernel-build rootfs-build
+	./hack/qemu-secureboot-test.sh $(BUILD_DIR)/bzImage $(BUILD_DIR)/rootfs $(BIN_DIR)/janusctl
 
 # Phase 3 cont'd: proves LifecycleService.Upgrade actually installs a
 # *genuinely new* rootfs onto the inactive slot over a real gRPC call -

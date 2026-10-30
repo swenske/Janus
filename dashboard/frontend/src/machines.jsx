@@ -2,7 +2,7 @@
 // page and the node cards (a node that is a Controller machine shows its
 // VM's power and phase): in their own module so the nodes page, the
 // first one painted, doesn't carry the Hypervisors page with them.
-import { Code, Cpu, Loader2, Lock, LockOpen, Play, PowerOff, RotateCcw, SquareTerminal, Wrench } from 'lucide-react'
+import { Code, Cpu, Loader2, Lock, LockOpen, Play, PowerOff, RotateCcw, ShieldCheck, ShieldOff, SquareTerminal, Wrench } from 'lucide-react'
 import { call, postJSON } from './call.js'
 import { nodeCan, useCan, useMe } from './me.jsx'
 import { Badge, stateTone, useAction, useConfirm } from './shared/ui.jsx'
@@ -32,6 +32,30 @@ export function PhaseBadge({ phase }) {
       {busy && <Loader2 size={11} className="spin" />} {PHASE_LABEL[phase] || phase}
     </Badge>
   )
+}
+
+// SecureBootBadge: what the machine's firmware does with Secure Boot, as
+// its node says (the API's secure_boot, docs/guide/secure-boot.md) - a
+// shield when it boots only what its db allows, a crossed-out one when
+// it's off; nothing without UEFI or from a node too old to say.
+export function SecureBootBadge({ state }) {
+  if (state === 'on')
+    return (
+      <span title="Secure Boot on: the firmware boots only what its db allows - the system Janus signed">
+        <Badge tone="ok">
+          <ShieldCheck size={11} /> Secure Boot
+        </Badge>
+      </span>
+    )
+  if (state === 'off')
+    return (
+      <span title="Secure Boot off: the firmware checks nothing it boots" role="img" aria-label="Secure Boot off">
+        <Badge>
+          <ShieldOff size={11} />
+        </Badge>
+      </span>
+    )
+  return null
 }
 
 export function PowerBadge({ power }) {

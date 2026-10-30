@@ -32,6 +32,7 @@ import (
 	"github.com/swenske/Janus/internal/pki"
 	"github.com/swenske/Janus/internal/ring"
 	"github.com/swenske/Janus/internal/schematic"
+	"github.com/swenske/Janus/internal/secureboot"
 	"github.com/swenske/Janus/internal/statexfer"
 	"github.com/swenske/Janus/internal/sysctl"
 )
@@ -114,6 +115,7 @@ func (s *System) Version(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.Ve
 		ActiveSlot:    CurrentActiveSlot(),
 		SchematicId:   CurrentSchematic(),
 		Arch:          runtime.GOARCH,
+		SecureBoot:    secureBootState(secureboot.Current()),
 	}
 	if s.Extensions != nil {
 		for _, m := range s.Extensions.Manifests() {
@@ -139,6 +141,19 @@ func (s *System) Version(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.Ve
 		}
 	}
 	return resp, nil
+}
+
+// secureBootState is internal/secureboot's state as the API says it.
+func secureBootState(s secureboot.State) janusv1alpha1.SecureBoot {
+	switch s {
+	case secureboot.StateNoUEFI:
+		return janusv1alpha1.SecureBoot_SECURE_BOOT_NO_UEFI
+	case secureboot.StateOff:
+		return janusv1alpha1.SecureBoot_SECURE_BOOT_OFF
+	case secureboot.StateOn:
+		return janusv1alpha1.SecureBoot_SECURE_BOOT_ON
+	}
+	return janusv1alpha1.SecureBoot_SECURE_BOOT_UNSPECIFIED
 }
 
 func imageComponent(c schematic.ImageComponent) *janusv1alpha1.ImageComponent {

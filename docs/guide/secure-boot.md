@@ -133,6 +133,18 @@ run without a variable store
 the node boots through the firmware instead
 ([updating nodes](updates.md#with-janusctl)).
 
+## Where it shows
+
+- **`janusctl version`** - `Secure Boot: on`, `off`, or `none - not a
+  UEFI boot`, from the node's own UEFI variables (a node of a release
+  up to v2026.10.30 doesn't say).
+- **The Controller** - Hypervisors › Machines: a **Secure Boot** badge
+  with a shield on a machine whose firmware enforces it, a crossed-out
+  shield when it's off; `secure_boot` in `GET /api/machines/{id}`
+  ([the API](../hypervisors.md#the-api)).
+- **The kernel's own line**, on every release:
+  `janusctl system dmesg | grep -i "secure boot"`.
+
 ## What changes on the node
 
 - **Updates** - nothing: a release is checked the same way before it's

@@ -11,7 +11,9 @@ import (
 
 	"google.golang.org/protobuf/types/known/emptypb"
 
+	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/schematic"
+	"github.com/swenske/Janus/internal/secureboot"
 )
 
 // withImage points ImageInfo at an image.json and a command line written
@@ -70,6 +72,34 @@ func TestVersionIgnoresAnotherSchematicsImageInfo(t *testing.T) {
 	resp, _ := (&System{}).Version(context.Background(), &emptypb.Empty{})
 	if resp.GetHaproxy() != nil || resp.GetSchematic() != `{"customization":{}}` {
 		t.Errorf("reported an image.json that isn't the booted schematic's: %v", resp)
+	}
+}
+
+func TestVersionReportsSecureBoot(t *testing.T) {
+	old := secureboot.Dir
+	t.Cleanup(func() { secureboot.Dir = old })
+	secureboot.Dir = filepath.Join(t.TempDir(), "efivars")
+	version := func() janusv1alpha1.SecureBoot {
+		resp, err := (&System{}).Version(context.Background(), &emptypb.Empty{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp.GetSecureBoot()
+	}
+	if got := version(); got != janusv1alpha1.SecureBoot_SECURE_BOOT_NO_UEFI {
+		t.Errorf("no efivarfs: %v", got)
+	}
+	if err := os.Mkdir(secureboot.Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sb := filepath.Join(secureboot.Dir, "SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c")
+	for value, want := range map[byte]janusv1alpha1.SecureBoot{0: janusv1alpha1.SecureBoot_SECURE_BOOT_OFF, 1: janusv1alpha1.SecureBoot_SECURE_BOOT_ON} {
+		if err := os.WriteFile(sb, []byte{6, 0, 0, 0, value}, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := version(); got != want {
+			t.Errorf("SecureBoot=%d: %v, want %v", value, got, want)
+		}
 	}
 }
 
