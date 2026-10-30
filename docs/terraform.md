@@ -158,7 +158,18 @@ resource "janus_proxmox_hypervisor" "pve01" {
 
 Optional: `name_prefix` (default `janus-`), `vmids` (a range,
 `9000-9099`; default: the cluster's next free ID), `controller_address`,
-`ca_cert`, `labels` (inherited by its nodes, as `janus_hypervisor`'s).
+`ca_cert`, `labels` (inherited by its nodes, as `janus_hypervisor`'s),
+and `cpu_model`:
+- the CPU model its nodes' machines get, as Proxmox VE names it:
+  `x86-64-v2-AES` (unset: the state then shows it), `x86-64-v3`,
+  `x86-64-v4`, `host`, or a named QEMU model with AES-NI
+  (`Haswell-noTSX`, `EPYC-Rome`...). A faster model limits the hosts a
+  machine can move to:
+  [hypervisors.md](hypervisors.md#the-cpu-model-of-proxmox-ve-machines);
+- changing it restarts nothing, and no `janus_node` plans a change: new
+  nodes get it, and each node already there shows the difference on
+  its card, where **Apply settings** restarts it with the new model -
+  a cluster member drained first, one at a time.
 
 `janus_node` takes either kind's `id` as its `hypervisor_id`; its
 interfaces' `network` is then a bridge (`vmbr0`) or a VLAN on one
@@ -168,7 +179,8 @@ interfaces' `network` is then a bridge (`vmbr0`) or a VLAN on one
 A hypervisor that already exists on the Controller - either kind - can
 be read instead: `data "janus_hypervisor" "kvm01" { name = "kvm01" }`.
 It gives its `kind` (`libvirt` or `proxmox`), `host` (the SSH host, or
-the API URL), `pool`, `networks`, `labels` and whether it's `trusted`.
+the API URL), `pool`, `networks`, `labels`, whether it's `trusted`, and
+the `cpu_model` of a Proxmox VE hypervisor's machines.
 
 ### `janus_node`
 

@@ -39,6 +39,7 @@ type proxmoxHypervisorModel struct {
 	Networks               types.List   `tfsdk:"networks"`
 	NamePrefix             types.String `tfsdk:"name_prefix"`
 	VMIDs                  types.String `tfsdk:"vmids"`
+	CPUModel               types.String `tfsdk:"cpu_model"`
 	ControllerAddress      types.String `tfsdk:"controller_address"`
 	CACert                 types.String `tfsdk:"ca_cert"`
 	CertificateFingerprint types.String `tfsdk:"certificate_fingerprint"`
@@ -67,8 +68,15 @@ func (r *proxmoxHypervisorResource) Schema(_ context.Context, _ resource.SchemaR
 				Required: true, ElementType: types.StringType,
 				Description: "The networks its nodes may use: a bridge (vmbr0) or a VLAN on one (vmbr0.20).",
 			},
-			"name_prefix":        schema.StringAttribute{Optional: true, Description: "Its virtual machines' name prefix; unset: janus-."},
-			"vmids":              schema.StringAttribute{Optional: true, Description: "The VM IDs its machines take, first-last; unset: the cluster's next free one."},
+			"name_prefix": schema.StringAttribute{Optional: true, Description: "Its virtual machines' name prefix; unset: janus-."},
+			"vmids":       schema.StringAttribute{Optional: true, Description: "The VM IDs its machines take, first-last; unset: the cluster's next free one."},
+			"cpu_model": schema.StringAttribute{
+				Optional: true, Computed: true,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+				Description: "The CPU model its machines get, as Proxmox VE names it: x86-64-v2-AES (the default, unset), x86-64-v3, x86-64-v4, host, " +
+					"or a named QEMU model with AES-NI (Haswell-noTSX, EPYC-Rome...). A faster model limits the hosts a machine can move to (docs/hypervisors.md). " +
+					"Changing it restarts nothing: the nodes already there show the difference, applied one at a time on their card.",
+			},
 			"controller_address": schema.StringAttribute{Optional: true, Description: "Where its nodes reach the Controller's registration port (host:port); unset: the Controller's own guess."},
 			"ca_cert": schema.StringAttribute{
 				Optional:    true,
@@ -105,7 +113,7 @@ func proxmoxRequest(ctx context.Context, m *proxmoxHypervisorModel, diags *diag.
 			URL: m.URL.ValueString(), Node: m.Node.ValueString(), TokenID: m.TokenID.ValueString(),
 			Pool: m.Pool.ValueString(), Storage: m.Storage.ValueString(), ImageStorage: m.ImageStorage.ValueString(),
 			Networks: stringsOf(ctx, m.Networks, diags), NamePrefix: strOrEmpty(m.NamePrefix), VMIDs: strOrEmpty(m.VMIDs),
-			CACert: strOrEmpty(m.CACert),
+			CACert: strOrEmpty(m.CACert), CPUModel: strOrEmpty(m.CPUModel),
 		},
 	}
 }
@@ -123,6 +131,12 @@ func fromProxmox(h *client.Hypervisor, m *proxmoxHypervisorModel) {
 		m.Networks = listOf(p.Networks, m.Networks)
 		m.NamePrefix = strOrNull(p.NamePrefix, m.NamePrefix)
 		m.VMIDs = strOrNull(p.VMIDs, m.VMIDs)
+		// Known after apply: the model the Controller gives - its default
+		// when unset; null from a Controller without the setting.
+		m.CPUModel = types.StringNull()
+		if p.CPUModel != "" {
+			m.CPUModel = types.StringValue(p.CPUModel)
+		}
 		if strings.TrimSpace(m.CACert.ValueString()) != strings.TrimSpace(p.CACert) {
 			m.CACert = strOrNull(p.CACert, m.CACert)
 		}
