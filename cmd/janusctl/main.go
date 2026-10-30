@@ -427,6 +427,23 @@ func runVersion(conn *grpc.ClientConn) {
 	if o := resp.GetInactiveSlot(); o != nil {
 		fmt.Printf("Other slot: %s - %s\n", o.GetSlot(), slotImageNote(o))
 	}
+	if sb := secureBootNote(resp.GetSecureBoot()); sb != "" {
+		fmt.Println("Secure Boot:", sb)
+	}
+}
+
+// secureBootNote says what the node's firmware does with Secure Boot;
+// empty for a node too old to say.
+func secureBootNote(sb janusv1alpha1.SecureBoot) string {
+	switch sb {
+	case janusv1alpha1.SecureBoot_SECURE_BOOT_ON:
+		return "on"
+	case janusv1alpha1.SecureBoot_SECURE_BOOT_OFF:
+		return "off"
+	case janusv1alpha1.SecureBoot_SECURE_BOOT_NO_UEFI:
+		return "none - not a UEFI boot"
+	}
+	return ""
 }
 
 // slotImageNote says what the slot a node didn't boot holds: what an

@@ -122,13 +122,30 @@ func Upgrade(ctx context.Context, node *store.Node, source *janusv1alpha1.ImageS
 
 // NodeInfo is what node runs: its Janus version, image schematic and
 // that schematic's extensions, HAProxy branch and kernel track ("" for
-// the release's default).
+// the release's default), and what its firmware does with Secure Boot
+// (SecureBootName).
 type NodeInfo struct {
 	Version    string
 	Schematic  string
 	Extensions []string
 	HAProxy    string
 	Kernel     string
+	SecureBoot string
+}
+
+// SecureBootName is a node's Secure Boot state as the Controller's API
+// says it: "on", "off", "none" (not a UEFI boot), or "" for a node too
+// old to say.
+func SecureBootName(sb janusv1alpha1.SecureBoot) string {
+	switch sb {
+	case janusv1alpha1.SecureBoot_SECURE_BOOT_ON:
+		return "on"
+	case janusv1alpha1.SecureBoot_SECURE_BOOT_OFF:
+		return "off"
+	case janusv1alpha1.SecureBoot_SECURE_BOOT_NO_UEFI:
+		return "none"
+	}
+	return ""
 }
 
 func GetNodeInfo(ctx context.Context, node *store.Node) (*NodeInfo, error) {
@@ -140,7 +157,7 @@ func GetNodeInfo(ctx context.Context, node *store.Node) (*NodeInfo, error) {
 	if err != nil {
 		return nil, errors.New(status.Convert(err).Message())
 	}
-	info := &NodeInfo{Version: v.GetVersion(), Schematic: v.GetSchematicId()}
+	info := &NodeInfo{Version: v.GetVersion(), Schematic: v.GetSchematicId(), SecureBoot: SecureBootName(v.GetSecureBoot())}
 	if info.Schematic == "" {
 		info.Schematic = schematic.DefaultID()
 	}

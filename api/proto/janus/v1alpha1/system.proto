@@ -567,6 +567,19 @@ message VersionResponse {
   // checked against dm-verity until it boots). Unset when this boot
   // isn't from an A/B slot.
   SlotImage inactive_slot = 13;
+  // What the firmware does with UEFI Secure Boot, read from its
+  // variables (docs/guide/secure-boot.md).
+  SecureBoot secure_boot = 14;
+}
+
+// SecureBoot: whether a node's firmware enforces UEFI Secure Boot - with
+// it on, the firmware boots only what its db allows, the Janus release
+// certificate's signature on both slots' UKIs.
+enum SecureBoot {
+  SECURE_BOOT_UNSPECIFIED = 0; // a node from before this field, or variables it couldn't read
+  SECURE_BOOT_NO_UEFI = 1; // not a UEFI boot (a container, a BIOS boot)
+  SECURE_BOOT_OFF = 2; // a UEFI boot that enforces nothing
+  SECURE_BOOT_ON = 3;
 }
 
 // The image an A/B slot holds.

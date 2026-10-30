@@ -32,6 +32,7 @@ type fakeNodes struct {
 	extensions []string
 	haproxy    string
 	kernel     string
+	secureBoot string
 	cfg        *janusv1alpha1.NetworkConfig
 	shutdowns  int
 	applied    []*janusv1alpha1.NetworkConfig
@@ -197,7 +198,7 @@ func (f *fakeNodes) Upgrade(_ context.Context, _ *store.Node, src *janusv1alpha1
 func (f *fakeNodes) Info(context.Context, *store.Node) (*nodeproxy.NodeInfo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return &nodeproxy.NodeInfo{Version: f.version, Schematic: f.schematic, Extensions: f.extensions, HAProxy: f.haproxy, Kernel: f.kernel}, nil
+	return &nodeproxy.NodeInfo{Version: f.version, Schematic: f.schematic, Extensions: f.extensions, HAProxy: f.haproxy, Kernel: f.kernel, SecureBoot: f.secureBoot}, nil
 }
 
 func (f *fakeNodes) Network(context.Context, *store.Node) (*janusv1alpha1.NetworkConfig, error) {
@@ -762,6 +763,41 @@ func TestMachineSync(t *testing.T) {
 	}
 	if ev := host("pve:pve-b", "pve-b"); !strings.Contains(ev, "host kvm01 → pve-b") {
 		t.Errorf("a move not journaled:\n%s", ev)
+	}
+}
+
+// What the node's firmware does with Secure Boot, in the machine's view;
+// a change journaled, not a node that starts saying it.
+func TestMachineSyncSecureBoot(t *testing.T) {
+	a, fake := newTestApp(t)
+	m, f := readyMachine(t, a, addTrustedHypervisor(t, a), fake)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/machines/{id}", asAdmin(a.handleMachineGet))
+	prev := syncFresh
+	syncFresh = 0
+	defer func() { syncFresh = prev }()
+	read := func(sb string) (machineView, string) {
+		t.Helper()
+		f.mu.Lock()
+		f.secureBoot = sb
+		f.mu.Unlock()
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest("GET", "/api/machines/"+m.ID+"?refresh=true", nil))
+		var v machineView
+		if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
+			t.Fatal(err)
+		}
+		got, _ := a.machines.Get(m.ID)
+		return v, eventsOf(got)
+	}
+	if v, ev := read("off"); v.SecureBoot != "off" || strings.Contains(ev, "Secure Boot") {
+		t.Errorf("first said: %q, history:\n%s", v.SecureBoot, ev)
+	}
+	if v, ev := read("on"); v.SecureBoot != "on" || !strings.Contains(ev, "Secure Boot off → on") {
+		t.Errorf("turned on: %q, history:\n%s", v.SecureBoot, ev)
+	}
+	if v, _ := read(""); v.SecureBoot != "" {
+		t.Errorf("a node that doesn't say: %q", v.SecureBoot)
 	}
 }
 

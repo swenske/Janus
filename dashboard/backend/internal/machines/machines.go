@@ -174,6 +174,10 @@ type Machine struct {
 	// hypervisor last said (MachineStatus) - a cluster's anti-affinity.
 	HostID   string `json:"host_id,omitempty"`
 	HostName string `json:"host_name,omitempty"`
+	// SecureBoot is what the node's firmware does with Secure Boot, as
+	// the node last said: "on", "off", "none" (not a UEFI boot); empty
+	// for a node too old to say (nodeproxy.SecureBootName).
+	SecureBoot string `json:"secure_boot,omitempty"`
 	// Warning is why its node can't register, read from the node's
 	// console while the machine waits for it (dashboard/backend:
 	// machines_watch.go).

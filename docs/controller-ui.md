@@ -251,6 +251,11 @@ whole text - an escape sequence can be cut across two messages.
 A machine's card shows:
 - what manages it as code (`ManagedBadge`), and its lock (`LockNotice`,
   with **Release**, confirmed);
+- what its firmware does with Secure Boot, as its node says
+  (`SecureBootBadge`, the machine's `secure_boot`, in the list's State
+  column too): **Secure Boot** with a shield when it's on, a crossed-out
+  shield alone when it's off, nothing without UEFI or from a node too
+  old to say;
 - when its record was last read from its node and hypervisor;
 - the node's hostname when its page changed it;
 - its hypervisor settings that aren't the ones the Controller gives

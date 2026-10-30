@@ -44,6 +44,50 @@ func Enabled() (bool, error) {
 	return setup != 1, nil
 }
 
+// State is what the firmware does with Secure Boot, as a node reports
+// it (VersionResponse's secure_boot).
+type State int
+
+const (
+	// StateUnknown: the variables couldn't be read.
+	StateUnknown State = iota
+	// StateNoUEFI: not a UEFI boot - no efivarfs at all.
+	StateNoUEFI
+	// StateOff: a UEFI boot that enforces nothing - Secure Boot off, in
+	// setup mode, or a firmware built without it (no SecureBoot
+	// variable).
+	StateOff
+	// StateOn: the firmware boots only what its db allows.
+	StateOn
+)
+
+// Current reads the firmware's Secure Boot state.
+func Current() State {
+	if _, err := os.Stat(Dir); err != nil {
+		return StateNoUEFI
+	}
+	on, err := Enabled()
+	switch {
+	case err == nil && on:
+		return StateOn
+	case err == nil:
+		return StateOff
+	case errors.Is(err, ErrNoEFI):
+		// No SecureBoot variable: a firmware without Secure Boot - unless
+		// efivarfs isn't mounted there, its directory left empty.
+		f, err := os.Open(Dir)
+		if err != nil {
+			return StateUnknown
+		}
+		defer f.Close()
+		if names, _ := f.Readdirnames(1); len(names) == 0 {
+			return StateUnknown
+		}
+		return StateOff
+	}
+	return StateUnknown
+}
+
 func readByte(name string) (byte, error) {
 	data, err := os.ReadFile(filepath.Join(Dir, name))
 	if errors.Is(err, os.ErrNotExist) {

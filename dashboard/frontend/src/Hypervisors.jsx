@@ -24,7 +24,7 @@ import { PLACE_EXAMPLE, PLACE_KEYS } from './labels.js'
 import { AutoscaleFields, AutoscaleSummary } from './Autoscale.jsx'
 import { autoscalePolicy, initialAutoscale, samePolicy, sizeText, useAutoscale } from './autoscale.js'
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
-import { DriftNotice, LockNotice, ManagedBadge, PhaseBadge, PowerBadge, PowerButtons, useMachineActions } from './machines.jsx'
+import { DriftNotice, LockNotice, ManagedBadge, PhaseBadge, PowerBadge, PowerButtons, SecureBootBadge, useMachineActions } from './machines.jsx'
 import Gauge from './shared/Gauge.jsx'
 import { requirementError, toggleExtension } from './shared/requires.js'
 import ViewToggle from './shared/ViewToggle.jsx'
@@ -1421,6 +1421,7 @@ function MachineCard({ m, vm, vmError, actions, onEdit }) {
         </div>
         <div className="row" style={{ gap: '0.3rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <ManagedBadge m={m} />
+          <SecureBootBadge state={m.secure_boot} />
           <PowerBadge power={vm?.power} />
           <PhaseBadge phase={m.phase} />
         </div>
@@ -1699,6 +1700,7 @@ function MachineRow({ m, vm, vmError, actions, onEdit }) {
         <td>
           <div className="row" style={{ gap: '0.3rem', flexWrap: 'wrap' }}>
             <ManagedBadge m={m} />
+            <SecureBootBadge state={m.secure_boot} />
             <PowerBadge power={vm?.power} />
             <PhaseBadge phase={m.phase} />
           </div>

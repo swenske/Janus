@@ -127,6 +127,15 @@ func (r *machineRunner) syncAs(ctx context.Context, id, label string) error {
 			if m.Schematic != info.Schematic {
 				m.Schematic = info.Schematic
 			}
+			// Secure Boot changes only with the firmware's variables, the
+			// machine off: worth its history - not a node that starts
+			// saying it.
+			if m.SecureBoot != info.SecureBoot {
+				if m.SecureBoot != "" && info.SecureBoot != "" {
+					note("Secure Boot %s → %s", m.SecureBoot, info.SecureBoot)
+				}
+				m.SecureBoot = info.SecureBoot
+			}
 			// A failed update is behind it once the node was updated
 			// another way - from its page, a bundle the Controller pushed:
 			// its error no longer says what the machine runs.
