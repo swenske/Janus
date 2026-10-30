@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor/libvirt"
@@ -201,6 +202,7 @@ func (a *app) handleHypervisorCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	noteAuditSubject(r, audit.KindHypervisor, h.ID, h.Name)
 	writeJSON(w, http.StatusCreated, a.hypervisorView(h))
 }
 

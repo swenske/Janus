@@ -387,7 +387,9 @@ The Controller's **Log forwarding** page (admins) sets two things:
 
 - **The Controller's own logs**: its log and its audit - every change
   made through it, every sign-in - to its own targets, its audit from
-  where it stopped after a restart.
+  where it stopped after a restart. An audit entry about something
+  names it as it was then: `, node edge-1` at the end of the message,
+  `janus.audit.subject.kind`, `.id` and `.name` in Elasticsearch.
 - **Fleet profiles**: each a label selector (`team=web,env=prod`; empty:
   every node) and the log targets of the nodes it picks. A node takes the
   first profile whose labels it has - its own, and those it inherits from
