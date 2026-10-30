@@ -52,6 +52,7 @@ const (
 	argBackend               // a backend of the running config
 	argServer                // a server of the backend given before it
 	argServerState           // ready, drain, maint
+	argLogTarget             // a log forwarding target of the node
 )
 
 // fixedValues are the kinds whose values are known here.
@@ -171,7 +172,9 @@ var commands = &command{name: "janusctl", subs: []*command{
 			{name: "status", help: "each target's state: sent, dropped, waiting, the last error"},
 			{name: "get", help: "the configuration as JSON, without its secrets"},
 			{name: "set", args: "FILE", help: "replace the configuration (JSON, as get prints it; a secret left out keeps its saved value)", pos: []argKind{argFile}, required: 1},
-			{name: "test", args: "TARGET", help: "send one record to a target now", flags: []flagDef{valFlag("file", "FILE", "take the target from this configuration rather than the saved one", argFile)}, required: 1},
+			{name: "pause", args: "TARGET", help: "stop sending to a target, keeping its place: what the node keeps on disk meanwhile goes once resumed", pos: []argKind{argLogTarget}, required: 1},
+			{name: "resume", args: "TARGET", help: "send to a paused target again, from where it stopped", pos: []argKind{argLogTarget}, required: 1},
+			{name: "test", args: "TARGET", help: "send one record to a target now", flags: []flagDef{valFlag("file", "FILE", "take the target from this configuration rather than the saved one", argFile)}, pos: []argKind{argLogTarget}, required: 1},
 		}},
 		{name: "stats", help: "CPU and memory of janusd and haproxy"},
 		{name: "systemstat", help: "boot time, context switches, processes created, the CPUs' ticks (idle, steal)"},

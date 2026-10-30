@@ -381,13 +381,60 @@ budget is exported (`janus_console_budget_bytes_per_second`,
   dropped - HAProxy, janusd and the API never slow down for a log
   server.
 
+## Pausing a target
+
+A paused target gets nothing and keeps its place: the server down for
+maintenance, a noisy target cut while you look into something - without
+removing it and typing it again later, secrets included.
+
+```sh
+janusctl -n lb1 system log-forwarding pause nas    # nothing goes to nas from now on
+janusctl -n lb1 system log-forwarding status       # nas: disabled
+janusctl -n lb1 system log-forwarding resume nas   # from where it stopped
+```
+
+On a node's page (Logs › Forwarding) and the Controller's Log
+forwarding page, **Pause** and **Resume** are on the target's row,
+beside Edit and Remove - and like them, they apply once the page is
+saved. In a configuration, a paused target is `"disabled": true`; its
+secrets stay saved.
+
+Resumed, a target gets what the node kept for it while it was paused:
+
+- **What the LOGS partition holds** - janusd's log, HAProxy's messages,
+  the extensions', the kernel's, and the access logs with
+  `access_logs_on_disk: always` - goes from where the target stopped,
+  in order, a reboot in between or not. As long as the partition still
+  holds it: a pause longer than the partition lasts loses the oldest,
+  counted as `dropped` once the target is resumed.
+- **The event log and the audit** (STATE) go from where it stopped,
+  within what they keep: the last 1 000 events, the last 2 000 audit
+  entries - a pause through more loses the oldest, uncounted.
+- **What waits in memory** isn't kept for a paused target: the access
+  logs with `access_logs_on_disk: never` (the default), and, on a node
+  without a LOGS partition, everything but the event log and the audit.
+  The other targets get it; the paused one never will.
+
+While paused, `status` says `disabled` and counts nothing - its counts
+start again once it's resumed. The Controller's own targets pause the
+same way: its audit is sent from where a target stopped, its log
+(memory) isn't kept for it.
+
+A node whose configuration a fleet profile set ([below](#from-the-controller))
+isn't paused on its own: its page is read-only, `janusctl ... pause`
+refuses, and the Controller would put the target back within ten
+minutes. Pause the target on the profile: it pauses on every node the
+profile picks.
+
 ## From the Controller
 
 The Controller's **Log forwarding** page (admins) sets two things:
 
 - **The Controller's own logs**: its log and its audit - every change
   made through it, every sign-in - to its own targets, its audit from
-  where it stopped after a restart.
+  where it stopped after a restart. An audit entry about something
+  names it as it was then: `, node edge-1` at the end of the message,
+  `janus.audit.subject.kind`, `.id` and `.name` in Elasticsearch.
 - **Fleet profiles**: each a label selector (`team=web,env=prod`; empty:
   every node) and the log targets of the nodes it picks. A node takes the
   first profile whose labels it has - its own, and those it inherits from
@@ -407,8 +454,8 @@ profile). The secrets - API keys, passwords, client keys - are sealed
 with the Controller's master key and sent to the nodes the profile picks;
 neither the page nor the API gives them back. A target is tested as the
 page shows it, saved or not, from the Controller (its own) or from one
-of the profile's nodes; what's added, changed or removed applies once
-the page is saved - it says so until then.
+of the profile's nodes; what's added, changed, paused or removed
+applies once the page is saved - it says so until then.
 
 The Controller in a container keeps writing its log on its standard
 error too: `docker logs` and Docker's own logging drivers still see it.

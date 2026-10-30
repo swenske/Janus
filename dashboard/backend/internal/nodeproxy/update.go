@@ -121,12 +121,15 @@ func registerUpdateRoutes(mux *http.ServeMux, node *store.Node) {
 		})
 	})
 	mux.HandleFunc("GET /api/factory/catalog", func(w http.ResponseWriter, r *http.Request) {
-		view, err := factoryCatalog(r.Context())
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		writeJSONBody(w, http.StatusOK, view)
+		// The catalog of the version an image change builds for this
+		// node (imageCatalog): its version decides.
+		unary(w, r, node, unaryTimeout, func(ctx context.Context, c *grpc.ClientConn) (any, error) {
+			v, err := janusv1alpha1.NewSystemServiceClient(c).Version(ctx, &emptypb.Empty{})
+			if err != nil {
+				return nil, err
+			}
+			return imageCatalog(ctx, v.GetVersion())
+		})
 	})
 	mux.HandleFunc("POST /api/factory/update", func(w http.ResponseWriter, r *http.Request) {
 		// The image to change to: these extensions, and the HAProxy branch
@@ -147,14 +150,15 @@ func registerUpdateRoutes(mux *http.ServeMux, node *store.Node) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if err := CheckRequirements(r.Context(), probe.Customization.Extensions); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
 		unary(w, r, node, unaryTimeout, func(ctx context.Context, c *grpc.ClientConn) (any, error) {
 			v, err := janusv1alpha1.NewSystemServiceClient(c).Version(ctx, &emptypb.Empty{})
 			if err != nil {
 				return nil, err
+			}
+			// By the catalog of the version it builds, before the factory
+			// is asked to build anything.
+			if err := requirementsIn(imageCatalog(ctx, v.GetVersion())).CheckRequirements(probe.Customization.Extensions); err != nil {
+				return nil, status.Error(codes.InvalidArgument, err.Error())
 			}
 			sc := NodeSchematic(v).Clone()
 			sc.Customization.Extensions = probe.Customization.Extensions
@@ -346,12 +350,17 @@ type extensionsUpdate struct {
 	NodeExtensions  []string `json:"node_extensions"`
 	// SchematicChange says installing it needs allow_schematic_change.
 	SchematicChange bool `json:"schematic_change"`
+	// TargetPrerelease: Latest is a pre-release - the node runs one, and
+	// stays on that track (ReleaseInfo.PrereleaseTrack).
+	TargetPrerelease bool `json:"target_prerelease,omitempty"`
 }
 
 // updateFor finds the update that would give the node running v the
 // image of sc (normalized): its extensions, HAProxy branch and kernel
-// track. An image factory builds it if it doesn't exist yet - State says
-// so.
+// track - of the newest release, or for a node running a pre-release, of
+// its pre-release track (prereleaseTrack): changing a lab node's
+// extensions doesn't take it back to the release. An image factory
+// builds it if it doesn't exist yet - State says so.
 func updateFor(ctx context.Context, v *janusv1alpha1.VersionResponse, sc *schematic.Schematic) *extensionsUpdate {
 	node := nodeUpdateCheck(v)
 	exts := sc.Extensions()
@@ -372,9 +381,56 @@ func updateFor(ctx context.Context, v *janusv1alpha1.VersionResponse, sc *schema
 		NodeSchematicID: node.SchematicID,
 		NodeExtensions:  node.Extensions,
 	}
-	resolveUpdate(ctx, &eu.updateCheck)
+	if pre := prereleaseTrack(ctx, node.Version); pre != nil {
+		eu.TargetPrerelease = true
+		resolvePrerelease(ctx, &eu.updateCheck, pre)
+	} else {
+		resolveUpdate(ctx, &eu.updateCheck)
+	}
 	eu.SchematicChange = cmp.Or(eu.TargetSchematicID, eu.SchematicID) != node.SchematicID
 	return eu
+}
+
+// prereleaseTrack is the pre-release an image change keeps a node running
+// version on (ReleaseInfo.PrereleaseTrack); nil when it takes the release -
+// or when the release list can't be read, as before.
+func prereleaseTrack(ctx context.Context, version string) *ReleaseInfo {
+	rel, err := getLatestRelease(ctx)
+	if err != nil {
+		return nil
+	}
+	return rel.PrereleaseTrack(version)
+}
+
+// resolvePrerelease fills in uc's update from the pre-release pre - the
+// site's updates never name one (GET /api/v1/updates skips them on
+// purpose): its GitHub release for the default schematic, as the update
+// check's offer has it; for another, the image factory's build of that
+// version, started when it doesn't exist yet (ResolveBundle, as
+// preparePrerelease).
+func resolvePrerelease(ctx context.Context, uc *updateCheck, pre *ReleaseInfo) {
+	uc.Latest, uc.ReleaseURL, uc.PublishedAt = pre.TagName, pre.HTMLURL, pre.PublishedAt
+	uc.UpdateAvailable = updateAvailable(pre.TagName, uc.Version)
+	if uc.Default {
+		uc.Source, uc.State = "github", "ready"
+		uc.BundleURL, uc.SHA256 = pre.BundleBaseURL, pre.SHA256
+		return
+	}
+	uc.Source = "image-factory"
+	if uc.Arch != "amd64" {
+		// As the site's updates say: ResolveBundle would build amd64's.
+		uc.State, uc.Message = "unavailable", "updates are published for amd64 only"
+		return
+	}
+	b, state, err := ResolveBundle(ctx, pre.TagName, uc.schematic)
+	switch {
+	case err == nil:
+		uc.State, uc.BundleURL, uc.SHA256 = "ready", b.BaseURL, b.SHA256
+	case state != "":
+		uc.State, uc.Message = state, err.Error()
+	default:
+		uc.State, uc.Message = "unavailable", err.Error()
+	}
 }
 
 // CheckRequirements refuses extensions naming one without another it
@@ -383,16 +439,21 @@ func updateFor(ctx context.Context, v *janusv1alpha1.VersionResponse, sc *schema
 // a node or a machine is touched. Nothing is refused when the factory
 // can't be asked - it refuses the build itself, with the same message.
 func CheckRequirements(ctx context.Context, exts []string) error {
-	view, err := factoryCatalog(ctx)
-	if err != nil {
-		return nil
+	return requirementsIn(factoryCatalog(ctx)).CheckRequirements(exts)
+}
+
+// requirementsIn is a catalog's extensions, to check requirements
+// against: none when the factory couldn't be asked.
+func requirementsIn(view *factoryCatalogView, err error) *schematic.Catalog {
+	if err != nil || view == nil {
+		return &schematic.Catalog{}
 	}
-	c := &schematic.Catalog{Version: view.Version, Extensions: view.Extensions}
-	return c.CheckRequirements(exts)
+	return &schematic.Catalog{Version: view.Version, Extensions: view.Extensions}
 }
 
 // factoryCatalogView is GET /api/factory/catalog: the extensions an image
-// factory builds, from the newest release that publishes them.
+// factory builds, from the newest release that publishes them - or from
+// the version asked for (factoryCatalogFor).
 type factoryCatalogView struct {
 	Factory    string                   `json:"factory"`
 	Version    string                   `json:"version"`
@@ -403,70 +464,115 @@ type factoryCatalogView struct {
 	HAProxy []schematic.Variant `json:"haproxy"`
 	Kernel  []schematic.Variant `json:"kernel"`
 	Retired []schematic.Retired `json:"retired,omitempty"`
+	// Prerelease: Version is a pre-release, the one a node running a
+	// pre-release changes its image to (imageCatalog).
+	Prerelease bool `json:"prerelease,omitempty"`
 }
 
+// catalogCache keeps the catalogs asked for, by factory and version (""
+// the newest release's).
 var catalogCache struct {
 	mu      sync.Mutex
-	base    string
+	entries map[string]catalogCacheEntry
+}
+
+type catalogCacheEntry struct {
 	view    *factoryCatalogView
 	err     error
 	expires time.Time
 }
 
-// factoryCatalog asks the image factory for its newest extension
-// catalog; the answer is cached like the release check, an error
-// briefly (errorCacheTTL).
+// factoryCatalog asks the image factory for the catalog of its newest
+// release - never a pre-release's: what a machine or an image change is
+// built from, unless a version is asked for (factoryCatalogFor).
 func factoryCatalog(ctx context.Context) (*factoryCatalogView, error) {
+	return factoryCatalogFor(ctx, "")
+}
+
+// factoryCatalogFor asks the image factory for the catalog of version,
+// "" for its newest release's; the answer is cached like the release
+// check, an error briefly (errorCacheTTL).
+func factoryCatalogFor(ctx context.Context, version string) (*factoryCatalogView, error) {
 	base := strings.TrimRight(ImageFactoryURL, "/")
 	if base == "" {
 		return nil, fmt.Errorf("no image factory is configured (dashboardd -image-factory)")
 	}
+	key := base + " " + version
 	catalogCache.mu.Lock()
 	defer catalogCache.mu.Unlock()
-	if catalogCache.base == base && time.Now().Before(catalogCache.expires) {
-		return catalogCache.view, catalogCache.err
+	if e, ok := catalogCache.entries[key]; ok && time.Now().Before(e.expires) {
+		return e.view, e.err
 	}
 	fctx, cancel := sharedFetchContext(ctx)
 	defer cancel()
-	view, err := fetchFactoryCatalog(fctx, base)
+	view, err := fetchFactoryCatalog(fctx, base, version)
 	ttl := releaseCacheTTL
 	if err != nil {
 		ttl = errorCacheTTL
 	}
-	catalogCache.base, catalogCache.view, catalogCache.err, catalogCache.expires = base, view, err, time.Now().Add(ttl)
+	if catalogCache.entries == nil {
+		catalogCache.entries = map[string]catalogCacheEntry{}
+	}
+	catalogCache.entries[key] = catalogCacheEntry{view: view, err: err, expires: time.Now().Add(ttl)}
 	return view, err
 }
 
-func fetchFactoryCatalog(ctx context.Context, base string) (*factoryCatalogView, error) {
-	var versions []struct {
-		Version    string `json:"version"`
-		Schematics bool   `json:"schematics"`
+// imageCatalog is the catalog of the version an image change builds for
+// a node running version (updateFor): its pre-release track's on a node
+// running a pre-release, the newest release's otherwise - what the page
+// offers is what the factory builds.
+func imageCatalog(ctx context.Context, version string) (*factoryCatalogView, error) {
+	pre := prereleaseTrack(ctx, version)
+	if pre == nil {
+		return factoryCatalog(ctx)
 	}
-	if err := factoryCall(ctx, http.MethodGet, base+"/api/v1/versions", nil, &versions); err != nil {
+	view, err := factoryCatalogFor(ctx, pre.TagName)
+	if err != nil {
 		return nil, err
 	}
-	for _, v := range versions { // newest first
-		if !v.Schematics {
-			continue
+	out := *view // the cached one stays as it is
+	out.Prerelease = true
+	return &out, nil
+}
+
+// fetchFactoryCatalog fetches the catalog of version - "": of the newest
+// release that publishes one, pre-releases left out.
+func fetchFactoryCatalog(ctx context.Context, base, version string) (*factoryCatalogView, error) {
+	if version == "" {
+		var versions []struct {
+			Version    string `json:"version"`
+			Schematics bool   `json:"schematics"`
+			Prerelease bool   `json:"prerelease"`
 		}
-		var c schematic.Catalog
-		if err := factoryCall(ctx, http.MethodGet, base+"/api/v1/versions/"+url.PathEscape(v.Version)+"/extensions", nil, &c); err != nil {
+		if err := factoryCall(ctx, http.MethodGet, base+"/api/v1/versions", nil, &versions); err != nil {
 			return nil, err
 		}
-		if c.Extensions == nil {
-			c.Extensions = []schematic.CatalogEntry{}
+		for _, v := range versions { // newest first
+			if v.Schematics && !v.Prerelease {
+				version = v.Version
+				break
+			}
 		}
-		view := &factoryCatalogView{Factory: base, Version: v.Version, Extensions: c.Extensions,
-			HAProxy: c.HAProxy, Kernel: c.Kernel, Retired: c.Retired}
-		if view.HAProxy == nil {
-			view.HAProxy = []schematic.Variant{}
+		if version == "" {
+			return nil, fmt.Errorf("image factory: no release offers extensions")
 		}
-		if view.Kernel == nil {
-			view.Kernel = []schematic.Variant{}
-		}
-		return view, nil
 	}
-	return nil, fmt.Errorf("image factory: no release offers extensions")
+	var c schematic.Catalog
+	if err := factoryCall(ctx, http.MethodGet, base+"/api/v1/versions/"+url.PathEscape(version)+"/extensions", nil, &c); err != nil {
+		return nil, err
+	}
+	if c.Extensions == nil {
+		c.Extensions = []schematic.CatalogEntry{}
+	}
+	view := &factoryCatalogView{Factory: base, Version: version, Extensions: c.Extensions,
+		HAProxy: c.HAProxy, Kernel: c.Kernel, Retired: c.Retired}
+	if view.HAProxy == nil {
+		view.HAProxy = []schematic.Variant{}
+	}
+	if view.Kernel == nil {
+		view.Kernel = []schematic.Variant{}
+	}
+	return view, nil
 }
 
 // factoryUpdate is the image factory's answer, as site/backend's

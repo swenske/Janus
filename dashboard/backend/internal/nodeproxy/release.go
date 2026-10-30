@@ -79,7 +79,8 @@ type ReleaseInfo struct {
 
 	// Prerelease is the newest pre-release when it is newer than the
 	// release: shown on the Update pages only, installed on purpose (no
-	// badge, no "update available"). Nil otherwise.
+	// badge, no "update available") - and what a node running a
+	// pre-release changes its image to (PrereleaseTrack). Nil otherwise.
 	Prerelease *ReleaseInfo `json:"prerelease,omitempty"`
 
 	// tags are every published release, newest first; security what the
@@ -101,6 +102,25 @@ func (r *ReleaseInfo) PrereleaseFor(version string) *ReleaseInfo {
 		return nil
 	}
 	return r.Prerelease
+}
+
+// PrereleaseTrack is the pre-release a node running version stays on
+// when its image changes (POST /api/factory/update): for a node running a
+// pre-release, that one when it's the newest, else the newest
+// (PrereleaseFor). Nil for a node on a release or a development build,
+// and for one on a pre-release older than the release with no newer
+// pre-release: those take the release, as before.
+func (r *ReleaseInfo) PrereleaseTrack(version string) *ReleaseInfo {
+	if !r.IsPrerelease(version) {
+		return nil
+	}
+	if pre := r.PrereleaseFor(version); pre != nil {
+		return pre
+	}
+	if r.Prerelease != nil && r.Prerelease.TagName == version {
+		return r.Prerelease
+	}
+	return nil
 }
 
 // releaseFix is one fix of a release's security.json: whom it reaches

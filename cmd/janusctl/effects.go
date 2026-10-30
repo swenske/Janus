@@ -52,6 +52,8 @@ var effects = map[string]effectOf{
 	"system log-forwarding status": {effectReads, ""},
 	"system log-forwarding get":    {effectReads, ""},
 	"system log-forwarding set":    {effectChanges, ""},
+	"system log-forwarding pause":  {effectChanges, "the target gets nothing until resumed: what the node keeps only in memory meanwhile is lost to it"},
+	"system log-forwarding resume": {effectChanges, ""},
 	"system log-forwarding test":   {effectChanges, "sends a record to the target"},
 	"system stats":                 {effectReads, ""},
 	"system systemstat":            {effectReads, ""},

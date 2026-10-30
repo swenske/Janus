@@ -47,6 +47,8 @@ func TestNodePages(t *testing.T) {
 	entries, _ := a.audit.Recent(10, nil)
 	if len(entries) == 0 || entries[0].Path != stop || entries[0].User != "olga" {
 		t.Errorf("the audit's last entry: %+v", entries)
+	} else if s := entries[0].Subject; s == nil || s.Kind != "node" || s.ID != fleetNode.ID || s.Name != "edge-1" {
+		t.Errorf("the node page's call names its node: %+v", s)
 	}
 	if err := a.removeNode(t.Context(), fleetNode.ID); err != nil {
 		t.Fatal(err)

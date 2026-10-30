@@ -301,7 +301,21 @@ claims, how its certificate is trusted, the rules (`RuleRows`: group,
 role, labels, domains), a default role, the accounts' life, the second
 factor's mode, the switches a provider may need, and **Test**
 (`/api/sso/test`: discovery, keys, warnings); the
-audit's newest 500 entries, filtered by account on submit. A node card
+audit, a hundred entries at a time, newest first - **Load older** for
+the next hundred, the count matching above the table. Each entry names
+what it was about, as it was named then (*Node* **edge-1**: a link to
+its page while it exists, "(removed)" once it's gone), its path under
+it, and a button that keeps only the entries about it. The filters
+(`audit.js`, `npm test`) are the server's, combined: the account and
+how it came (a session, an API token or one of them, no credential),
+what it's about (every node, machine, cluster... the audit names, the
+removed ones too - `?facets=1`), the kind of action (sign-ins, nodes,
+clusters, fleet and PKI, accounts and tokens, machines and hypervisors,
+settings), the result (succeeded, refused, failed), the method, a time
+range, the client's address or its start, text in the path or the
+name. They're kept in the hash (`#/audit?user=rita&result=refused`): a
+filtered view can be shared or bookmarked. The pickers apply at once,
+the fields typed in on Enter or when left. A node card
 shows its labels (`NodeLabels`): its own, edited in place by an admin,
 then those it inherits from its machine's hypervisor (`InheritedLabels`:
 "from kvm01", dashed badges, one its own label overrides struck
@@ -499,7 +513,16 @@ on a node it only fills the installation form in (a node with
 extensions asks `POST /api/factory/prerelease` for the factory's build,
 only then - viewing the page never starts one), and the installation's
 confirmation repeats the warning; the Controller's `POST` needs
-`"prerelease": true`. `PrereleaseBadge.jsx` marks what runs one.
+`"prerelease": true`. `PrereleaseBadge.jsx` marks what runs one. A node
+running a pre-release changes its image on its pre-release track
+(`ReleaseInfo.PrereleaseTrack`: the one it runs, or the newest when
+newer), never back to the release: the node page's `GET
+/api/factory/catalog` is that version's catalog (`prerelease: true`) and
+`POST /api/factory/update` resolves that version itself with
+`ResolveBundle` (`target_prerelease` in its answer) - the site's
+`/api/v1/updates` never names a pre-release. The machine catalog takes
+`?version=`: the create-a-node form asks it for the pre-release once it's
+typed in.
 
 ## The node page
 
@@ -666,7 +689,8 @@ track, from what the node's image reports (`VersionResponse`'s
 extensions alone for a node from before images said), and installing a
 bundle from another schematic takes an explicit checkbox
 (`allow_schematic_change`). **Change the image…** opens a panel with the
-factory's catalog for the newest release (`GET /api/factory/catalog`:
+factory's catalog for the version it builds, the newest release or the
+node's pre-release (`imageCatalog`, above; `GET /api/factory/catalog`:
 extensions, HAProxy branches with their end of upstream support, kernel
 tracks); **Prepare the update** sends the choices to `POST
 /api/factory/update` (`extensions`, and `haproxy`/`kernel` - left out,
@@ -1026,8 +1050,12 @@ for every chart (`scheduler.js`).
   - an empty secret field keeps the saved secret, the server merges it).
   Each target shows folded - name, kind, where, its state and counts
   (the status merged in, by name), *not saved* when it differs from the
-  saved one - with Test, Edit and Remove; Edit or a new target opens the
-  editor (Done folds it). Nothing applies until the page is saved: an
+  saved one - with Test, Pause (Resume once paused), Edit and Remove;
+  Edit or a new target opens the editor (Done folds it). Pause flips the
+  target's `disabled` in the list like an edit (`withPaused`: resumed
+  before a save, the target is the same as saved); a paused target says
+  so once - the `paused` badge, not its status `disabled` nor its counts
+  (none while stopped). Nothing applies until the page is saved: an
   `UnsavedBar` (sticky) says so with Save and Discard; a save or a
   discard bumps the list's `key`, so everything folds again. Test sends
   the target as shown (the Controller's `POST /api/log-forwarding/test`
