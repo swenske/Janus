@@ -326,12 +326,35 @@ func catalog(args []string) {
 	if err := catalogRequirements(c); err != nil {
 		log.Fatal(err)
 	}
+	// arm64 only serves the Raspberry Pi images: while they're suspended
+	// (variants.mk) the release publishes no arm64 input, and its catalog
+	// says so - the factory refuses an arm64 build with the catalog's
+	// message instead of a missing download.
+	if slices.Contains(set.Suspended, variants.TargetRaspberryPi) {
+		dropArch(c, "arm64")
+	}
 	slices.SortFunc(c.Extensions, func(a, b schematic.CatalogEntry) int { return strings.Compare(a.Name, b.Name) })
 	data, _ := json.MarshalIndent(c, "", "  ")
 	if err := os.WriteFile(*out, append(data, '\n'), 0o644); err != nil {
 		log.Fatal(err)
 	}
 	fmt.Printf("wrote %s (%d extensions, %d HAProxy branches, %d kernel tracks, console %v)\n", *out, len(c.Extensions), len(c.HAProxy), len(c.Kernel), c.Console)
+}
+
+// dropArch takes arch off everything c offers.
+func dropArch(c *schematic.Catalog, arch string) {
+	drop := func(arches []string) []string {
+		return slices.DeleteFunc(slices.Clone(arches), func(a string) bool { return a == arch })
+	}
+	for i := range c.HAProxy {
+		c.HAProxy[i].Arches = drop(c.HAProxy[i].Arches)
+	}
+	for i := range c.Kernel {
+		c.Kernel[i].Arches = drop(c.Kernel[i].Arches)
+	}
+	for i := range c.Extensions {
+		c.Extensions[i].Arches = drop(c.Extensions[i].Arches)
+	}
 }
 
 func loadSchematic(file string) *schematic.Schematic {

@@ -3,7 +3,11 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
+
+	"github.com/swenske/Janus/internal/schematic"
+	"github.com/swenske/Janus/internal/variants"
 )
 
 func writeManifest(t *testing.T, dir, name, body string) {
@@ -59,5 +63,43 @@ func TestTreeRequirements(t *testing.T) {
 	}
 	if err := c.Validate(); err != nil {
 		t.Error(err)
+	}
+}
+
+// A catalog without arm64 (raspberry-pi suspended) offers nothing for it,
+// and the factory says so for every part of a schematic.
+func TestDropArch(t *testing.T) {
+	set, err := variants.Load(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := set.CatalogVariants()
+	tree, err := treeCatalog(filepath.Join("..", "..", "extensions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Extensions = tree.Extensions
+	dropArch(c, "arm64")
+	for _, v := range append(append([]schematic.Variant{}, c.HAProxy...), c.Kernel...) {
+		if !slices.Equal(v.Arches, []string{"amd64"}) {
+			t.Errorf("%s: arches %v", v.Name, v.Arches)
+		}
+	}
+	for _, e := range c.Extensions {
+		if !slices.Equal(e.Arches, []string{"amd64"}) {
+			t.Errorf("%s: arches %v", e.Name, e.Arches)
+		}
+	}
+	if _, err := c.Resolve(schematic.Default(), "arm64"); err == nil {
+		t.Error("the default schematic resolves for arm64")
+	}
+	if _, err := c.Resolve(schematic.Default(), "amd64"); err != nil {
+		t.Errorf("amd64: %v", err)
+	}
+	// The set's own catalog is left alone: arm64 builds by hand.
+	for _, v := range set.CatalogVariants().Kernel {
+		if v.Default && !slices.Contains(v.Arches, "arm64") {
+			t.Error("dropArch changed the set's catalog")
+		}
 	}
 }

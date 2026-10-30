@@ -25,6 +25,13 @@ KERNEL_SHA256  := $($(KERNEL_PIN)_SHA256)
 KERNEL_ARM64_PIN  := KERNEL_$(shell echo '$(KERNEL_DEFAULT_TRACK)' | tr a-z A-Z)
 HAPROXY_ARM64_PIN := HAPROXY_$(subst .,_,$(firstword $(HAPROXY_BRANCHES)))
 
+# $(call suspended,TARGET) is TARGET when variants.mk's SUSPENDED_TARGETS
+# lists it (vmware, baremetal, raspberry-pi), else empty. A suspended
+# target's recipes stay and build by hand; what builds or tests images
+# automatically (release-images, schematic-inputs, image-build.yml
+# through hack/target-suspended.sh) leaves it out.
+suspended = $(filter $(1),$(SUSPENDED_TARGETS))
+
 MODULE  := github.com/swenske/Janus
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
@@ -47,7 +54,7 @@ GEN_DIR := gen
 	qemu-verity-boot-test state-image qemu-state-persist-test \
 	disk-image qemu-ab-boot-test uki-image qemu-uefi-boot-test \
 	qemu-uefi-ab-boot-test qemu-lifecycle-rollback-test qemu-secureboot-test \
-	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test qemu-lifecycle-upgrade-variant-test qemu-lifecycle-upgrade-from-release-test release-bundle qemu-orchestrator-test \
+	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test qemu-lifecycle-upgrade-variant-test qemu-lifecycle-upgrade-from-release-test release-bundle release-images release-image-files qemu-orchestrator-test \
 	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-probe-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-fleetctl-test qemu-cluster-test qemu-state-migrate-test qemu-controller-cluster-test qemu-clusterctl-test qemu-cluster-upgrade-test qemu-cluster-upgrade-bgp-test qemu-controller-cluster-upgrade-test qemu-self-register-fleet-test qemu-self-register-enroll-test qemu-network-config-test qemu-dhcp-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build dashboard-bin \
@@ -157,12 +164,14 @@ kernel-builds: $(addprefix kernel-build-,$(KERNEL_TRACKS))
 
 # The files each kernel build reads (kernel/Dockerfile exports the list),
 # for hack/upstream to keep only the kernel CVEs that apply to Janus: one
-# list per track and architecture (arm64: the default track only).
-# Regenerate whenever a config changes - image-build.yml fails when they
-# no longer match the build. kernel-built-files-<track> does one track.
+# list per track and architecture (arm64: the default track only - and
+# none while raspberry-pi is suspended: the arm64 list stays as it is
+# until the suspension is lifted). Regenerate whenever a config changes
+# - image-build.yml fails when they no longer match the build.
+# kernel-built-files-<track> does one track.
 kernel-built-files-%: kernel-build-%
 	cp $(BUILD_DIR)/kernel-$*/built-files.txt kernel/built-files-$*-amd64.txt
-	$(if $(filter $*,$(KERNEL_DEFAULT_TRACK)),$(MAKE) rpi4-kernel-build && cp $(BUILD_DIR)/rpi4/built-files.txt kernel/built-files-$*-arm64.txt)
+	$(if $(filter $*,$(KERNEL_DEFAULT_TRACK)),$(if $(call suspended,raspberry-pi),@echo "kernel/built-files-$*-arm64.txt kept: raspberry-pi is suspended (variants.mk)",$(MAKE) rpi4-kernel-build && cp $(BUILD_DIR)/rpi4/built-files.txt kernel/built-files-$*-arm64.txt))
 
 kernel-built-files: $(addprefix kernel-built-files-,$(KERNEL_TRACKS))
 
@@ -323,18 +332,25 @@ schematic-catalog:
 # What a release publishes so custom schematics can be built from it
 # without rebuilding anything (image/schematic/build.sh): per
 # architecture, the kernel, the base rootfs tree and the extension packs,
-# plus the catalog. Into build/inputs/.
-schematic-inputs: kernel-builds rpi4-kernel-build extensions-amd64 extensions-arm64 schematic-catalog haproxy-builds
+# plus the catalog. Into build/inputs/. arm64 only serves the Raspberry
+# Pi images: none while raspberry-pi is suspended (the catalog then
+# offers amd64 alone - hack/extpack catalog).
+SCHEMATIC_INPUTS_ARM64 := $(if $(call suspended,raspberry-pi),,rpi4-kernel-build extensions-arm64)
+schematic-inputs: kernel-builds $(SCHEMATIC_INPUTS_ARM64) extensions-amd64 schematic-catalog haproxy-builds
 	rm -rf $(BUILD_DIR)/inputs && mkdir -p $(BUILD_DIR)/inputs
 	JANUS_EXPORT_BASE=$(CURDIR)/$(BUILD_DIR)/inputs/rootfs-base-amd64.tar $(MAKE) rootfs-build
-	JANUS_EXPORT_BASE=$(CURDIR)/$(BUILD_DIR)/inputs/rootfs-base-arm64.tar $(MAKE) rpi4-rootfs-build
 	for b in $(HAPROXY_BRANCHES); do \
 		./rootfs/haproxy-layer.sh $(BUILD_DIR)/haproxy-$$b/haproxy $(BUILD_DIR)/inputs/haproxy-$$b-amd64.tar || exit 1; \
 	done
-	./rootfs/haproxy-layer.sh $(BUILD_DIR)/rpi4/haproxy $(BUILD_DIR)/inputs/haproxy-$(firstword $(HAPROXY_BRANCHES))-arm64.tar
 	for t in $(KERNEL_TRACKS); do cp $(BUILD_DIR)/kernel-$$t/bzImage $(BUILD_DIR)/inputs/kernel-$$t-amd64 || exit 1; done
+ifeq ($(call suspended,raspberry-pi),)
+	JANUS_EXPORT_BASE=$(CURDIR)/$(BUILD_DIR)/inputs/rootfs-base-arm64.tar $(MAKE) rpi4-rootfs-build
+	./rootfs/haproxy-layer.sh $(BUILD_DIR)/rpi4/haproxy $(BUILD_DIR)/inputs/haproxy-$(firstword $(HAPROXY_BRANCHES))-arm64.tar
 	cp $(BUILD_DIR)/rpi4/Image $(BUILD_DIR)/inputs/kernel-$(KERNEL_DEFAULT_TRACK)-arm64
 	cp $(EXT_DIR)/extension-*.tar $(EXT_DIR)/schematic-catalog.json $(BUILD_DIR)/inputs/
+else
+	cp $(EXT_DIR)/extension-*-amd64.tar $(EXT_DIR)/schematic-catalog.json $(BUILD_DIR)/inputs/
+endif
 
 # SCHEMATIC=path/to/schematic.json builds the rootfs with that schematic's
 # extensions (already built: make extensions-amd64) and puts its ID into
@@ -354,6 +370,11 @@ initramfs: init
 qemu-boot-test: kernel-build initramfs
 	./hack/qemu-run.sh $(BUILD_DIR)/bzImage $(BUILD_DIR)/initramfs.cpio.gz
 
+# Suspended 2026-10-30 (raspberry-pi in variants.mk's SUSPENDED_TARGETS:
+# never verified on real hardware, waiting for testers) - every arm64
+# target from here to pi5-sdcard-image-test: still builds by hand, no
+# longer built nor tested by image-build.yml or released.
+#
 # Single Board Computer tranche: cross-builds the aarch64/BCM2711 kernel
 # Image + Raspberry Pi 4 device tree from kernel/configs/janus_rpi4_defconfig
 # via kernel/Dockerfile's "export-arm64" stage, pulled out to build/rpi4/.
@@ -764,10 +785,20 @@ kvm-image: kernel-build rootfs-build state-image
 # disk-image's raw GPT disk converted to a streamOptimized VMDK -
 # VMware/ESXi's own native disk format. See image/vmware/assemble.sh
 # and image/vmware/README.md.
+#
+# Suspended 2026-10-30 (vmware in variants.mk's SUSPENDED_TARGETS: never
+# verified on a real ESXi host, waiting for testers): builds by hand,
+# left out of release-images.
 vmware-image: kernel-build rootfs-build state-image
 	./image/vmware/assemble.sh $(BUILD_DIR)/janus.vmdk $(BUILD_DIR)/bzImage \
 		$(BUILD_DIR)/rootfs $(BUILD_DIR)/rootfs/state.img A
 
+# Suspended 2026-10-30 (baremetal in variants.mk's SUSPENDED_TARGETS:
+# never verified on real hardware, waiting for testers) - iso-image,
+# qemu-iso-boot-test, iso-image-with-bundle, qemu-iso-install-test and
+# qemu-pxe-fetch-test below: they build and run by hand, image-build.yml
+# skips them, release-images builds release-bundle instead of the ISO.
+#
 # Bare-metal Machine tranche: hybrid ISO/GPT installer/maintenance-mode
 # medium (no A/B, no STATE - ephemeral), bootable both via a real
 # El Torito EFI path and as a raw disk (dd'd to USB). Requires xorriso
@@ -796,7 +827,7 @@ qemu-iso-boot-test: iso-image
 # UKIs pin that rootfs.squashfs's dm-verity root hash: the same only
 # while the rootfs builds byte for byte the same (hack/reproducible.sh,
 # #433). image-build.yml builds the qcow2s, the VMDK and this ISO in one
-# invocation: one rootfs for the four.
+# invocation (release-images): one rootfs for the four.
 SIGNING_KEY ?=
 SIGNING_CERT ?=
 iso-image-with-bundle: kernel-build rootfs-build
@@ -1280,6 +1311,8 @@ qemu-consul-controller-test: build dashboard-bin extension-consul-amd64 extensio
 # Bare metal: the same images on NVMe/SATA/pvscsi/USB/virtio-scsi disks
 # and e1000e/igb/vmxnet3/e1000 NICs, 4 CPUs, a cloud-init CD-ROM, the ISO
 # installing a disk that registers with a Controller - see the script.
+# Its VMware devices part and its ISO part are skipped while vmware/
+# baremetal are suspended (hack/target-suspended.sh).
 qemu-baremetal-test: build dashboard-bin disk-image
 	./hack/qemu-baremetal-test.sh $(BUILD_DIR)/rootfs $(BUILD_DIR)/bzImage $(BIN_DIR)/janusctl $(BIN_DIR)/dashboardd
 
@@ -1490,6 +1523,21 @@ qemu-lifecycle-upgrade-relay-test: build disk-image
 # SIGNING_KEY/SIGNING_CERT): build/release.
 release-bundle: kernel-build rootfs-build
 	./image/release/assemble.sh $(BUILD_DIR)/release $(BUILD_DIR)/bzImage $(BUILD_DIR)/rootfs "$(SIGNING_KEY)" "$(SIGNING_CERT)"
+
+# What a release publishes as amd64 images, built in one invocation (one
+# rootfs, so one dm-verity root hash for every image and the bundle -
+# see iso-image-with-bundle): the qcow2s, the VMDK and the installer ISO
+# carrying the signed bundle - the bundle alone (release-bundle) while
+# baremetal is suspended, the VMDK left out while vmware is.
+# release-image-files lists the files (image-build.yml's publish).
+RELEASE_IMAGES      := proxmox-image kvm-image $(if $(call suspended,vmware),,vmware-image) \
+	$(if $(call suspended,baremetal),release-bundle,iso-image-with-bundle)
+RELEASE_IMAGE_FILES := $(BUILD_DIR)/janus.qcow2 $(BUILD_DIR)/janus-kvm.qcow2 \
+	$(if $(call suspended,vmware),,$(BUILD_DIR)/janus.vmdk) $(if $(call suspended,baremetal),,$(BUILD_DIR)/janus.iso)
+release-images: $(RELEASE_IMAGES)
+
+release-image-files:
+	@echo $(RELEASE_IMAGE_FILES)
 
 # A node of the previous published release (PREV_RELEASE: the newest
 # release, never a pre-release - hack/releases asks GitHub; the newest tag

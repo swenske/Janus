@@ -66,12 +66,20 @@ while read -r name latest <&3; do
     # source - a stable release can backport a new symbol too (6.18.56 and
     # 7.2.10's CC_OPT_INLINE_MEMSET): new symbols get their defaults, the
     # pull request is where they're reviewed. The default track's arm64
-    # config too (Raspberry Pi images have it). One build each: the
+    # config too (Raspberry Pi images have it) - unless raspberry-pi is
+    # suspended (variants.mk): no arm64 build then, the config is
+    # refreshed when the suspension is lifted. One build each: the
     # refresh saves what the build resolved, the same kernel. A track
     # moving to a new branch also takes the SELinux classes of the newest
     # kernel.
     targets="kernel-built-files-$track kernel-config-refresh"
-    [ "$track" = "$(sed -n 's/^KERNEL_DEFAULT_TRACK *:= *//p' variants.mk)" ] && targets="$targets rpi4-kernel-config-refresh"
+    if [ "$track" = "$(sed -n 's/^KERNEL_DEFAULT_TRACK *:= *//p' variants.mk)" ]; then
+      if hack/target-suspended.sh raspberry-pi; then
+        echo "raspberry-pi is suspended (variants.mk): the arm64 kernel config isn't refreshed"
+      else
+        targets="$targets rpi4-kernel-config-refresh"
+      fi
+    fi
     if [ "$(echo "$from" | cut -d. -f1,2)" != "$(echo "$to" | cut -d. -f1,2)" ]; then
       extra_labels=",kernel-branch"
       targets="$targets selinux-classes"

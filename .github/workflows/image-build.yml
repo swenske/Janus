@@ -44,6 +44,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      # The image targets variants.mk suspends (SUSPENDED_TARGETS): their
+      # steps are skipped while they are (hack/target-suspended.sh).
+      - name: Image targets suspended in variants.mk
+        id: targets
+        run: hack/target-suspended.sh | tee -a "$GITHUB_OUTPUT"
+
       # A release's version and notes are checked again by publish, which
       # uses them - here so a typo fails in seconds, not after the tests.
       - name: Check the release version and its notes
@@ -246,6 +252,7 @@ jobs:
       # real optical/El Torito boot isn't what's tested here). See
       # hack/qemu-iso-boot-test.sh.
       - name: Hybrid installer ISO boots under real UEFI firmware (Bare-metal tranche)
+        if: ${{ steps.targets.outputs.baremetal != 'suspended' }}
         run: make qemu-iso-boot-test
 
       # Bare-metal Machine tranche cont'd: proves the ISO's own embedded
@@ -255,6 +262,7 @@ jobs:
       # no bundle reachable from the host at all. See
       # hack/qemu-iso-install-test.sh.
       - name: Installer ISO's embedded release bundle installs a real disk (Bare-metal tranche)
+        if: ${{ steps.targets.outputs.baremetal != 'suspended' }}
         run: make qemu-iso-install-test
 
       # Bare-metal Machine tranche cont'd: proves only the network-
@@ -263,6 +271,7 @@ jobs:
       # image/pxe/README.md for the full story, including why a full
       # boot isn't asserted here.
       - name: iPXE DHCPs and fetches the real Janus UKI via TFTP (Bare-metal tranche)
+        if: ${{ steps.targets.outputs.baremetal != 'suspended' }}
         run: make qemu-pxe-fetch-test
 
       # Single Board Computer tranche's own Phase-1-equivalent boot-
@@ -274,9 +283,11 @@ jobs:
       # Raspberry Pi hardware. Real hardware (SD/MMC, USB, Ethernet,
       # UEFI firmware) is not yet covered.
       - name: Raspberry Pi 4 (aarch64/BCM2711) console boot (Single Board Computer tranche)
+        if: ${{ steps.targets.outputs.raspberry_pi != 'suspended' }}
         run: make qemu-raspi4-boot-test
 
       - name: The arm64 kernel's config and list of built files are current
+        if: ${{ steps.targets.outputs.raspberry_pi != 'suspended' }}
         run: |
           track="$(sed -n 's/^KERNEL_DEFAULT_TRACK *:= *//p' variants.mk)"
           cmp build/rpi4/built-files.txt "kernel/built-files-$track-arm64.txt" \
@@ -301,6 +312,7 @@ jobs:
       # from the Phase-1-equivalent boot-proof above (which never
       # touched a socket at all).
       - name: Raspberry Pi 4 (aarch64/BCM2711) janusd+haproxy boot (Single Board Computer tranche)
+        if: ${{ steps.targets.outputs.raspberry_pi != 'suspended' }}
         run: make qemu-raspi4-daemon-test
 
       # Single Board Computer tranche Phase-3-equivalent: the same
@@ -310,6 +322,7 @@ jobs:
       # (no PCIe/Ethernet emulation there at all). See
       # hack/qemu-arm64-network-test.sh's own header.
       - name: arm64 janusd+haproxy real HTTP over virtio-net (Single Board Computer tranche)
+        if: ${{ steps.targets.outputs.raspberry_pi != 'suspended' }}
         run: make qemu-arm64-network-test
 
       # Single Board Computer tranche, UEFI/UKI: the full squashfs+dm-
@@ -322,6 +335,7 @@ jobs:
       # ttyAMA0 vs. ttyS0 + no SELinux support in this kernel config
       # yet).
       - name: arm64 UEFI/UKI boot under real AAVMF firmware (Single Board Computer tranche)
+        if: ${{ steps.targets.outputs.raspberry_pi != 'suspended' }}
         run: make qemu-arm64-uefi-boot-test
 
   test-lifecycle:
@@ -1073,7 +1087,8 @@ jobs:
       # Bare metal: the images on NVMe/SATA/USB/virtio-scsi disks and
       # e1000e/igb/vmxnet3/e1000 NICs with 4 CPUs, a cloud-init CD-ROM, and
       # the ISO on a USB stick installing a disk that registers with a
-      # Controller - enforcing. See hack/qemu-baremetal-test.sh.
+      # Controller - enforcing. See hack/qemu-baremetal-test.sh: it skips
+      # its VMware and ISO parts itself while variants.mk suspends them.
       - name: Bare metal - real disks, NICs, CPUs and the ISO's install
         run: make qemu-baremetal-test
 
@@ -1181,6 +1196,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      # The image targets variants.mk suspends (SUSPENDED_TARGETS): not
+      # built, uploaded nor released while they are - the Makefile's
+      # release-images and schematic-inputs leave them out too.
+      - name: Image targets suspended in variants.mk
+        id: targets
+        run: hack/target-suspended.sh | tee -a "$GITHUB_OUTPUT"
 
       # A run cutting a release only creates its tag in the final step,
       # after every binary is built - git describe alone would stamp them
@@ -1327,8 +1349,10 @@ jobs:
       # (four make invocations built it four times, each a different hash
       # until #433 made the rootfs reproducible). The signing key's
       # temp file therefore lives through the three conversions too, a
-      # minute or so.
-      - name: Build the alpha images - Proxmox, KVM, VMware, and the installer ISO (signed release bundle)
+      # minute or so. make release-images is that invocation: without
+      # the VMDK while vmware is suspended, the bundle alone
+      # (release-bundle) instead of the ISO while baremetal is.
+      - name: Build the alpha images and the signed release bundle (Proxmox, KVM, and the targets not suspended)
         # The `secrets` context isn't allowed directly in a step's own
         # `if:`, and isn't needed here - env: is readable from run:.
         env:
@@ -1339,17 +1363,19 @@ jobs:
             KEY="$(mktemp)"
             trap 'rm -f "$KEY"' EXIT
             printf '%s' "$SECUREBOOT_SIGNING_KEY" > "$KEY"
-            make proxmox-image kvm-image vmware-image iso-image-with-bundle SIGNING_KEY="$KEY" SIGNING_CERT=image/secureboot/production-cert.pem
+            make release-images SIGNING_KEY="$KEY" SIGNING_CERT=image/secureboot/production-cert.pem
             sbverify --cert image/secureboot/production-cert.pem build/release/uki-a.efi
             sbverify --cert image/secureboot/production-cert.pem build/release/uki-b.efi
             echo "Release bundle UKIs signed and verified against image/secureboot/production-cert.pem"
           else
             echo "::warning::SECUREBOOT_SIGNING_KEY isn't set - release bundle left unsigned (can't be published as a release)"
-            make proxmox-image kvm-image vmware-image iso-image-with-bundle
+            make release-images
           fi
-          ls -lh build/janus.qcow2 build/janus-kvm.qcow2 build/janus.vmdk build/janus.iso
+          # shellcheck disable=SC2046 # a list of paths
+          ls -lh $(make -s release-image-files)
 
       - name: Upload the alpha installer ISO
+        if: ${{ steps.targets.outputs.baremetal != 'suspended' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: janus-alpha-amd64-iso-${{ github.sha }}
@@ -1377,6 +1403,7 @@ jobs:
           retention-days: 30
 
       - name: Upload the alpha VMware/ESXi image
+        if: ${{ steps.targets.outputs.vmware != 'suspended' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: janus-alpha-amd64-vmware-${{ github.sha }}
@@ -1398,11 +1425,13 @@ jobs:
       # not a working networked appliance (RP1's own SD/Ethernet
       # drivers don't exist in mainline Linux yet).
       - name: Build and verify the Raspberry Pi 4 SD card image
+        if: ${{ steps.targets.outputs.raspberry_pi != 'suspended' }}
         run: |
           make pi4-sdcard-image-test
           ls -lh build/rpi-uefi/pi4-disk.img
 
       - name: Upload the Raspberry Pi 4 SD card image
+        if: ${{ steps.targets.outputs.raspberry_pi != 'suspended' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: janus-alpha-arm64-rpi4-${{ github.sha }}
@@ -1410,11 +1439,13 @@ jobs:
           retention-days: 30
 
       - name: Build and verify the Raspberry Pi 5 SD card image
+        if: ${{ steps.targets.outputs.raspberry_pi != 'suspended' }}
         run: |
           make pi5-sdcard-image-test
           ls -lh build/rpi-uefi/pi5-disk.img
 
       - name: Upload the Raspberry Pi 5 SD card image
+        if: ${{ steps.targets.outputs.raspberry_pi != 'suspended' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: janus-alpha-arm64-rpi5-${{ github.sha }}
@@ -1671,35 +1702,43 @@ jobs:
           PRERELEASE: ${{ inputs.prerelease }}
           COMMIT_SHA: ${{ github.sha }}
           GITHUB_TOKEN: ${{ github.token }}
+          RASPBERRY_PI: ${{ steps.targets.outputs.raspberry_pi }}
         # hack/release-body.sh wrote the notes, GitHub's generated changes
         # included: since the newest release, which GitHub can't tell for
-        # a pre-release.
+        # a pre-release. The images are what release-images built
+        # (release-image-files), the Raspberry Pi SD cards and the arm64
+        # inputs only while raspberry-pi isn't suspended.
         run: |
-          go run ./hack/releases publish -commit "$COMMIT_SHA" -name "$RELEASE_NAME" -notes build/release-notes.md \
-            -prerelease="$PRERELEASE" "$RELEASE_VERSION" \
-            build/release/rootfs.squashfs \
-            build/release/rootfs.squashfs.sha256 \
-            build/release/rootfs.verity \
-            build/release/uki-a.efi \
-            build/release/uki-b.efi \
-            build/release/controller-image.txt \
-            build/security/security.json \
-            build/security/sbom.cdx.json \
-            build/janus.qcow2 \
-            build/janus-kvm.qcow2 \
-            build/janus.vmdk \
-            build/janus.iso \
-            build/rpi-uefi/pi4-disk.img \
-            build/rpi-uefi/pi5-disk.img \
-            build/inputs/schematic-catalog.json \
-            'build/inputs/kernel-*-amd64' \
-            'build/inputs/kernel-*-arm64' \
-            build/inputs/rootfs-base-amd64.tar \
-            build/inputs/rootfs-base-arm64.tar \
-            'build/inputs/haproxy-*.tar' \
-            'build/inputs/extension-*.tar' \
-            'build/deb/janusctl_*.deb' \
+          set -euo pipefail
+          read -ra images <<<"$(make -s release-image-files)"
+          files=(
+            build/release/rootfs.squashfs
+            build/release/rootfs.squashfs.sha256
+            build/release/rootfs.verity
+            build/release/uki-a.efi
+            build/release/uki-b.efi
+            build/release/controller-image.txt
+            build/security/security.json
+            build/security/sbom.cdx.json
+            "${images[@]}"
+            build/inputs/schematic-catalog.json
+            'build/inputs/kernel-*-amd64'
+            build/inputs/rootfs-base-amd64.tar
+            'build/inputs/haproxy-*.tar'
+            'build/inputs/extension-*.tar'
+            'build/deb/janusctl_*.deb'
             'build/terraform-provider/terraform-provider-janus_*'
+          )
+          if [ "$RASPBERRY_PI" != suspended ]; then
+            files+=(
+              build/rpi-uefi/pi4-disk.img
+              build/rpi-uefi/pi5-disk.img
+              'build/inputs/kernel-*-arm64'
+              build/inputs/rootfs-base-arm64.tar
+            )
+          fi
+          go run ./hack/releases publish -commit "$COMMIT_SHA" -name "$RELEASE_NAME" -notes build/release-notes.md \
+            -prerelease="$PRERELEASE" "$RELEASE_VERSION" "${files[@]}"
 
       # A pre-release's janusctl goes to apt's "testing" suite only
       # (packaging/apt, README.md) - what a release gets beside it:
