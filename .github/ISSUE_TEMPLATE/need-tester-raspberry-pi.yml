@@ -1,0 +1,100 @@
+# Shown by the site's image builder ("Need tester" on a suspended
+# target: site/frontend/src/builder.js) - hack/docscheck checks the three
+# need-tester-*.yml forms ask the same questions, with their labels.
+name: "Need tester: Raspberry Pi 4 / 5"
+description: Offer to test Janus on a Raspberry Pi - its SD card images are suspended until someone can.
+title: "Need tester: Raspberry Pi 4 / 5 - "
+labels: ["need-tester", "target:raspberry-pi"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **The Raspberry Pi target (the Pi 4/CM4 and Pi 5 SD card images) is suspended since 2026-10-30**: it was only ever checked structurally and booted under QEMU, never on a real board, so no image is built or published for now. Testers bring it back.
+
+        What a test looks like: [Testing Janus on real Raspberry Pi 4 / Pi 5 hardware](https://janus.sw-servers.net/docs/raspberry-pi-testing.md) - a serial console makes all the difference. You get an image and the steps; you tell us what happened.
+  - type: dropdown
+    id: what
+    attributes:
+      label: What would you test?
+      description: Anything you can - one is plenty.
+      multiple: true
+      options:
+        - Installation (importing or writing the image)
+        - First boot (console, network, the API answering)
+        - A/B update and rollback
+        - Networking (VLANs, several NICs, DHCP or static)
+        - BGP or VRRP
+        - Performance (HAProxy throughput, latency)
+        - Something else (say below)
+    validations:
+      required: true
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Hardware and platform
+      description: The board and its revision, the boot medium, the firmware - the more exact, the better.
+      placeholder: |
+        Board: Raspberry Pi 4 Model B, 4 GB, rev 1.5 (or a CM4 and its carrier, a Pi 5 8 GB...)
+        Boot medium: SanDisk Extreme 32 GB microSD (or a USB SSD)
+        Bootloader EEPROM: 2025-05-08 (rpi-eeprom-update)
+        Network: the on-board Ethernet
+        Serial console: a USB-to-TTL adapter on GPIO 14/15
+    validations:
+      required: true
+  - type: textarea
+    id: network
+    attributes:
+      label: Network environment
+      description: What matters around it - VLANs, DHCP or static addresses, an existing PXE or HTTP Boot server, a router speaking BGP, multicast for VRRP...
+  - type: dropdown
+    id: availability
+    attributes:
+      label: Availability
+      options:
+        - A one-off test
+        - Regular testing (each pre-release)
+        - Not sure yet
+  - type: input
+    id: when
+    attributes:
+      label: When could you start?
+      placeholder: e.g. next week, within a month
+  - type: dropdown
+    id: logs
+    attributes:
+      label: If it fails, what could you send?
+      description: The serial console is what helps most.
+      multiple: true
+      options:
+        - The serial console's output
+        - dmesg / the kernel log
+        - Screenshots of the screen console
+        - Probably nothing
+  - type: dropdown
+    id: experience
+    attributes:
+      label: Your experience
+      description: Only to pitch the instructions right.
+      options:
+        - New to this
+        - At ease with VMs and Linux
+        - Expert (firmware, kernels, networking)
+  - type: checkboxes
+    id: consent
+    attributes:
+      label: Publishing the results
+      options:
+        - label: I agree that my test results may be published in Janus's documentation.
+          required: true
+  - type: dropdown
+    id: credit
+    attributes:
+      label: Credit
+      description: How the published results name you.
+      options:
+        - By my GitHub handle
+        - Don't name me
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else we should know?

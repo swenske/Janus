@@ -1,0 +1,99 @@
+# Shown by the site's image builder ("Need tester" on a suspended
+# target: site/frontend/src/builder.js) - hack/docscheck checks the three
+# need-tester-*.yml forms ask the same questions, with their labels.
+name: "Need tester: VMware / ESXi"
+description: Offer to test Janus on VMware ESXi - its image is suspended until someone can.
+title: "Need tester: VMware / ESXi - "
+labels: ["need-tester", "target:vmware"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **The VMware target (`janus.vmdk`) is suspended since 2026-10-30**: it was only ever tested under QEMU with VMware's devices (PVSCSI, vmxnet3), never on a real ESXi host, so no image is built or published for now. Testers bring it back.
+
+        What a test looks like: [VMware vSphere, end to end](https://janus.sw-servers.net/docs/private-cloud/platforms/vmware.md). You get an image and the steps; you tell us what happened.
+  - type: dropdown
+    id: what
+    attributes:
+      label: What would you test?
+      description: Anything you can - one is plenty.
+      multiple: true
+      options:
+        - Installation (importing or writing the image)
+        - First boot (console, network, the API answering)
+        - A/B update and rollback
+        - Networking (VLANs, several NICs, DHCP or static)
+        - BGP or VRRP
+        - Performance (HAProxy throughput, latency)
+        - Something else (say below)
+    validations:
+      required: true
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Hardware and platform
+      description: ESXi or vCenter version, the VM's hardware version and devices, the host - the more exact, the better.
+      placeholder: |
+        ESXi / vCenter: 8.0 Update 3
+        VM hardware version: 21, EFI firmware, Secure Boot off
+        VM: 2 vCPU, 2 GiB RAM, a PVSCSI disk, a vmxnet3 NIC
+        Host: Dell PowerEdge R650, 2x Xeon Gold 6338 (x86-64), BIOS 1.13
+    validations:
+      required: true
+  - type: textarea
+    id: network
+    attributes:
+      label: Network environment
+      description: What matters around it - VLANs, DHCP or static addresses, an existing PXE or HTTP Boot server, a router speaking BGP, multicast for VRRP...
+  - type: dropdown
+    id: availability
+    attributes:
+      label: Availability
+      options:
+        - A one-off test
+        - Regular testing (each pre-release)
+        - Not sure yet
+  - type: input
+    id: when
+    attributes:
+      label: When could you start?
+      placeholder: e.g. next week, within a month
+  - type: dropdown
+    id: logs
+    attributes:
+      label: If it fails, what could you send?
+      description: The serial console is what helps most.
+      multiple: true
+      options:
+        - The serial console's output
+        - dmesg / the kernel log
+        - Screenshots of the screen console
+        - Probably nothing
+  - type: dropdown
+    id: experience
+    attributes:
+      label: Your experience
+      description: Only to pitch the instructions right.
+      options:
+        - New to this
+        - At ease with VMs and Linux
+        - Expert (firmware, kernels, networking)
+  - type: checkboxes
+    id: consent
+    attributes:
+      label: Publishing the results
+      options:
+        - label: I agree that my test results may be published in Janus's documentation.
+          required: true
+  - type: dropdown
+    id: credit
+    attributes:
+      label: Credit
+      description: How the published results name you.
+      options:
+        - By my GitHub handle
+        - Don't name me
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else we should know?
