@@ -334,6 +334,11 @@ example:
   counters read from both nodes' exporters; headless Claude Code with
   the plugin's hook against a node, a reader certificate; HAProxy's
   throughput again with node 01 alternating both versions (`abrun`).
+- v2026.10.30: BIRD held while HAProxy is gated, measured on both
+  versions with the node's own BGP counters, and a drained member's
+  reboot with them; a machine on the pre-release changing its image;
+  a log target paused and resumed; the Controller's audit page (all
+  below).
 
 ### HAProxy killed by the kernel
 
@@ -736,6 +741,65 @@ sent at once to the production receiver - checked there, nothing of the
 lab's addresses in it -, **New ID** (the receiver forgets the previous
 one), turned off (nothing due, **Send now** refused).
 
+### BIRD held while HAProxy is gated
+
+Since v2026.10.30, on the release first, then on the pre-release:
+node 02's HAProxy stopped through the API, so the gate closes and BIRD's
+`haproxy_*` protocols are held down. The node's own `bird.conf` is
+applied again while held, then HAProxy is started. The router's active
+routes to the anycast address are polled all along, about every 0.45 s.
+A route sent and withdrawn at once lasts less than a poll, so the
+measure is the node's exporter: `janus_bgp_route_changes_total` for the
+router's protocol, export direction, updates and withdraws accepted.
+It is read before, while held, 10 s after the apply and after the
+start: an apply while held must send nothing.
+
+The drained member's firmware reboot (Clusters, above) also samples
+these counters every second, from the reboot until the undrain. The
+member sends no update from its boot until it is undrained.
+
+### A pre-release machine changing its image
+
+Since v2026.10.30, on a machine the Controller makes from the
+pre-release's image: an extension added through its node page's calls
+(Update › Apps), then removed. Each time, the image factory's catalog
+and the update check are read, the bundle is prepared until ready, and
+installed with `wait_for_health` and a schematic change allowed. The
+target must be the pre-release itself, and the machine must come back
+on it with or without the extension. With the guest agent added, the
+host reads the guest's addresses and version through it.
+
+### A log target paused
+
+Since v2026.10.30:
+
+- `janusctl ... pause` on a node whose log forwarding a profile sets:
+  it must refuse and name the profile.
+- The Elasticsearch target paused on the lab's profile (the
+  Controller's `GET` then `PUT /api/log-forwarding`, as its page saves),
+  with the target's secret kept. Each node's status says `disabled`, and
+  how long that takes.
+- A janusd line made while paused, by an audited call: absent from
+  Elasticsearch while paused.
+- The target resumed: the line arrives from the LOGS partition. It is
+  checked on a node with LOGS and on one without (memory only: its
+  janusd lines aren't kept, its audit and events are).
+
+### The audit page
+
+Since v2026.10.30, on the lab's Controller in headless Chromium, light
+and dark:
+
+- the newest entries, and how many name their subject;
+- **Load older**: more rows, the total unchanged;
+- the filter by one subject from the page's address: every row names
+  it;
+- after the campaign's machine is removed, its entries filtered the
+  same way: its name kept, "(removed)".
+
+Console errors, failed requests and axe's serious and critical issues
+must all be zero.
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -875,3 +939,11 @@ ran:
   machine with its console streamed through the Controller - when the
   old janusd goes and a new one answers, init's lines, the services
   (v2026.10.29-5).
+- `gate-apply NAME NODE`: HAProxy stopped, the node's own `bird.conf`
+  applied while held, HAProxy started; the router's routes polled and
+  the node's BGP export counters read at each step. `image-change NODE
+  add|remove EXTENSION`: a machine's image changed through its node
+  page's calls, each step timed. `l1-pause [NODE]`: a log target paused
+  on the lab's profile and resumed, the line made meanwhile looked up in
+  Elasticsearch. `acheck.mjs`: the audit page in headless Chromium
+  (v2026.10.30).
