@@ -792,11 +792,11 @@ qemu-iso-boot-test: iso-image
 # (image-build.yml), so it's the one that has to be signed: pass
 # SIGNING_KEY=<key.pem> SIGNING_CERT=<cert.pem> to sign both UKIs (left
 # unsigned when unset). Signing a separately built bundle instead
-# doesn't work - rootfs-build reruns in every make invocation and
-# mksquashfs isn't byte-reproducible, so another invocation's UKIs
-# carry a different dm-verity root hash than this rootfs.squashfs
-# (image-build.yml builds the qcow2s, the VMDK and this ISO in one
-# invocation for that reason: one rootfs for the four).
+# isn't safe - rootfs-build reruns in every make invocation, and its
+# UKIs pin that rootfs.squashfs's dm-verity root hash: the same only
+# while the rootfs builds byte for byte the same (hack/reproducible.sh,
+# #433). image-build.yml builds the qcow2s, the VMDK and this ISO in one
+# invocation: one rootfs for the four.
 SIGNING_KEY ?=
 SIGNING_CERT ?=
 iso-image-with-bundle: kernel-build rootfs-build

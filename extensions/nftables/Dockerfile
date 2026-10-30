@@ -43,6 +43,11 @@ RUN curl -fsSLO "https://www.netfilter.org/pub/libmnl/libmnl-${LIBMNL_VERSION}.t
     && tar xJf "nftables-${NFTABLES_VERSION}.tar.xz" && mv "nftables-${NFTABLES_VERSION}" nftables \
     && tar xzf "jansson-${JANSSON_VERSION}.tar.gz" && mv "jansson-${JANSSON_VERSION}" jansson \
     && cp /etc/services /src/services && cp /usr/share/doc/netbase/copyright /src/netbase.copyright
+# nft records when it was built (BUILD_STAMP: SOURCE_DATE_EPOCH, else the
+# clock), in every table it writes: the release's own date instead -
+# its configure.ac's, as the tarball gives it - or two builds of a
+# version are two different binaries (#433).
+RUN stat -c %Y /src/nftables/configure.ac > /src/nftables-date
 # The build itself, for either target: HOST is the configure --host
 # triplet (empty natively), STRIP the matching strip.
 COPY --chmod=0755 <<'SCRIPT' /src/build.sh
@@ -61,6 +66,8 @@ cd /src/jansson
 ./configure $host --prefix=$deps --enable-static --disable-shared
 make -j"$(nproc)" && make install
 cd /src/nftables
+SOURCE_DATE_EPOCH="$(cat /src/nftables-date)"
+export SOURCE_DATE_EPOCH
 # jansson is found with -ljansson, not pkg-config.
 ./configure $host --prefix=/usr/local --sysconfdir=/etc --enable-static --disable-shared \
   --with-mini-gmp --without-cli --with-json --without-xtables --disable-man-doc \

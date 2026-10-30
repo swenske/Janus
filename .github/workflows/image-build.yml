@@ -1301,9 +1301,8 @@ jobs:
       # Its build/release is also the bundle the GitHub Release step
       # publishes, so this is where it's signed - see the Makefile's
       # iso-image-with-bundle comment for why a separately built bundle
-      # can't be signed instead (every target reruns rootfs-build, and
-      # mksquashfs isn't byte-reproducible, so another bundle's UKIs carry
-      # a different dm-verity root hash). A signed bundle used to be built
+      # can't be signed instead (every target reruns rootfs-build, and the
+      # UKIs pin that rootfs's dm-verity root hash). A signed bundle used to be built
       # in its own step and then discarded, while the Release published
       # this unsigned one.
       #
@@ -1325,8 +1324,8 @@ jobs:
       # own firmware don't carry this project's Secure Boot certificate)
       # and the installer ISO with its release bundle: rootfs-build runs
       # once, so the four carry the same rootfs and dm-verity root hash
-      # (four make invocations built it four times, each a different
-      # hash - mksquashfs isn't byte-reproducible). The signing key's
+      # (four make invocations built it four times, each a different hash
+      # until #433 made the rootfs reproducible). The signing key's
       # temp file therefore lives through the three conversions too, a
       # minute or so.
       - name: Build the alpha images - Proxmox, KVM, VMware, and the installer ISO (signed release bundle)
@@ -1648,9 +1647,10 @@ jobs:
       # The release is a draft until every asset is there, then published
       # (hack/releases publish): nobody sees one half uploaded, and an
       # upload GitHub fails is tried again. A rerun of this job after a
-      # failure here completes the draft with its own build, in whole - a
-      # rebuild isn't byte for byte the same, and two attempts' files mixed
-      # would pair a rootfs with UKIs pinning another's root hash. A
+      # failure here completes the draft with its own build, in whole: a
+      # rebuild gives the same bytes (hack/reproducible.sh) until
+      # something breaks that, and two attempts' files mixed would then
+      # pair a rootfs with UKIs pinning another's root hash. A
       # published release never changes: a rerun after a later step
       # failed compares its assets with its build, says what differs and
       # leaves it as it is (#433: v2026.10.30's rerun replaced all of

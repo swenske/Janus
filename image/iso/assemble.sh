@@ -66,6 +66,10 @@ BUNDLE_DIR="${4:-}"
 SQUASHFS="$ROOTFS_DIR/rootfs.squashfs"
 VERITY="$ROOTFS_DIR/rootfs.verity"
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+# xorriso takes the volume's dates - and the GPT's GUIDs, made from
+# them - from SOURCE_DATE_EPOCH: the commit's (hack/reproducible.sh), so
+# two builds of a commit are the same ISO (#433).
+. "$SELF_DIR/../../hack/reproducible.sh"
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT

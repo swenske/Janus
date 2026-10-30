@@ -45,6 +45,8 @@ ACTIVE_SLOT="${4:?usage: $0 <disk-img> <bzImage> <rootfs-dir> <A|B> [boot-filena
 BOOT_FILENAME="${5:-BOOTX64.EFI}"
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+# The commit's times on what mtools writes (hack/reproducible.sh).
+. "$SELF_DIR/../../hack/reproducible.sh"
 
 case "$ACTIVE_SLOT" in
   A|B) ;;

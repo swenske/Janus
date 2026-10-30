@@ -25,8 +25,9 @@ import (
 // release half uploaded. A run that failed meanwhile leaves the draft
 // behind; the next attempt - a rerun of the publishing job, which
 // rebuilds everything - completes it with its own files, all of them: a
-// rebuild isn't byte for byte the same, and two attempts' bundles mixed
-// would pair a rootfs with UKIs pinning another one's root hash.
+// rebuild gives the same bytes (hack/reproducible.sh) until something
+// breaks that, and two attempts' bundles mixed would then pair a rootfs
+// with UKIs pinning another one's root hash.
 //
 // A published release's assets are what people downloaded and what
 // Controllers cached the SHA-256 of: a later attempt (a rerun after a
@@ -178,7 +179,7 @@ func checkPublished(ctx context.Context, c *client, r release, o publishOpts, fi
 		case a.Digest == "":
 			fmt.Fprintf(out, "::warning::%s: GitHub gives no digest of the published one - not compared\n", f.Name)
 		case a.Digest != "sha256:"+f.SHA256:
-			fmt.Fprintf(out, "::warning::%s: the published one (%s) isn't what this attempt built (sha256:%s) - it stays as published\n", f.Name, a.Digest, f.SHA256)
+			fmt.Fprintf(out, "::warning::%s: the published one (%s) isn't what this attempt built (sha256:%s) - it stays as published; two builds of a commit should be the same (hack/reproducible.sh)\n", f.Name, a.Digest, f.SHA256)
 		}
 	}
 	if len(missing) > 0 {

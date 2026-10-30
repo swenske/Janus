@@ -61,15 +61,18 @@ everything again, then:
   GitHub refused a file now and then (each upload is tried four times
   first) - is completed with this attempt's files, all of them: those
   already there with the same bytes stay, the others are replaced. A
-  draft was never seen, and a rebuild isn't byte for byte the same: a
-  bundle mixing two attempts would pair a root filesystem with UKIs
-  pinning another one's;
+  draft was never seen. Two builds of a commit give the same bytes
+  (`hack/reproducible.sh`) - but for the signed UKIs and the ISO, whose
+  Secure Boot signatures hold the time they were made - and should
+  something break that, a bundle mixing two attempts would pair a root
+  filesystem with UKIs pinning another one's;
 - **a published release** - the run failed after it, publishing
   janusctl or the docs - is never changed: its files are compared with
-  this attempt's, any difference is reported as a warning, and the
-  steps after it run again. One published without a file it should have
-  stops the rerun: adding a file from another build to a release isn't
-  done - publish another version;
+  this attempt's, any difference is reported as a warning - expected
+  for the signed UKIs and the ISO, else a build that stopped being
+  reproducible - and the steps after it run again. One published
+  without a file it should have stops the rerun: adding a file from
+  another build to a release isn't done - publish another version;
 - **the Controller's version tag** already on Docker Hub, from this
   commit, is kept - with `latest` and the commit's tag - and the release
   names it. From another commit, the run stops: a version's image never

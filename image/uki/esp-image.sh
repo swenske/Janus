@@ -27,8 +27,11 @@ UKI="${2:?usage: $0 <out-file> <uki.efi> <size-mb> [boot-filename]}"
 SIZE_MB="${3:?usage: $0 <out-file> <uki.efi> <size-mb> [boot-filename]}"
 BOOT_FILENAME="${4:-BOOTX64.EFI}"
 
+# A fixed volume ID and the commit's times (mtools reads
+# SOURCE_DATE_EPOCH): two builds of a commit, the same ESP (#433).
+. "$(dirname "$0")/../../hack/reproducible.sh"
 truncate -s "${SIZE_MB}M" "$OUT"
-mkfs.vfat -F 32 "$OUT" >/dev/null
+mkfs.vfat --invariant -F 32 "$OUT" >/dev/null
 mmd -i "$OUT" ::/EFI
 mmd -i "$OUT" ::/EFI/BOOT
 mcopy -i "$OUT" "$UKI" "::/EFI/BOOT/$BOOT_FILENAME"

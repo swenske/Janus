@@ -108,6 +108,11 @@ size_of() { stat -c%s "$1"; }
 TOTAL_MB=$(( FIRMWARE_MB + DATA_MB + HASH_MB + DATA_MB + HASH_MB + STATE_MB + 2 ))
 truncate -s "${TOTAL_MB}M" "$OUT"
 
+# GUIDs, the FAT's volume ID and every time from the root hash and the
+# commit, not drawn: two builds of a commit, the same image
+# (hack/reproducible.sh, #433).
+. "$SELF_DIR/../../hack/reproducible.sh"
+mapfile -t GPT_IDS < <(gpt_ids "$(cat "$ROOTFS_DIR/rootfs.roothash")" 6)
 sgdisk --zap-all "$OUT" >/dev/null
 sgdisk \
   -n 1:0:+"${FIRMWARE_MB}"M -t 1:ef00 -c 1:FIRMWARE \
@@ -116,6 +121,7 @@ sgdisk \
   -n 4:0:+"${DATA_MB}"M     -t 4:8300 -c 4:BOOT-B-DATA \
   -n 5:0:+"${HASH_MB}"M     -t 5:8300 -c 5:BOOT-B-HASH \
   -n 6:0:0                  -t 6:8300 -c 6:STATE \
+  "${GPT_IDS[@]}" \
   "$OUT" >/dev/null
 
 write_part() {
@@ -156,7 +162,7 @@ ACTIVE_UKI="$UKI_A"
 # files" mechanism).
 FW_IMG="$WORKDIR/firmware.img"
 truncate -s "${FIRMWARE_MB}M" "$FW_IMG"
-mkfs.vfat -F 32 "$FW_IMG" >/dev/null
+mkfs.vfat --invariant -F 32 "$FW_IMG" >/dev/null
 mcopy -s -i "$FW_IMG" "$FIRMWARE_DIR"/* ::
 mmd -i "$FW_IMG" ::/EFI
 mmd -i "$FW_IMG" ::/EFI/BOOT
