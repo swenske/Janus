@@ -17,12 +17,14 @@ import (
 // set when it's created. A machine an older Controller created, or one
 // changed on the hypervisor, may not have today's: Proxmox VE machines
 // got the kvm64 CPU model, without AES-NI, until v2026.10.28 (#372), and
-// never the guest agent's option (#373). The sync reports the difference
-// (Machine.HardwareDrift) and never adopts it; it's applied only when an
-// admin asks (POST /api/machines/{id}/apply-settings): it takes a stop
-// and a start of the virtual machine - a reboot from inside keeps the
-// same QEMU process -, and a Controller update must never restart every
-// older machine by itself (kluster-prod).
+// never the guest agent's option (#373); a Proxmox hypervisor's CPU model
+// setting may change after its machines were created. The sync reports
+// the difference (Machine.HardwareDrift) and never adopts it; it's
+// applied only when an admin asks (POST /api/machines/{id}/apply-settings):
+// it takes a stop and a start of the virtual machine - a reboot from
+// inside keeps the same QEMU process -, and neither a Controller update
+// nor a hypervisor's new setting may restart its machines by itself
+// (kluster-prod).
 
 // machineDrift is how a virtual machine's settings, as its hypervisor
 // reports them, differ from what the Controller gives a machine of spec
@@ -96,6 +98,22 @@ func (a *app) undrainedMember(ctx context.Context, m *machines.Machine) string {
 	return fmt.Sprintf("%s is %s, a member of cluster %s in service: drain it first (its cluster's page, or POST /api/clusters/%s/members/%s/drain), apply its settings, then undrain it", m.Spec.Name, mem.Name, c.Name, c.ID, mem.Name)
 }
 
+// cpuModelProblem says why m can't get the CPU model in its drift - its
+// hypervisor's processor can't run it (HostInfo.MachineCPUError) - or "".
+func (a *app) cpuModelProblem(ctx context.Context, m *machines.Machine) string {
+	if !slices.ContainsFunc(m.HardwareDrift, func(d hypervisor.Drift) bool { return d.Setting == "cpu" }) {
+		return ""
+	}
+	h, ok := a.hypervisors.Get(m.Spec.HypervisorID)
+	if !ok {
+		return ""
+	}
+	if st := a.hypervisorStatus(ctx, h); st.Host != nil {
+		return st.Host.MachineCPUError
+	}
+	return ""
+}
+
 // handleMachineApplySettings gives a ready machine the hypervisor
 // settings its sync found different (Machine.HardwareDrift): its node
 // shuts down cleanly, the virtual machine gets them and starts again, at
@@ -129,6 +147,12 @@ func (a *app) handleMachineApplySettings(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if msg := a.undrainedMember(r.Context(), m); msg != "" {
+		writeError(w, http.StatusConflict, msg)
+		return
+	}
+	// A CPU model its host can't run: Reconfigure would refuse it once
+	// the node is down - said before stopping anything.
+	if msg := a.cpuModelProblem(r.Context(), m); msg != "" {
 		writeError(w, http.StatusConflict, msg)
 		return
 	}

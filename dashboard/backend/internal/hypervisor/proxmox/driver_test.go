@@ -39,7 +39,7 @@ func TestReconfigureParams(t *testing.T) {
 		{Network: "vmbr0.10", MAC: "52:54:00:aa:bb:01"}, // kept
 		{Network: "vmbr0.30", MAC: "52:54:00:aa:bb:02"}, // moved
 		{Network: "vmbr0.10", MAC: "52:54:00:aa:bb:05"}, // new: slot 2
-	}, hypervisor.Settings{})
+	}, hypervisor.Settings{}, hypervisor.DefaultProxmoxCPUModel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,8 +113,9 @@ func TestImageStorageProblem(t *testing.T) {
 }
 
 // A new machine's configuration: UEFI on q35, and a CPU model with
-// AES-NI - left out, Proxmox's API gives kvm64, which has none (#372).
-// The guest agent only with the extension (#373).
+// AES-NI - left out, Proxmox's API gives kvm64, which has none (#372):
+// its hypervisor's, x86-64-v2-AES by default. The guest agent only with
+// the extension (#373).
 func TestCreateParams(t *testing.T) {
 	d := &Driver{cfg: &hypervisor.ProxmoxConfig{Pool: "janus", Storage: "local-lvm", ImageStorage: "local"}, controllerID: "ctl1"}
 	spec := hypervisor.MachineSpec{Name: "janus-node1", MachineID: "m1", Image: hypervisor.Image{Name: "janus.qcow2"}, Hardware: hypervisor.Hardware{VCPUs: 2, MemoryMiB: 1024}}
@@ -137,35 +138,59 @@ func TestCreateParams(t *testing.T) {
 	if !tagRe.MatchString(p.Get("description")) {
 		t.Errorf("no tag in the description %q", p.Get("description"))
 	}
+	for _, model := range []string{"x86-64-v3", "x86-64-v4", "host", "EPYC-Rome"} {
+		d.cfg.CPUModel = model
+		if got := d.createParams(spec, "janus-cidata-m1.iso").Get("cpu"); got != model {
+			t.Errorf("hypervisor's model %s: cpu = %q", model, got)
+		}
+	}
 }
 
 // What a machine's configuration says about its settings, as Proxmox
 // writes it: the CPU model a machine created without one has (kvm64 -
-// reported, set by Reconfigure), one someone chose (theirs), and the
-// guest agent's option in its forms.
+// reported, set by Reconfigure), one the Controller gives that isn't its
+// hypervisor's (an earlier setting's: reported), one someone chose
+// (theirs), and the guest agent's option in its forms.
 func TestSettings(t *testing.T) {
 	for _, tc := range []struct {
 		cpu   any
+		want  string // the hypervisor's model
 		drift bool
 	}{
-		{nil, true}, {"kvm64", true}, {"qemu64", true}, {"cputype=kvm64,flags=+pcid", true},
-		{"x86-64-v2-AES", false}, {"host", false}, {"x86-64-v3", false}, {"cputype=host,hidden=1", false},
+		// No model, or Proxmox's own without AES-NI, whatever the setting.
+		{nil, "x86-64-v2-AES", true}, {"kvm64", "x86-64-v2-AES", true}, {"qemu64", "x86-64-v2-AES", true},
+		{"cputype=kvm64,flags=+pcid", "x86-64-v2-AES", true}, {nil, "host", true}, {"kvm64", "x86-64-v3", true},
+		// The hypervisor's model: nothing to do, options added or not.
+		{"x86-64-v2-AES", "x86-64-v2-AES", false}, {"cputype=x86-64-v2-AES", "x86-64-v2-AES", false},
+		{"host", "host", false}, {"cputype=host,hidden=1", "host", false}, {"x86-64-v3,flags=+pcid", "x86-64-v3", false},
+		// Another model the setting may name, alone: the Controller's,
+		// from an earlier setting - or set by hand to one of them.
+		{"x86-64-v2-AES", "x86-64-v3", true}, {"x86-64-v3", "x86-64-v2-AES", true}, {"x86-64-v3", "host", true},
+		{"host", "x86-64-v2-AES", true}, {"cputype=x86-64-v4", "x86-64-v3", true}, {"Skylake-Client-v4", "host", true},
+		// Someone's choice, left alone: options added, a model the
+		// setting can't name.
+		{"cputype=host,hidden=1", "x86-64-v2-AES", false}, {"x86-64-v3,flags=+pcid", "x86-64-v2-AES", false},
+		{"custom-janus", "x86-64-v3", false}, {"max", "x86-64-v2-AES", false}, {"x86-64-v2", "x86-64-v3", false},
+		{"Nehalem", "host", false},
 	} {
 		cfg := map[string]any{}
 		if tc.cpu != nil {
 			cfg["cpu"] = tc.cpu
 		}
-		d := cpuDrift(cfg)
-		if (d != nil) != tc.drift {
-			t.Errorf("cpu %v: drift %+v", tc.cpu, d)
+		d := cpuDrift(cfg, tc.want)
+		if (d != nil) != tc.drift || (d != nil && (d.Setting != "cpu" || d.Want != tc.want)) {
+			t.Errorf("cpu %v, hypervisor's %s: drift %+v", tc.cpu, tc.want, d)
 		}
-		p, _ := settingsParams(cfg, hypervisor.Settings{})
-		if got := p.Get("cpu"); (got == cpuModel) != tc.drift || (!tc.drift && got != "") {
-			t.Errorf("cpu %v: Reconfigure sets %q", tc.cpu, got)
+		p, _ := settingsParams(cfg, hypervisor.Settings{}, tc.want)
+		if got := p.Get("cpu"); (got == tc.want) != tc.drift || (!tc.drift && got != "") {
+			t.Errorf("cpu %v, hypervisor's %s: Reconfigure sets %q", tc.cpu, tc.want, got)
 		}
 	}
-	if d := cpuDrift(map[string]any{}); d.Setting != "cpu" || d.Have != "kvm64 (Proxmox's default)" || d.Want != "x86-64-v2-AES" {
+	if d := cpuDrift(map[string]any{}, "x86-64-v2-AES"); d.Setting != "cpu" || d.Have != "kvm64 (Proxmox's default)" || d.Want != "x86-64-v2-AES" {
 		t.Errorf("drift %+v", d)
+	}
+	if d := cpuDrift(map[string]any{"cpu": "x86-64-v2-AES"}, "x86-64-v3"); d.String() != "cpu x86-64-v2-AES → x86-64-v3" {
+		t.Errorf("drift %q", d)
 	}
 
 	for agent, on := range map[any]bool{
@@ -182,18 +207,18 @@ func TestSettings(t *testing.T) {
 		}
 		// Wanted on: set when it isn't, left as it is (its other
 		// options too) when it is. Wanted off: deleted when there.
-		p, del := settingsParams(cfg, hypervisor.Settings{GuestAgent: true})
+		p, del := settingsParams(cfg, hypervisor.Settings{GuestAgent: true}, "host")
 		if (p.Get("agent") == agentParam) == on || len(del) != 0 {
 			t.Errorf("agent %v, wanted on: %v, deletes %v", agent, p, del)
 		}
-		p, del = settingsParams(cfg, hypervisor.Settings{})
+		p, del = settingsParams(cfg, hypervisor.Settings{}, "host")
 		if len(p) != 0 || (len(del) == 1) != (agent != nil) {
 			t.Errorf("agent %v, wanted off: %v, deletes %v", agent, p, del)
 		}
 	}
 
 	// Through reconfigureParams: one delete list.
-	p, err := reconfigureParams(map[string]any{"cpu": "x86-64-v2-AES", "agent": "1", "vcpus": 2}, hypervisor.Hardware{VCPUs: 1, MemoryMiB: 1024}, nil, hypervisor.Settings{})
+	p, err := reconfigureParams(map[string]any{"cpu": "x86-64-v2-AES", "agent": "1", "vcpus": 2}, hypervisor.Hardware{VCPUs: 1, MemoryMiB: 1024}, nil, hypervisor.Settings{}, hypervisor.DefaultProxmoxCPUModel)
 	if err != nil || p.Get("delete") != "agent,vcpus" || p.Has("cpu") {
 		t.Errorf("reconfigureParams: %v %v", p, err)
 	}

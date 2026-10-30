@@ -15,7 +15,9 @@
 # with the withdraw and the return -, BIRD's log is the service's, an
 # empty bird.conf stops BIRD, and no AVC denial appears on either node.
 # A announces a third route that B's import filter keeps out (import
-# keep filtered on): B counts it filtered.
+# keep filtered on): B counts it filtered. The bird.conf re-applied while
+# HAProxy doesn't answer sends B nothing: BIRD reconfigures from a copy
+# that disables the haproxy_* protocols (internal/bgp HoldDown).
 #
 # Usage: hack/qemu-bgp-test.sh <disk.img> <janusctl-bin>
 #   BGP_DISCOVERY=1: don't fail on AVC denials - list them (for writing
@@ -245,14 +247,18 @@ awk -v a="$t0" -v b="$t1" 'BEGIN { exit !(b > a) }' || fail "haproxy_anycast's s
 if grep -q "^$(rts haproxy_anycast preferred)" <<<"$ma"; then fail "a down channel's preferred routes were exported"; fi
 echo "  ok: the withdraw counted - B accepted 1 withdraw and imports 1, A exported 1, haproxy_anycast down since $t1"
 
-# A bird.conf applied meanwhile brings the protocol back in BIRD - janusd
-# puts it down again at once.
+# A bird.conf applied meanwhile: BIRD reconfigures from a copy that
+# disables haproxy_anycast while HAProxy doesn't answer - it isn't
+# announced again, not even for a moment: B received no update for it.
+ub="$(val "$(jm 2)" "$(chg peer_a import updates received)")"
 printf '# reapplied while HAProxy is down\n' >> "$WORKDIR/a.conf"
 out="$(ctl a network bgp apply "$WORKDIR/a.conf" 2>&1)" || fail "re-apply on A: $out"
 sleep 5
 [ "$(routes_b)" = "$plain" ] || fail "the anycast route came back with HAProxy still down: '$(routes_b)'"
 grep -q "held down" <<<"$(proto_line a haproxy_anycast)" || fail "haproxy_anycast isn't held after a re-apply: $(proto_line a haproxy_anycast)"
-echo "  ok: a bird.conf applied while HAProxy is down keeps it held"
+ua="$(val "$(jm 2)" "$(chg peer_a import updates received)")"
+[ -n "$ub" ] && [ "$ua" = "$ub" ] || fail "B received updates during the re-apply ($ub -> $ua): the anycast route was announced again"
+echo "  ok: a bird.conf applied while HAProxy is down keeps it held - B received no update ($ua before and after)"
 
 ctl a system service start haproxy >/dev/null || fail "starting HAProxy on A"
 wait_for "B didn't get the anycast route back" routes_are "$both"

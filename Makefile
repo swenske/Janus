@@ -1085,7 +1085,10 @@ examples-test: haproxy-build
 # static.
 # GUEST_AGENT_IMAGE=<a janus-kvm.qcow2 built with SCHEMATIC= one with
 # qemu-guest-agent> adds its part: the extension's service running on a
-# machine made from it (#373).
+# machine made from it (#373). CONTROLLER_LIBVIRT_UPGRADE_FROM=<release>
+# CONTROLLER_LIBVIRT_UPGRADE_TO=<a later release> adds a cluster of two
+# machines made from the first updated in place to the second - with the
+# internet: their images and signed bundles come from GitHub (#375).
 controller-libvirt-test: kvm-image
 	mkdir -p $(BIN_DIR)
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/dashboardd-static ./dashboard/backend

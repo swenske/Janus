@@ -48,6 +48,15 @@
 #      machine like the newest, joined - and back to two, the newest
 #      taken out and destroyed; auto-scaling observing reads the members'
 #      real load;
+#   3h. with CONTROLLER_LIBVIRT_UPGRADE_FROM and _TO (two published
+#      releases - needs the internet): a cluster of two of the
+#      Controller's machines made from the first, updated in place to
+#      the second (POST /api/clusters/{id}/upgrade) - each machine's
+#      record updating, then ready with its spec's version following,
+#      each node on the release's signed bundle fetched from GitHub, on
+#      its other slot, the cluster's journal complete. Bundles built
+#      here can't stand in: a node takes an update only signed by the
+#      release key, and the Controller never asks it to skip that check;
 #   4. a record forged to point at a domain the Controller didn't create
 #      (one untagged, one tagged by another Controller) is refused, and
 #      the domain is left as it was;
@@ -58,6 +67,7 @@
 # (docs/hypervisors.md says how).
 #
 # Usage: [GUEST_AGENT_IMAGE=<janus-kvm.qcow2 with qemu-guest-agent>] \
+#   [CONTROLLER_LIBVIRT_UPGRADE_FROM=<release> CONTROLLER_LIBVIRT_UPGRADE_TO=<release>] \
 #   hack/controller-libvirt-test.sh <janus-kvm.qcow2> <dashboardd-bin>
 set -euo pipefail
 
@@ -824,10 +834,89 @@ done
 [ "$(api "$API/api/nodes" | json "len(d or [])")" = 0 ] || fail "its node is still registered"
 if in_host virsh list --all --name | grep -q '^janus-node1$'; then fail "the virtual machine is still defined"; fi
 if in_host sh -c 'ls /var/lib/libvirt/qemu/nvram/' | grep -q node1; then fail "its NVRAM is still there"; fi
-vols="$(in_host virsh vol-list janus | awk 'NR>2 && $1 {print $1}')"
+# The release's base image part 4h cached stays too.
+vols="$(in_host virsh vol-list janus | awk -v keep="${UPGRADE_BASE_VOL:-}" 'NR>2 && $1 && $1 != keep {print $1}')"
 [ "$vols" = "janus-base-sha256-${SUM:0:16}.qcow2" ] || fail "volumes left in the pool: $vols"
 echo "Part 6 OK: destroyed - node, virtual machine, NVRAM and volumes gone, the base image kept"
 
+}
+
+upgrade_cycle() {
+# =========================================================================
+# 3h. A cluster of the Controller's machines updated in place.
+# =========================================================================
+local from="$CONTROLLER_LIBVIRT_UPGRADE_FROM" to="$CONTROLLER_LIBVIRT_UPGRADE_TO" i m v rel want journal
+declare -A UMID UNODE
+for i in 1 2; do
+  api -X POST "$API/api/machines" -H 'Content-Type: application/json' -d "{
+    \"name\": \"upg-$i\", \"hypervisor_id\": \"$HV\", \"vcpus\": 1, \"memory_mib\": 512, \"version\": \"$from\",
+    \"nics\": [{\"network\": \"janus-test\", \"name\": \"lan\", \"mode\": \"dhcp\"}]}" >"$WORKDIR/u$i.json"
+  UMID[$i]="$(json "d['id']" <"$WORKDIR/u$i.json")" || fail "create upg-$i from $from: $(cat "$WORKDIR/u$i.json")"
+done
+in_fleet() { [ "$(api "$API/api/fleet" | json "d.get('nodes',{}).get('$1',{}).get('state')")" = trusted ]; }
+for i in 1 2; do
+  for _ in $(seq 1 240); do
+    case "$(api "$API/api/machines/${UMID[$i]}" | json "d['phase']")" in ready | failed) break ;; esac
+    sleep 2
+  done
+  UNODE[$i]="$(api "$API/api/machines/${UMID[$i]}" | json "d.get('node_id','')")"
+  [ -n "${UNODE[$i]}" ] || fail "upg-$i never registered: $(api "$API/api/machines/${UMID[$i]}")"
+  for _ in $(seq 1 120); do in_fleet "${UNODE[$i]}" && break; sleep 1; done
+  in_fleet "${UNODE[$i]}" || fail "upg-$i never trusted the fleet: $(api "$API/api/fleet")"
+  v="$(api "$API/api/machines/${UMID[$i]}" | json "d['spec'].get('version','') + ' ' + d.get('version','')")"
+  [ "$v" = "$from $from" ] || fail "upg-$i's machine: version '$v', want $from"
+done
+api -X POST "$API/api/clusters" -H 'Content-Type: application/json' \
+  -d "{\"name\": \"upg\", \"source\": \"${UNODE[1]}\", \"members\": [{\"node_id\": \"${UNODE[1]}\"}, {\"node_id\": \"${UNODE[2]}\"}]}" >"$WORKDIR/c.json" \
+  || fail "create cluster upg: $(cat "$WORKDIR/c.json")"
+CID="$(json "d['id']" <"$WORKDIR/c.json")"
+cluster_idle 120
+err="$(api "$API/api/clusters/$CID" | json "d.get('error','')")"
+[ -z "$err" ] || fail "cluster upg's creation: $err"
+code="$(api -o "$WORKDIR/up.json" -w '%{http_code}' -X POST "$API/api/clusters/$CID/upgrade" -H 'Content-Type: application/json' -d '{"version": "not-a-release"}')"
+[ "$code" = 400 ] || fail "an update to no release: $code, want 400: $(cat "$WORKDIR/up.json")"
+code="$(api -o "$WORKDIR/up.json" -w '%{http_code}' -X POST "$API/api/clusters/$CID/upgrade" -H 'Content-Type: application/json' -d "{\"version\": \"$to\"}")"
+[ "$code" = 202 ] || fail "POST .../upgrade: $code $(cat "$WORKDIR/up.json")"
+# Each machine's record says it updates while its node does.
+local seen="" phase
+for _ in $(seq 1 900); do
+  for i in 1 2; do
+    phase="$(api "$API/api/machines/${UMID[$i]}" | json "d['phase']")"
+    [ "$phase" = updating ] && case " $seen " in *" upg-$i "*) ;; *) seen="$seen upg-$i" ;; esac
+  done
+  [ "$(api "$API/api/clusters/$CID" | json "d['busy']")" = False ] && break
+  sleep 2
+done
+api "$API/api/clusters/$CID" >"$WORKDIR/c.json"
+[ "$(json "d['busy']" <"$WORKDIR/c.json")" = False ] || fail "the update of upg never ended: $(cat "$WORKDIR/c.json")"
+err="$(json "d.get('error','')" <"$WORKDIR/c.json")"
+[ -z "$err" ] || fail "updating upg: $err - $(api "$API/api/clusters/$CID/journal")"
+[ "$seen" = " upg-1 upg-2" ] || fail "the machines seen updating:$seen, want upg-1 then upg-2"
+journal="$(api "$API/api/clusters/$CID/journal")"
+for i in 1 2; do
+  m="$(api "$API/api/machines/${UMID[$i]}")"
+  [ "$(json "d['phase'] + ' ' + d['spec'].get('version','') + ' ' + d.get('version','') + ' ' + d.get('error','')" <<<"$m")" = "ready $to $to " ] ||
+    fail "upg-$i's machine after the update: $(json "(d['phase'], d['spec'].get('version'), d.get('version'), d.get('error'))" <<<"$m")"
+  rel="$(json "next((x['state'].get('release',''), x['state'].get('slot',''), x['state'].get('drained')) for x in d['members'] if x['name']=='upg-$i')" <"$WORKDIR/c.json")"
+  [ "$rel" = "('$to', 'B', False)" ] || fail "upg-$i in the cluster's view: $rel"
+  for want in "upg-$i drained" "upg-$i updating from Janus $from \(slot A\) to $to" "upg-$i runs Janus $to on slot B, in service" "upg-$i back in service"; do
+    grep -Eq "$want" <<<"$journal" || fail "the journal lacks '$want': $journal"
+  done
+done
+grep -q "updating upg to Janus $to, one at a time: upg-1, upg-2" <<<"$journal" || fail "the journal's plan: $journal"
+grep -q "upg runs Janus $to: 2 member(s) updated, 0 already on it" <<<"$journal" || fail "the journal's end: $journal"
+echo "Part 4h OK: cluster upg of two machines made from $from updated in place to $to - each machine updating, then ready with its spec on $to, each node on slot B, its tables learnt, back in service; the journal complete"
+api -o /dev/null -X DELETE "$API/api/clusters/$CID?machines=destroy" || fail "delete upg with its machines"
+for i in 1 2; do
+  for _ in $(seq 1 90); do
+    [ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/${UMID[$i]}")" = 404 ] && break
+    sleep 1
+  done
+  [ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/${UMID[$i]}")" = 404 ] || fail "upg-$i was never destroyed"
+done
+# Left: the release's base image, cached for the next machine made from it.
+UPGRADE_BASE_VOL="$(in_host virsh vol-list janus | awk -v v="$from" 'NR>2 && $1 ~ ("^janus-base-.*-" v ".qcow2$") {print $1}')"
+[ -n "$UPGRADE_BASE_VOL" ] || fail "no base image of $from cached: $(in_host virsh vol-list janus)"
 }
 
 if [ -c /dev/net/tun ]; then
@@ -838,6 +927,11 @@ if [ -c /dev/net/tun ]; then
   autoscale_cycle
   recycle_cycle
   placement_cycle
+  if [ -n "${CONTROLLER_LIBVIRT_UPGRADE_FROM:-}" ] && [ -n "${CONTROLLER_LIBVIRT_UPGRADE_TO:-}" ]; then
+    upgrade_cycle
+  else
+    echo "Part 4h skipped: CONTROLLER_LIBVIRT_UPGRADE_FROM and _TO (two published releases, the internet) not given"
+  fi
 else
   failed_creation
 fi

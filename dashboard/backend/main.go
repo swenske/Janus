@@ -599,6 +599,7 @@ func (a *app) handleAddNode(w http.ResponseWriter, r *http.Request) {
 	a.trust.Kick() // brought to trust the fleet at once
 	a.logfwd.Poke()
 	a.consul.Poke()
+	noteAuditSubject(r, audit.KindNode, node.ID, node.Name)
 
 	writeJSON(w, http.StatusCreated, struct {
 		ID string `json:"id"`

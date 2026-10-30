@@ -90,8 +90,27 @@ const emptyHV = {
   storage: 'local-lvm',
   image_storage: 'janus-images',
   vmids: '',
+  cpu_model: 'x86-64-v2-AES',
+  cpu_other: false,
   ca_cert: '',
 }
+
+// The CPU models a Proxmox hypervisor's machines may get - the x86-64
+// levels and the host's own; Other takes any named QEMU model with AES-NI
+// (Haswell-noTSX, EPYC-Rome...), which the Controller checks.
+const CPU_MODELS = [
+  { id: 'x86-64-v2-AES', label: 'x86-64-v2-AES - any x86-64-v2 host with AES (default)' },
+  { id: 'x86-64-v3', label: 'x86-64-v3 - adds AVX2, BMI1/2, FMA' },
+  { id: 'x86-64-v4', label: 'x86-64-v4 - adds AVX-512' },
+  { id: 'host', label: "host - the host's own processor" },
+]
+const CPU_HINTS = {
+  'x86-64-v2-AES': 'Migrates live between any x86-64-v2 hosts with AES. No PCLMULQDQ: HAProxy\'s TLS picks ChaCha20 over AES-GCM.',
+  'x86-64-v3': 'AVX2 and BMI2: faster ChaCha20 and SHA-2. Every host needs AVX2 (Intel Haswell, AMD Zen and newer). Still no PCLMULQDQ or ADX.',
+  'x86-64-v4': 'Every host needs AVX-512, which most desktop and laptop processors lack: machines there wouldn\'t start.',
+  host: 'Everything the processor has (PCLMULQDQ, ADX, SHA...): HAProxy\'s fastest TLS. Live migration only between identical processors.',
+}
+const cpuModelOf = (hv) => hv?.proxmox?.cpu_model || 'x86-64-v2-AES'
 
 function toForm(hv) {
   if (!hv) return emptyHV
@@ -116,6 +135,8 @@ function toForm(hv) {
     storage: p.storage || '',
     image_storage: p.image_storage || '',
     vmids: p.vmids || '',
+    cpu_model: cpuModelOf(hv),
+    cpu_other: !CPU_MODELS.some((m) => m.id === cpuModelOf(hv)),
     ca_cert: p.ca_cert || '',
   }
 }
@@ -235,6 +256,7 @@ function hvBody(f) {
         networks: splitList(f.networks),
         name_prefix: f.name_prefix.trim(),
         vmids: f.vmids.trim(),
+        cpu_model: f.cpu_model.trim(),
         ca_cert: f.ca_cert.trim(),
       },
     }
@@ -270,6 +292,49 @@ function Field({ label, children }) {
       <span>{label}</span>
       {children}
     </label>
+  )
+}
+
+// CPUModelField is a Proxmox hypervisor's CPU model: one of the x86-64
+// levels or host, or Other - a named QEMU model -, with what it means for
+// TLS and for live migration.
+function CPUModelField({ f, setF }) {
+  const choice = f.cpu_other ? 'other' : f.cpu_model
+  return (
+    <div className="field">
+      <label className="field">
+        <span>CPU model its machines get</span>
+        <select
+          value={choice}
+          onChange={(e) => {
+            const v = e.target.value
+            setF({ ...f, cpu_other: v === 'other', cpu_model: v === 'other' ? '' : v })
+          }}
+        >
+          {CPU_MODELS.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label}
+            </option>
+          ))}
+          <option value="other">Other - a named QEMU model</option>
+        </select>
+      </label>
+      {f.cpu_other && (
+        <input
+          className="mono"
+          aria-label="Named QEMU CPU model"
+          value={f.cpu_model}
+          onChange={(e) => setF({ ...f, cpu_model: e.target.value })}
+          required
+          placeholder="Haswell-noTSX, Skylake-Client-v4, EPYC-Rome…"
+        />
+      )}
+      <span className="muted small">
+        {f.cpu_other
+          ? "As Proxmox names it: the oldest of the hosts' processors or older, from Westmere and Opteron_G4 on - PCLMULQDQ and AES-GCM, and live migration between those hosts."
+          : CPU_HINTS[f.cpu_model]}
+      </span>
+    </div>
   )
 }
 
@@ -384,6 +449,7 @@ function HypervisorForm({ hv, onSaved, onClose }) {
               <Field label="Controller address its machines register at (default: this Controller's own guess)">
                 <input value={f.controller_address} onChange={set('controller_address')} placeholder="10.0.0.10:8443" />
               </Field>
+              <CPUModelField f={f} setF={setF} />
             </>
           ) : (
             <>
@@ -422,6 +488,12 @@ function HypervisorForm({ hv, onSaved, onClose }) {
         {hv && !pve && f.host.trim() !== (hv.libvirt?.host || '') && <div className="notice warn">Another host: its host key will have to be confirmed again.</div>}
         {hv && pve && f.url.trim() !== (hv.proxmox?.url || '') && !f.ca_cert.trim() && (
           <div className="notice warn">Another address: its certificate will have to be confirmed again.</div>
+        )}
+        {hv && pve && hv.machines > 0 && f.cpu_model.trim() !== cpuModelOf(hv) && (
+          <div className="notice warn">
+            New machines get {f.cpu_model.trim() || 'the default'}. Its {hv.machines === 1 ? 'machine keeps its model' : `${hv.machines} machines keep theirs`}: each card then
+            shows the difference, and <strong>Apply settings</strong> restarts one with the new model - drain a cluster member first, one at a time.
+          </div>
         )}
         {reprepare && (
           <div className="notice warn">
@@ -758,6 +830,17 @@ function HypervisorCard({ hv, status, onEdit, onRemove, onTrusted }) {
             <dd>
               {host.cpus} × {host.cpu_mhz} MHz{status.cpu_percent >= 0 && ` · ${status.cpu_percent.toFixed(0)}% busy`}
             </dd>
+            {hv.kind === 'proxmox' && (
+              <>
+                <dt>
+                  <Cpu size={13} /> Machine CPU
+                </dt>
+                <dd>
+                  <span className="mono">{cpuModelOf(hv)}</span>
+                  {host.machine_cpu_error && <div style={{ color: 'var(--danger)' }}>{host.machine_cpu_error}</div>}
+                </dd>
+              </>
+            )}
             <dt>
               <MemoryStick size={13} /> Memory
             </dt>
@@ -872,13 +955,26 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
   useEffect(() => {
     call('/api/catalog').then(setCatalog, () => setCatalog({}))
   }, [])
+  // The pre-release typed in: what its own catalog offers - the
+  // extensions, branches and tracks the image factory builds it with.
+  const pre = catalog?.prerelease && version.trim() === catalog.prerelease ? catalog.prerelease : ''
+  const [preCatalog, setPreCatalog] = useState(null)
+  useEffect(() => {
+    if (!pre || preCatalog?.version === pre) return
+    call(`/api/catalog?version=${encodeURIComponent(pre)}`).then(
+      (c) => setPreCatalog({ ...c, version: pre }),
+      (err) => setPreCatalog({ version: pre, catalog_error: err.message }),
+    )
+  }, [pre]) // eslint-disable-line react-hooks/exhaustive-deps
+  // offer: the catalog of the version created (null while it loads).
+  const offer = pre ? (preCatalog?.version === pre ? preCatalog : null) : catalog
 
   const setNIC = (i, patch) => setNics(nics.map((n, j) => (j === i ? { ...n, ...patch } : n)))
   // Ticking an extension ticks what it requires, unticking one unticks
   // what requires it - said under the list.
   const [extNote, setExtNote] = useState('')
   const toggleExt = (e) => {
-    const r = toggleExtension(exts, e, !exts.includes(e), catalog?.extensions)
+    const r = toggleExtension(exts, e, !exts.includes(e), offer?.extensions)
     setExts(r.extensions)
     setExtNote(r.note)
   }
@@ -923,7 +1019,7 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
     if (created) onCreated(created)
   }
 
-  const extensions = catalog?.extensions || []
+  const extensions = offer?.extensions || []
   return (
     <Card
       title="Create a node"
@@ -1048,12 +1144,12 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
           </label>
           <div className="field">
             <span className="field-label">Extensions {exts.length > 0 && <span className="muted">· built by the image factory</span>}</span>
-            {catalog === null ? (
+            {offer === null ? (
               <span className="muted small">
                 <Loader2 size={13} className="spin" /> loading the catalog…
               </span>
             ) : extensions.length === 0 ? (
-              <span className="muted small">{catalog.catalog_error || 'none offered'}</span>
+              <span className="muted small">{offer.catalog_error || 'none offered'}</span>
             ) : (
               <div className="ext-list">
                 {extensions.map((e) => (
@@ -1063,22 +1159,22 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
                 ))}
               </div>
             )}
-            {!imageURL.trim() && requirementError(exts, extensions, catalog?.catalog_version) ? (
+            {!imageURL.trim() && requirementError(exts, extensions, offer?.catalog_version) ? (
               <div className="notice warn small" role="alert">
-                {requirementError(exts, extensions, catalog?.catalog_version)}
+                {requirementError(exts, extensions, offer?.catalog_version)}
               </div>
             ) : (
               extNote && <span className="muted small">{extNote}</span>
             )}
           </div>
         </div>
-        {catalog?.haproxy?.length > 0 && (
+        {offer?.haproxy?.length > 0 && (
           <div className="grid grid-2">
             <label className="field">
               <span>HAProxy branch {haproxy && <span className="muted">· built by the image factory</span>}</span>
               <select value={haproxy} onChange={(e) => setHAProxy(e.target.value)} disabled={!!imageURL.trim()}>
-                <option value="">The newest LTS branch, following it ({catalog.haproxy.find((v) => v.default)?.name} now)</option>
-                {catalog.haproxy
+                <option value="">The newest LTS branch, following it ({offer.haproxy.find((v) => v.default)?.name} now)</option>
+                {offer.haproxy
                   .filter((v) => v.arches.includes('amd64'))
                   .map((v) => (
                     <option key={v.name} value={v.name}>
@@ -1091,8 +1187,8 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
             <label className="field">
               <span>Kernel track {kernel && <span className="muted">· built by the image factory</span>}</span>
               <select value={kernel} onChange={(e) => setKernel(e.target.value)} disabled={!!imageURL.trim()}>
-                <option value="">The release's default ({catalog.kernel.find((v) => v.default)?.name} now)</option>
-                {catalog.kernel
+                <option value="">The release's default ({offer.kernel.find((v) => v.default)?.name} now)</option>
+                {offer.kernel
                   .filter((v) => v.arches.includes('amd64'))
                   .map((v) => (
                     <option key={v.name} value={v.name}>
@@ -1453,6 +1549,11 @@ function HypervisorTable({ hypervisors, hvStatus, onEdit, onRemove, onTrusted })
                         <>
                           {host.cpus} × {host.cpu_mhz} MHz
                           {status.cpu_percent >= 0 && <div className="muted">{status.cpu_percent.toFixed(0)}% busy</div>}
+                          {hv.kind === 'proxmox' && (
+                            <div className="muted" title="The CPU model its machines get">
+                              machines <span className="mono">{cpuModelOf(hv)}</span>
+                            </div>
+                          )}
                         </>
                       ) : (
                         <span className="muted">–</span>
@@ -1506,12 +1607,13 @@ function HypervisorTable({ hypervisors, hvStatus, onEdit, onRemove, onTrusted })
                       </td>
                     )}
                   </tr>
-                  {(!hv.trusted || status?.error) && (
+                  {(!hv.trusted || status?.error || host?.machine_cpu_error) && (
                     <tr className="table-detail">
                       <td colSpan={columns}>
                         {!hv.trusted &&
                           (can('admin') ? <TrustSteps hv={hv} onTrusted={onTrusted} /> : <div className="notice warn small">Not trusted yet: an admin checks its key.</div>)}
                         {hv.trusted && status?.error && <HVError hv={hv} error={status.error} />}
+                        {host?.machine_cpu_error && <div className="error-box small">{host.machine_cpu_error}</div>}
                       </td>
                     </tr>
                   )}

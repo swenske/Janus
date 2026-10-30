@@ -139,7 +139,8 @@ func controllerAuditFeed(l *audit.Log) logship.Feed {
 
 // controllerAuditRecord is an entry of the Controller's audit as a
 // record: "PUT /api/log-forwarding 200 by alice (session) from
-// 10.0.0.5", its fields as the node's audit names them.
+// 10.0.0.5" (", node edge-1" when it's about one), its fields as the
+// node's audit names them.
 func controllerAuditRecord(e audit.Entry) logship.Record {
 	who := or(e.User, "nobody")
 	if e.Via != "" {
@@ -149,13 +150,19 @@ func controllerAuditRecord(e audit.Entry) logship.Record {
 	if e.Client != "" {
 		msg += " from " + e.Client
 	}
+	msg += aboutSubject(e.Subject)
 	code, sev := "OK", logship.SevNotice
 	if e.Status >= 400 {
 		code, sev = fmt.Sprintf("HTTP %d", e.Status), logship.SevWarning
 	}
+	entry := map[string]any{"caller": e.User, "via": e.Via, "peer": e.Client, "code": code, "method": e.Method, "path": e.Path, "status": e.Status}
+	if s := e.Subject; s != nil {
+		// What it was about, named as it was then: janus.audit.subject.
+		entry["subject"] = map[string]any{"kind": s.Kind, "id": s.ID, "name": s.Name}
+	}
 	fields := map[string]any{
 		"event": map[string]any{"id": e.ID, "type": e.Method + " " + e.Path},
-		"audit": map[string]any{"caller": e.User, "via": e.Via, "peer": e.Client, "code": code, "method": e.Method, "path": e.Path, "status": e.Status},
+		"audit": entry,
 	}
 	return logship.Record{Time: e.Time, Source: logship.SourceAudit, Service: "dashboardd", Severity: sev, Message: msg, Fields: fields, ID: fmt.Sprintf("ca-%d", e.ID)}
 }
