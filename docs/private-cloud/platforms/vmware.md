@@ -64,8 +64,8 @@ govc vm.power -on lb1
   NVMe: the kernel has no driver for the LSI Logic ones, which `govc`
   picks unless told otherwise.
 - **The network card**: VMXNET 3 (or E1000/E1000e).
-- **Firmware**: EFI, Secure Boot off - the VM image's boot entries
-  aren't signed.
+- **Firmware**: EFI, Secure Boot off - VMware's keys don't include the
+  Janus release certificate ([Secure Boot](../../guide/secure-boot.md)).
 - **A serial port** to a file or a named pipe helps: the node's console
   - its first boot's credentials, its registration's messages - is on
   the screen and on the serial port.

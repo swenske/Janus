@@ -10,6 +10,12 @@
 #   2. an *unsigned* UKI, on the exact same enrolled vars, must be
 #      refused by firmware itself ("Access Denied" in OVMF's own BDS
 #      log) - never even reaching the kernel, let alone HTTP.
+#   3. a whole disk image as a release publishes them (image/disk/
+#      assemble.sh, what the qcow2s and the VMDK are converted from),
+#      its UKIs signed through UKI_SIGNING_KEY/CERT as the Makefile
+#      signs them: hack/uki-verify.sh accepts its ESP against the test
+#      certificate and refuses it against another, and it boots under
+#      Secure Boot with the kernel saying so.
 #
 # Needs the secboot-capable OVMF firmware variant (OVMF_CODE_4M.secboot.fd,
 # not the plain OVMF_CODE_4M.fd every other boot test here uses) *and*
@@ -34,6 +40,9 @@ OVMF_VARS_TEMPLATE="${OVMF_VARS_TEMPLATE:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 WORKDIR="$(mktemp -d)"
+# The unsigned UKI below must be unsigned whatever the caller's
+# environment holds.
+unset UKI_SIGNING_KEY UKI_SIGNING_CERT
 QEMU_PID=""
 cleanup() {
   [ -n "$QEMU_PID" ] && kill "$QEMU_PID" 2>/dev/null || true
@@ -97,4 +106,30 @@ if ! grep -qi "Access Denied" "$UNSIGNED_LOG"; then
   exit 1
 fi
 echo "Unsigned UKI OK: refused by firmware (Access Denied) - Secure Boot enforcement confirmed"
+
+"$SELF_DIR/../rootfs/state-image.sh" "$WORKDIR/state.img" 128 >/dev/null
+LOGS_MB=0 UKI_SIGNING_KEY="$WORKDIR/key.pem" UKI_SIGNING_CERT="$WORKDIR/cert.pem" \
+  "$SELF_DIR/../image/disk/assemble.sh" "$WORKDIR/disk.img" "$KERNEL" "$ROOTFS_DIR" "$WORKDIR/state.img" A >/dev/null
+"$SELF_DIR/uki-verify.sh" "$WORKDIR/cert.pem" "$WORKDIR/disk.img"
+if "$SELF_DIR/uki-verify.sh" "$SELF_DIR/../image/secureboot/production-cert.pem" "$WORKDIR/disk.img" >/dev/null 2>&1; then
+  echo "Secure Boot test FAILED: hack/uki-verify.sh accepted the test key's disk against the production certificate" >&2
+  exit 1
+fi
+DISK_LOG="$WORKDIR/disk.log"
+timeout "${BOOT_TIMEOUT_SECS}" qemu-system-x86_64 -accel kvm -accel tcg \
+  -machine q35,smm=on \
+  -global driver=cfi.pflash01,property=secure,value=on \
+  -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
+  -drive if=pflash,format=raw,file="$WORKDIR/vars.fd" \
+  -drive file="$WORKDIR/disk.img",format=raw,if=virtio \
+  -nographic -no-reboot -display none -m 1G \
+  -serial file:"$DISK_LOG" \
+  >/dev/null 2>&1 || true
+if ! grep -q "$MARKER" "$DISK_LOG" || ! grep -q "Secure boot enabled" "$DISK_LOG"; then
+  echo "Secure Boot test FAILED: the signed disk image didn't boot under Secure Boot ($MARKER and the kernel's \"Secure boot enabled\" expected)" >&2
+  echo "--- console output ---" >&2
+  cat "$DISK_LOG" >&2
+  exit 1
+fi
+echo "Signed disk image OK: hack/uki-verify.sh checks its ESP, and it boots under Secure Boot"
 echo "Secure Boot test OK: only correctly signed images boot"

@@ -30,11 +30,15 @@
 #
 # [signing-key]/[signing-cert] are optional - given both, the UKI is
 # Secure Boot-signed (`ukify` shells out to `sbsign`) with them; given
-# neither (the default, used by every caller except
-# hack/qemu-secureboot-test.sh), the UKI is unsigned, exactly as
-# before - Secure Boot enforcement is opt-in at the firmware/vars level
-# (see image/secureboot/), not something every other boot test in this
-# project needs to care about.
+# neither, the UKI is unsigned - Secure Boot enforcement is opt-in at
+# the firmware/vars level (see image/secureboot/), not something the
+# boot tests need to care about. One without the other is refused.
+#
+# UKI_SIGNING_KEY/UKI_SIGNING_CERT (env vars, optional): the same pair,
+# for callers that build UKIs through another script - the disk images
+# (image/disk/activate-slot.sh, through the qcow2/VMDK scripts) and the
+# installer ISO. The Makefile sets them from SIGNING_KEY/SIGNING_CERT
+# for every published image; the arguments win when given.
 #
 # UKIFY_STUB (env var, optional): explicit path to the sd-stub PE
 # binary `ukify` should embed. Unset, the stub for the kernel's
@@ -69,8 +73,12 @@ KERNEL="${2:?usage: $0 <out.efi> <bzImage> <rootfs-dir> <data-device> <hash-devi
 ROOTFS_DIR="${3:?usage: $0 <out.efi> <bzImage> <rootfs-dir> <data-device> <hash-device> [signing-key] [signing-cert]}"
 DATA_DEV="${4:?usage: $0 <out.efi> <bzImage> <rootfs-dir> <data-device> <hash-device> [signing-key] [signing-cert]}"
 HASH_DEV="${5:?usage: $0 <out.efi> <bzImage> <rootfs-dir> <data-device> <hash-device> [signing-key] [signing-cert]}"
-SIGNING_KEY="${6:-}"
-SIGNING_CERT="${7:-}"
+SIGNING_KEY="${6:-${UKI_SIGNING_KEY:-}}"
+SIGNING_CERT="${7:-${UKI_SIGNING_CERT:-}}"
+if [ -n "$SIGNING_KEY$SIGNING_CERT" ] && { [ -z "$SIGNING_KEY" ] || [ -z "$SIGNING_CERT" ]; }; then
+  echo "a signing key needs its certificate, and a certificate its key - got only one" >&2
+  exit 1
+fi
 
 DM_TABLE="$(dirname "$0")/../../hack/dm-verity-cmdline.sh"
 CMDLINE_FILE="$(mktemp)"

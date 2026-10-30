@@ -62,14 +62,15 @@ everything again, then:
   first) - is completed with this attempt's files, all of them: those
   already there with the same bytes stay, the others are replaced. A
   draft was never seen. Two builds of a commit give the same bytes
-  (`hack/reproducible.sh`) - but for the signed UKIs and the ISO, whose
-  Secure Boot signatures hold the time they were made - and should
+  (`hack/reproducible.sh`) - but for the signed UKIs and the images
+  carrying them, whose Secure Boot signatures hold the time they were
+  made - and should
   something break that, a bundle mixing two attempts would pair a root
   filesystem with UKIs pinning another one's;
 - **a published release** - the run failed after it, publishing
   janusctl or the docs - is never changed: its files are compared with
   this attempt's, any difference is reported as a warning - expected
-  for the signed UKIs and the ISO, else a build that stopped being
+  for the signed UKIs and the images, else a build that stopped being
   reproducible - and the steps after it run again. One published
   without a file it should have stops the rerun: adding a file from
   another build to a release isn't done - publish another version;

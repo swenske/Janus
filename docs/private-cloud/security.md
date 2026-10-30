@@ -23,8 +23,9 @@ vulnerability: [security policy](../../SECURITY.md).
   healthy ([lifecycle](lifecycle.md)). Secure Boot can enforce the
   chain from the firmware on: enroll the release certificate,
   [`image/secureboot/production-cert.pem`](../../image/secureboot/production-cert.pem),
-  in the firmware's `db`. The VM images' own boot entries aren't signed
-  yet: a virtual machine boots with Secure Boot off.
+  in the firmware's `db` ([Secure Boot](../guide/secure-boot.md)) -
+  every update's UKIs are signed, and so are those on the images
+  published after v2026.10.30.
 - **SELinux, enforcing.** Every daemon runs in its own domain - HAProxy,
   which parses what the internet sends, in a narrow one - and every rule
   of the policy comes from an observed need, none guessed. A denial is

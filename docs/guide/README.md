@@ -60,6 +60,8 @@ from the Controller's web UI, from `janusctl`, or from Terraform.
 
 - [Updating nodes](updates.md) - A/B updates with an automatic revert,
   from the Controller or `janusctl`; going back.
+- [Secure Boot](secure-boot.md) - the release certificate in a node's
+  firmware, so that it boots only what Janus signed.
 - [Metrics](../metrics.md) - the Prometheus exporter every node serves.
 - [Packet capture](../packet-capture.md) - tcpdump-style captures
   streamed over the API.

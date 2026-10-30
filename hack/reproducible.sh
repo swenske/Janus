@@ -12,8 +12,9 @@
 # With the kernel's and nft's own build dates (kernel/Dockerfile,
 # extensions/nftables/Dockerfile) and the rootfs's (rootfs/layer-and-
 # squash.sh), every release asset is the same twice - but the signed
-# UKIs and the ISO carrying them: a Secure Boot signature holds the time
-# it was made (sbsign, like every signer, adds it as a signed attribute).
+# UKIs and the images and ISO carrying them: a Secure Boot signature
+# holds the time it was made (sbsign, like every signer, adds it as a
+# signed attribute).
 
 : "${SOURCE_DATE_EPOCH:=$(git -C "$(dirname "${BASH_SOURCE[0]}")" log -1 --format=%ct 2>/dev/null || date +%s)}"
 export SOURCE_DATE_EPOCH

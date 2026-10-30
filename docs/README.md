@@ -56,6 +56,7 @@ Install, configure and operate Janus nodes and the Controller.
 ### Operate
 
 - [Updating nodes](guide/updates.md)
+- [Secure Boot](guide/secure-boot.md)
 - [Replacing a node](guide/replacing-a-node.md)
 - [Metrics](metrics.md)
 - [Log forwarding](guide/log-forwarding.md)
