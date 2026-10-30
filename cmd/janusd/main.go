@@ -484,11 +484,13 @@ func main() {
 		go vrrp.KeepHealth(gateHealthy, gateChanged, 2*time.Second, nil)
 	}
 	// BIRD (the BGP extension) likewise; its haproxy_* protocols are kept
-	// down while HAProxy doesn't answer - checked every second: a BGP
-	// session takes longer than that to come up.
+	// down while HAProxy doesn't answer or the member is drained - in the
+	// copy of bird.conf BIRD starts from too, so they don't come up before
+	// the gate's first look - checked every second, and at once on a
+	// change.
 	bgpMgr := bgp.New(extMgr)
 	if *manageHost && bgpMgr.Available() {
-		if err := bgpMgr.Boot(); err != nil {
+		if err := bgpMgr.Boot(gateHealthy()); err != nil {
 			log.Printf("bgp: %v", err)
 		}
 		go bgpMgr.KeepGate(gateHealthy, gateChanged, time.Second, nil)
