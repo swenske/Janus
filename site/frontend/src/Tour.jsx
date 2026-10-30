@@ -1367,8 +1367,8 @@ function Workflow() {
             </span>
             <b>Boot</b>
             <span>
-              Import the disk in Proxmox, KVM or VMware, flash the ISO or the Raspberry Pi image, or let the Controller create the VM. A node prints its admin credentials once, on its
-              console.
+              Import the disk in Proxmox or KVM, or let the Controller create the VM. A node prints its admin credentials once, on its console. VMware, bare metal and Raspberry Pi wait
+              for testers.
             </span>
           </li>
           <li className="win" style={{ '--d': '2.3s' }}>
@@ -1388,12 +1388,12 @@ function Workflow() {
         </ol>
         <div className="extras">
           <div className="tile win" style={{ '--d': '4.4s' }}>
-            <b>qcow2 · VMDK · ISO</b>
+            <b>qcow2</b>
             <span>Built and boot-tested under QEMU on every image workflow run</span>
           </div>
           <div className="tile win" style={{ '--d': '4.7s' }}>
-            <b>PXE / HTTP Boot</b>
-            <span>The same image loaded straight onto real hardware</span>
+            <b>VMDK · ISO · PXE · Pi</b>
+            <span>Suspended until someone can test them on real hardware</span>
           </div>
           <div className="tile win" style={{ '--d': '5.0s' }}>
             <b>Provisioning</b>

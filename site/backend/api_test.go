@@ -7,11 +7,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/swenske/Janus/internal/schematic"
+	"github.com/swenske/Janus/internal/variants"
 )
 
 // fakeGitHub serves two releases - one with schematic support - and
@@ -143,6 +145,43 @@ func TestVersionsAndCatalog(t *testing.T) {
 	call(t, "GET", srv.URL+"/api/v1/versions/v2026.09.30-3/extensions", "", &cat)
 	if len(cat.Extensions) != 0 {
 		t.Errorf("an old release has no extensions: %+v", cat)
+	}
+}
+
+// A suspended target stays in the builder's list, marked; an
+// architecture whose every image is suspended gets no build, the others
+// build as before.
+func TestSuspendedTargets(t *testing.T) {
+	saved := platforms
+	t.Cleanup(func() { platforms = saved })
+	platforms = markSuspended(slices.Clone(saved), []string{variants.TargetVMware, variants.TargetRaspberryPi})
+	_, gh, srv := newTestApp(t)
+
+	var ps []platform
+	call(t, "GET", srv.URL+"/api/v1/platforms", "", &ps)
+	if len(ps) != len(saved) {
+		t.Fatalf("platforms %+v", ps)
+	}
+	for _, p := range ps {
+		if want := p.ID == "vmware" || p.ID == "rpi4" || p.ID == "rpi5"; p.Suspended != want {
+			t.Errorf("%s: suspended %v", p.ID, p.Suspended)
+		}
+	}
+
+	var v schematicView
+	if code := call(t, "POST", srv.URL+"/api/v1/schematics", `{"customization":{"extensions":["node-exporter"]}}`, &v); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	var e map[string]string
+	if code := call(t, "POST", srv.URL+"/api/v1/images/"+v.ID+"/v2026.10.02/arm64", "", &e); code != 409 || !strings.Contains(e["error"], "suspended") {
+		t.Errorf("arm64 build: %d %v", code, e)
+	}
+	var st imageStatus
+	if code := call(t, "POST", srv.URL+"/api/v1/images/"+v.ID+"/v2026.10.02/amd64", "", &st); code != 202 {
+		t.Errorf("amd64 build: %d %+v", code, st)
+	}
+	if len(gh.dispatches) != 1 || gh.dispatches[0]["arch"] != "amd64" {
+		t.Errorf("dispatches %+v", gh.dispatches)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/swenske/Janus/internal/schematic"
+	"github.com/swenske/Janus/internal/variants"
 )
 
 // store is the site's data on disk:
@@ -45,23 +46,62 @@ type platform struct {
 	Description  string `json:"description"`
 	Docs         string `json:"docs,omitempty"`
 	Experimental bool   `json:"experimental,omitempty"`
+	// Target is the image target variants.mk may suspend (internal/
+	// variants.Targets); Suspended says it is: the builder shows it greyed
+	// out with a "Need tester" link to its issue form, and nothing builds
+	// it.
+	Target    string `json:"target,omitempty"`
+	Suspended bool   `json:"suspended,omitempty"`
 }
 
 // platforms are the images a release publishes, with the same file
 // names for every schematic.
-var platforms = []platform{
+var platforms = withSuspended([]platform{
 	{ID: "proxmox", Name: "Proxmox VE", Group: "Virtualization", Arch: "amd64", File: "janus.qcow2",
 		Description: "qcow2 disk to import with qm importdisk; UEFI (OVMF), serial console.", Docs: "docs/private-cloud/platforms/proxmox.md"},
 	{ID: "kvm", Name: "KVM / libvirt", Group: "Virtualization", Arch: "amd64", File: "janus-kvm.qcow2",
 		Description: "qcow2 disk for virt-install --boot uefi or any KVM host.", Docs: "docs/private-cloud/platforms/kvm-libvirt.md"},
-	{ID: "vmware", Name: "VMware ESXi", Group: "Virtualization", Arch: "amd64", File: "janus.vmdk",
+	{ID: "vmware", Name: "VMware ESXi", Group: "Virtualization", Arch: "amd64", File: "janus.vmdk", Target: variants.TargetVMware,
 		Description: "streamOptimized VMDK; EFI firmware, a PVSCSI, SATA or NVMe disk controller (not LSI Logic).", Docs: "docs/private-cloud/platforms/vmware.md"},
-	{ID: "iso", Name: "Bare metal (ISO / USB)", Group: "Bare metal", Arch: "amd64", File: "janus.iso",
+	{ID: "iso", Name: "Bare metal (ISO / USB)", Group: "Bare metal", Arch: "amd64", File: "janus.iso", Target: variants.TargetBareMetal,
 		Description: "Installer: write it to a USB stick (not a CD), boot it, install the machine's disk with janusctl lifecycle install - registered with your Controller if you give it one.", Docs: "docs/private-cloud/platforms/bare-metal.md"},
-	{ID: "rpi4", Name: "Raspberry Pi 4 / CM4", Group: "Single-board computer", Arch: "arm64", File: "pi4-disk.img",
+	{ID: "rpi4", Name: "Raspberry Pi 4 / CM4", Group: "Single-board computer", Arch: "arm64", File: "pi4-disk.img", Target: variants.TargetRaspberryPi,
 		Description: "SD card image with UEFI firmware (pftf/RPi4).", Docs: "docs/raspberry-pi-testing.md"},
-	{ID: "rpi5", Name: "Raspberry Pi 5", Group: "Single-board computer", Arch: "arm64", File: "pi5-disk.img", Experimental: true,
+	{ID: "rpi5", Name: "Raspberry Pi 5", Group: "Single-board computer", Arch: "arm64", File: "pi5-disk.img", Experimental: true, Target: variants.TargetRaspberryPi,
 		Description: "SD card image with experimental UEFI firmware - no SD or Ethernet driver in mainline Linux yet.", Docs: "docs/raspberry-pi-testing.md"},
+})
+
+// withSuspended marks the platforms whose target the variants.mk built
+// into the binary suspends. Its own test (internal/variants) parses that
+// file: it can't fail here.
+func withSuspended(ps []platform) []platform {
+	suspended, err := variants.Suspended()
+	if err != nil {
+		panic(err)
+	}
+	return markSuspended(ps, suspended)
+}
+
+func markSuspended(ps []platform, suspended []string) []platform {
+	for i := range ps {
+		ps[i].Suspended = ps[i].Target != "" && slices.Contains(suspended, ps[i].Target)
+	}
+	return ps
+}
+
+// suspendedArch reports whether every platform of arch is suspended
+// (arm64 without the Raspberry Pi images): no build is started for it.
+func suspendedArch(arch string) bool {
+	found := false
+	for _, p := range platforms {
+		if p.Arch == arch {
+			if !p.Suspended {
+				return false
+			}
+			found = true
+		}
+	}
+	return found
 }
 
 // bundleFiles are an update bundle's files (LifecycleService.Upgrade).

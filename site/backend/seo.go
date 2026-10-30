@@ -80,7 +80,7 @@ func spaPages(publicURL string) map[string]spaPage {
 		},
 		"/builder": {
 			title:       "Image builder - Janus",
-			description: "Build a Janus image with the extensions you need - Proxmox VE, KVM, VMware, an installer ISO or a Raspberry Pi - signed, and kept up to date with its own updates.",
+			description: "Build a Janus image with the extensions you need - for Proxmox VE or KVM, signed, and kept up to date with its own updates. VMware, bare metal and Raspberry Pi wait for testers.",
 			card:        "builder.png",
 			cardAlt:     "Build your Janus image",
 			jsonLD: map[string]any{
