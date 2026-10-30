@@ -61,6 +61,7 @@ func (d *Driver) HostInfo(ctx context.Context) (*hypervisor.HostInfo, error) {
 			Model string `json:"model"`
 			CPUs  int    `json:"cpus"`
 			MHz   string `json:"mhz"`
+			Flags string `json:"flags"`
 		} `json:"cpuinfo"`
 		Memory struct {
 			Total     uint64 `json:"total"`
@@ -94,6 +95,9 @@ func (d *Driver) HostInfo(ctx context.Context) (*hypervisor.HostInfo, error) {
 		MemoryFree:        free,
 		Storage:           d.storageInfo(ctx, d.cfg.Storage),
 		RunningMachines:   -1,
+	}
+	if missing := missingCPUFlags(d.cfg.CPU(), st.CPUInfo.Flags); len(missing) > 0 {
+		info.MachineCPUError = cpuFlagsError(d.cfg.CPU(), d.cfg.Node, missing)
 	}
 	images := d.imageStorageInfo(ctx)
 	info.ImageStorage = &images
@@ -340,6 +344,9 @@ func (d *Driver) CreateMachine(ctx context.Context, spec hypervisor.MachineSpec)
 	} else if !errors.Is(err, hypervisor.ErrNotFound) {
 		return nil, err
 	}
+	if err := d.checkCPUModel(ctx, d.cfg.CPU()); err != nil {
+		return nil, err
+	}
 
 	ci := ciDataName(spec)
 	if err := d.upload(ctx, "iso", ci, int64(len(spec.CIData)), bytes.NewReader(spec.CIData)); err != nil {
@@ -376,14 +383,6 @@ func (d *Driver) CreateMachine(ctx context.Context, spec hypervisor.MachineSpec)
 	return &ref, nil
 }
 
-// cpuModel is the CPU model a machine gets: the one Proxmox VE's own
-// form fills in for a new machine, while its API leaves kvm64 when it's
-// not given - no AES-NI, no SSE4 or AVX: HAProxy's AWS-LC fell back to
-// ChaCha20 and generic code for every curve and hash (#372). x86-64-v2-AES
-// runs on any x86-64-v2 host with AES, so a machine still migrates
-// between a cluster's hosts.
-const cpuModel = "x86-64-v2-AES"
-
 // agentParam turns the guest agent on, on its virtio-serial port - the
 // one the qemu-guest-agent extension listens on
 // (/dev/virtio-ports/org.qemu.guest_agent.0).
@@ -397,7 +396,7 @@ func (d *Driver) createParams(spec hypervisor.MachineSpec, ci string) url.Values
 		"pool":        {d.cfg.Pool},
 		"machine":     {"q35"},
 		"bios":        {"ovmf"},
-		"cpu":         {cpuModel},
+		"cpu":         {d.cfg.CPU()}, // its API alone gives kvm64 (#372)
 		"efidisk0":    {d.cfg.Storage + ":1,efitype=4m,pre-enrolled-keys=0"},
 		"scsihw":      {"virtio-scsi-single"},
 		"virtio0":     {d.cfg.Storage + ":0,import-from=" + d.volume("import", spec.Image.Name)},
@@ -441,19 +440,6 @@ func option(raw any, def, key string) string {
 	return ""
 }
 
-// cpuDrift is a machine's CPU model when it's one Proxmox VE gives a
-// machine created without any - kvm64 (qemu64 beside it): no AES-NI,
-// SSE4, AVX, BMI2 or ADX (#372) - an older Controller's machines. A model
-// someone chose (host, x86-64-v3...) is theirs, left alone.
-func cpuDrift(cfg map[string]any) *hypervisor.Drift {
-	have := option(cfg["cpu"], "cputype", "cputype")
-	switch have {
-	case "", "kvm64", "qemu64":
-		return &hypervisor.Drift{Setting: "cpu", Have: or(have, "kvm64 (Proxmox's default)"), Want: cpuModel}
-	}
-	return nil
-}
-
 // agentOn reports whether a machine's agent option has the guest agent
 // on, on its virtio-serial port.
 func agentOn(cfg map[string]any) bool {
@@ -466,12 +452,13 @@ func agentOn(cfg map[string]any) bool {
 }
 
 // settingsParams is what Reconfigure changes so the machine has s and
-// today's CPU model - only what differs -, and the keys to delete.
-func settingsParams(cfg map[string]any, s hypervisor.Settings) (url.Values, []string) {
+// its hypervisor's CPU model, cpu, when cpuDrift says so - only what
+// differs -, and the keys to delete.
+func settingsParams(cfg map[string]any, s hypervisor.Settings, cpu string) (url.Values, []string) {
 	p := url.Values{}
 	var deletes []string
-	if cpuDrift(cfg) != nil {
-		p.Set("cpu", cpuModel)
+	if cpuDrift(cfg, cpu) != nil {
+		p.Set("cpu", cpu)
 	}
 	switch on := agentOn(cfg); {
 	case s.GuestAgent && !on:
@@ -690,8 +677,8 @@ func (d *Driver) MachineStatus(ctx context.Context, ref hypervisor.MachineRef) (
 	agent := agentOn(c.raw)
 	out := &hypervisor.MachineStatus{Power: powerState(st.Status, st.QMPStatus), HostID: hostID(node), HostName: node, GuestAgent: &agent}
 	out.VCPUs, out.MaxVCPUs, out.MemoryMiB, out.MaxMemoryMiB, out.MemoryStepMiB = statusOf(c)
-	if d := cpuDrift(c.raw); d != nil {
-		out.Drift = append(out.Drift, *d)
+	if drift := cpuDrift(c.raw, d.cfg.CPU()); drift != nil {
+		out.Drift = append(out.Drift, *drift)
 	}
 	return out, nil
 }
@@ -750,9 +737,16 @@ func (d *Driver) Reconfigure(ctx context.Context, ref hypervisor.MachineRef, hw 
 			return fmt.Errorf("network %s isn't one this hypervisor allows", n.Network)
 		}
 	}
-	params, err := reconfigureParams(c.raw, hw, nics, s)
+	params, err := reconfigureParams(c.raw, hw, nics, s, d.cfg.CPU())
 	if err != nil {
 		return err
+	}
+	// A model the host can't run would leave the machine stopped: refused
+	// before anything changes.
+	if cpu := params.Get("cpu"); cpu != "" {
+		if err := d.checkCPUModel(ctx, cpu); err != nil {
+			return err
+		}
 	}
 	return d.api.do(ctx, http.MethodPut, d.nodePath("/qemu/%d/config", vmid), params, nil)
 }
@@ -827,12 +821,13 @@ var netKeyRe = regexp.MustCompile(`^net([0-9]+)$`)
 var macRe = regexp.MustCompile(`(?i)(?:virtio|e1000e?|vmxnet3|rtl8139)=([0-9a-f:]{17})`)
 
 // reconfigureParams is the config change for vCPUs, memory, the
-// settings (settingsParams) and the whole new set of interfaces, matched
-// by MAC: one gone is deleted, one whose network changed is rewritten
-// (same slot, same MAC), one new takes the first free slot.
-func reconfigureParams(cfg map[string]any, hw hypervisor.Hardware, nics []hypervisor.NIC, s hypervisor.Settings) (url.Values, error) {
+// settings (settingsParams, cpu the hypervisor's CPU model) and the
+// whole new set of interfaces, matched by MAC: one gone is deleted, one
+// whose network changed is rewritten (same slot, same MAC), one new
+// takes the first free slot.
+func reconfigureParams(cfg map[string]any, hw hypervisor.Hardware, nics []hypervisor.NIC, s hypervisor.Settings, cpu string) (url.Values, error) {
 	p, hwDeletes := hardwareParams(cfg, hw)
-	sp, settingsDeletes := settingsParams(cfg, s)
+	sp, settingsDeletes := settingsParams(cfg, s, cpu)
 	for k, v := range sp {
 		p[k] = v
 	}

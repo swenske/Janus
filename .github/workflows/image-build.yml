@@ -904,6 +904,21 @@ jobs:
       - name: BGP - bird sessions and the HAProxy gate between two nodes
         run: make qemu-bgp-test
 
+      # A cluster updated in place (docs/guide/clusters.md "Updating a
+      # cluster"): two BIRD members of a janusctl fleet's cluster moved to
+      # this build as another release, one at a time, under traffic
+      # through the anycast address from a third node - none lost, the
+      # stick table kept; first, a drained member rebooted announces
+      # nothing until it is undrained. See hack/qemu-cluster-upgrade-test.sh.
+      - name: A BGP cluster updated in place, one member at a time
+        run: make qemu-cluster-upgrade-bgp-test
+
+      # The same with keepalived members and their virtual IP, then to a
+      # release whose HAProxy can't start: the first member reverts by
+      # itself, the update stops there, the other member untouched.
+      - name: A VRRP cluster updated in place, a failed update reverted
+        run: make qemu-cluster-upgrade-test
+
   test-services:
     name: "Tests: Let's Encrypt, Consul"
     runs-on: [self-hosted, docker, janus]

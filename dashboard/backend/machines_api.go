@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
 	"github.com/swenske/Janus/dashboard/backend/internal/machines"
@@ -145,6 +146,7 @@ func (a *app) handleMachineCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.runner.start(m.ID, func(ctx context.Context) error { return a.runner.create(ctx, m.ID) })
+	noteAuditSubject(r, audit.KindMachine, m.ID, spec.Name)
 	writeJSON(w, http.StatusAccepted, a.machineView(m))
 }
 

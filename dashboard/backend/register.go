@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/enroll"
 	"github.com/swenske/Janus/dashboard/backend/internal/pending"
@@ -273,7 +274,7 @@ func (a *app) handlePendingAction(w http.ResponseWriter, r *http.Request) {
 
 	switch action {
 	case "approve":
-		a.approvePending(w, id)
+		a.approvePending(w, r, id)
 	case "reject":
 		a.rejectPending(w, id)
 	default:
@@ -287,7 +288,7 @@ func (a *app) handlePendingAction(w http.ResponseWriter, r *http.Request) {
 // comment), so unlike the human-driven add-node flow there's no
 // GenerateClientConfiguration round trip here: the data just moves from
 // one store to the other.
-func (a *app) approvePending(w http.ResponseWriter, id string) {
+func (a *app) approvePending(w http.ResponseWriter, r *http.Request, id string) {
 	p, ok := a.pending.Get(id)
 	if !ok {
 		http.Error(w, fmt.Sprintf("no pending node %q", id), http.StatusNotFound)
@@ -318,6 +319,7 @@ func (a *app) approvePending(w http.ResponseWriter, id string) {
 		a.runner.registered(machineID, node)
 	}
 	log.Printf("node approved: %s (%s), its page at /nodes/%s/", node.Name, node.Address, node.ID)
+	noteAuditSubject(r, audit.KindNode, node.ID, node.Name) // the node it became
 	writeJSON(w, http.StatusCreated, struct {
 		ID string `json:"id"`
 	}{ID: node.ID})

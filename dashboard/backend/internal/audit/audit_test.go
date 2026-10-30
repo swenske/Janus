@@ -26,14 +26,16 @@ func TestLog(t *testing.T) {
 	if fi, _ := os.Stat(filepath.Join(dir, "audit.jsonl")); fi.Size() > MaxSize || fi.Mode().Perm() != 0o600 {
 		t.Errorf("audit.jsonl: %d bytes, %v", fi.Size(), fi.Mode().Perm())
 	}
-	got, err := l.Recent(10, nil)
+	p, err := l.Query(Filter{}, "", 10)
+	got := p.Entries
 	if err != nil || len(got) != 10 || got[0].User != "u59" || got[9].User != "u50" {
-		t.Fatalf("Recent(10) = %v, %v", got, err)
+		t.Fatalf("Query(10) = %v, %v", got, err)
 	}
 	// Across the rotated file, newest first, bounded.
-	all, _ := l.Recent(1000, nil)
-	if len(all) < 20 || all[0].User != "u59" {
-		t.Fatalf("Recent(all): %d entries, first %+v", len(all), all[0])
+	p, _ = l.Query(Filter{}, "", 1000)
+	all := p.Entries
+	if len(all) < 20 || all[0].User != "u59" || p.Total != len(all) || p.Next != "" {
+		t.Fatalf("Query(all): %d entries, first %+v", len(all), all[0])
 	}
 	for i := 1; i < len(all); i++ {
 		if !all[i].Time.Before(all[i-1].Time) {
@@ -45,8 +47,8 @@ func TestLog(t *testing.T) {
 	if err := l2.Append(Entry{User: "again", Method: "DELETE", Path: "/api/y"}); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := l2.Recent(1, func(e Entry) bool { return e.Method == "POST" }); len(got) != 1 || got[0].User != "u59" {
-		t.Errorf("filtered: %+v", got)
+	if p, _ := l2.Query(Filter{Method: "POST"}, "", 1); len(p.Entries) != 1 || p.Entries[0].User != "u59" || p.Next != "60" {
+		t.Errorf("filtered: %+v", p)
 	}
 }
 

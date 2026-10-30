@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 )
 
@@ -94,6 +95,7 @@ func (a *app) handleTokenCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	noteAuditSubject(r, audit.KindToken, t.ID, t.Name)
 	writeJSON(w, http.StatusCreated, struct {
 		tokenView
 		// Token is shown this once.

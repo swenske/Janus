@@ -62,8 +62,9 @@ type Driver interface {
 	// whose MAC isn't in it is removed, one that's new is added, one
 	// whose network changed is moved - from its next start. It also
 	// sets the settings MachineStatus reports as Drift: s's (the guest
-	// agent), and what CreateMachine gives every machine today (the CPU
-	// model, where an older Controller left the hypervisor's default).
+	// agent), and what CreateMachine gives every machine today (the
+	// hypervisor's CPU model, where an older Controller left Proxmox's
+	// default or an earlier setting gave another).
 	Reconfigure(ctx context.Context, ref MachineRef, hw Hardware, nics []NIC, s Settings) error
 	// Resize changes a running scalable machine's vCPUs and memory, within
 	// the maxima it was started with, without stopping it (hot-plug: the
@@ -112,6 +113,11 @@ type HostInfo struct {
 	// own under an access policy (docs/hypervisors.md); -1 when the
 	// hypervisor won't say.
 	RunningMachines int `json:"running_machines"`
+	// MachineCPUError says why the CPU model its machines get can't run
+	// on this host - a processor without a feature the model asks for
+	// (Proxmox VE's x86-64-v4 without AVX-512): new machines are refused,
+	// and so is giving it to one.
+	MachineCPUError string `json:"machine_cpu_error,omitempty"`
 }
 
 type StorageInfo struct {
@@ -244,8 +250,10 @@ type MachineStatus struct {
 	HostName string `json:"host_name,omitempty"`
 	// Drift: the settings CreateMachine gives every machine today that
 	// this one hasn't got, whatever its image - one an older Controller
-	// created, or changed on the hypervisor (Proxmox: a CPU model without
-	// AES-NI, #372). Reconfigure sets them.
+	// created, one created before its hypervisor's settings changed, or
+	// changed on the hypervisor (Proxmox: a CPU model without AES-NI, or
+	// another than its hypervisor's CPU model, #372). Reconfigure sets
+	// them.
 	Drift []Drift `json:"drift,omitempty"`
 	// GuestAgent, for a hypervisor with an option for the guest agent
 	// (Proxmox VE), is whether the machine runs with it - its

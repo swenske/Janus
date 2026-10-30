@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor/libvirt"
@@ -111,6 +112,10 @@ func (a *app) hypervisorView(h *hypervisor.Hypervisor) hypervisorView {
 		if ca, err := hypervisor.ParseCACert(p.CACert); err == nil {
 			v.CASubject = ca.Subject.String()
 		}
+		// The model its machines get, the default spelled out.
+		shown := *p
+		shown.CPUModel = p.CPU()
+		v.Proxmox = &shown
 	}
 	for _, m := range a.machines.List() {
 		if m.Spec.HypervisorID == h.ID {
@@ -197,6 +202,7 @@ func (a *app) handleHypervisorCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	noteAuditSubject(r, audit.KindHypervisor, h.ID, h.Name)
 	writeJSON(w, http.StatusCreated, a.hypervisorView(h))
 }
 
@@ -241,6 +247,12 @@ func (a *app) handleHypervisorUpdate(w http.ResponseWriter, r *http.Request) {
 		p.Fingerprint = h.Proxmox.Fingerprint
 		if p.Address() != h.Proxmox.Address() {
 			p.Fingerprint = ""
+		}
+		// A client that doesn't know the CPU model (an older Terraform
+		// provider) keeps it: another one means a restart for each of
+		// its machines, asked for one by one.
+		if p.CPUModel == "" {
+			p.CPUModel = h.Proxmox.CPUModel
 		}
 		next.Proxmox = &p
 	}

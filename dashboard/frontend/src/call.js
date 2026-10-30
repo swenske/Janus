@@ -12,8 +12,11 @@ import { backgroundHeaders, SIGNED_OUT } from './shared/activity.js'
 //
 // { timeout } (ms) bounds a request that may never answer (a connection
 // that died while the computer slept): a poll waiting for it would stop.
+//
+// { withHeaders: true } answers { body, headers } - an answer that says
+// more in its headers (the audit's total and next page).
 export async function call(path, opts = {}) {
-  const { background, timeout, ...rest } = opts
+  const { background, timeout, withHeaders, ...rest } = opts
   if (timeout) rest.signal = AbortSignal.timeout(timeout)
   const resp = await fetch(path, background ? { ...rest, headers: { ...(rest.headers || {}), ...backgroundHeaders() } } : rest)
   const text = await resp.text()
@@ -33,7 +36,8 @@ export async function call(path, opts = {}) {
     err.data = data
     throw err
   }
-  return text ? JSON.parse(text) : null
+  const body = text ? JSON.parse(text) : null
+  return withHeaders ? { body, headers: resp.headers } : body
 }
 
 export { backgroundHeaders, SIGNED_OUT }

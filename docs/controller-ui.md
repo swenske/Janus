@@ -213,7 +213,10 @@ token's secret is write-only: `has_token_secret`) - added in steps (for
 libvirt the command that authorizes the Controller's key; then the SSH
 host key or the API's certificate read and compared with the host's
 own, then trusted - a Proxmox node given its CA needs none), then its
-software, CPU, memory, pool and networks; its labels (`HVLabels`, under
+software, CPU, memory, pool and networks - and for Proxmox the CPU
+model its machines get, with the host's `machine_cpu_error` in red when
+its processor can't run it (in the list: under the CPU, the error on
+the row below); its labels (`HVLabels`, under
 its name on the card and in the list; the form's **Labels its nodes
 inherit** field, `dc`, `room`, `rack` suggested - `saveBody` sends them,
 `{}` when the field is empty, while `HostPrep`'s body leaves them
@@ -228,8 +231,14 @@ from a card not trusted yet, key included - shows the steps the backend
 writes (`POST /api/hypervisors/preparation`, again 250 ms after each
 change), each with Copy, plus Copy all and Download; the edit form warns
 when a change to the account, pool, networks or prefix means preparing
-the host again. **Create node** takes the hypervisor (with the labels its node will
-inherit, when it has some), name, size,
+the host again. A Proxmox form's **CPU model its machines get**
+(`CPUModelField`) is a select of the x86-64 levels and `host`, with a
+line under it on what the model gives HAProxy's TLS and which hosts it
+runs on, or **Other** and a field for a named QEMU model; the edit form
+of a hypervisor with machines says, when the model changes, that they
+keep theirs until **Apply settings** - nothing restarts. **Create
+node** takes the hypervisor (with the labels its node will inherit,
+when it has some), name, size,
 interfaces (network, name, static/DHCP/none), DNS/NTP, the version and the
 image factory's extensions, or an image by URL and SHA-256. The console
 (`Console.jsx`) is read-only, follows the SSE stream from
@@ -246,7 +255,8 @@ A machine's card shows:
 - the node's hostname when its page changed it;
 - its hypervisor settings that aren't the ones the Controller gives
   machines today (`DriftNotice`, the machine's `hardware_drift`: a
-  Proxmox CPU model without AES-NI, the guest agent's option), with
+  Proxmox CPU model without AES-NI or other than its hypervisor's, the
+  guest agent's option), with
   **Apply settings** for an admin - confirmed, since it restarts the
   machine (`POST /api/machines/{id}/apply-settings`).
 
@@ -291,7 +301,21 @@ claims, how its certificate is trusted, the rules (`RuleRows`: group,
 role, labels, domains), a default role, the accounts' life, the second
 factor's mode, the switches a provider may need, and **Test**
 (`/api/sso/test`: discovery, keys, warnings); the
-audit's newest 500 entries, filtered by account on submit. A node card
+audit, a hundred entries at a time, newest first - **Load older** for
+the next hundred, the count matching above the table. Each entry names
+what it was about, as it was named then (*Node* **edge-1**: a link to
+its page while it exists, "(removed)" once it's gone), its path under
+it, and a button that keeps only the entries about it. The filters
+(`audit.js`, `npm test`) are the server's, combined: the account and
+how it came (a session, an API token or one of them, no credential),
+what it's about (every node, machine, cluster... the audit names, the
+removed ones too - `?facets=1`), the kind of action (sign-ins, nodes,
+clusters, fleet and PKI, accounts and tokens, machines and hypervisors,
+settings), the result (succeeded, refused, failed), the method, a time
+range, the client's address or its start, text in the path or the
+name. They're kept in the hash (`#/audit?user=rita&result=refused`): a
+filtered view can be shared or bookmarked. The pickers apply at once,
+the fields typed in on Enter or when left. A node card
 shows its labels (`NodeLabels`): its own, edited in place by an admin,
 then those it inherits from its machine's hypervisor (`InheritedLabels`:
 "from kvm01", dashed badges, one its own label overrides struck
