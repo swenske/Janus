@@ -1004,7 +1004,7 @@ qemu-dashboard-test: dashboard-bin disk-image versitygw
 # DASHBOARD_IMAGE: the tag (controller-self-update-test builds its own).
 DASHBOARD_IMAGE ?= janus-controller
 dashboard-image:
-	docker build -f dashboard/Dockerfile --build-arg VERSION=$(VERSION) \
+	docker build -f dashboard/Dockerfile --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(shell git rev-parse HEAD 2>/dev/null) \
 		--build-arg DOCKER_COMPOSE_VERSION=$(DOCKER_COMPOSE_VERSION) \
 		--build-arg DOCKER_COMPOSE_SHA256_AMD64=$(DOCKER_COMPOSE_SHA256_AMD64) \
 		--build-arg DOCKER_COMPOSE_SHA256_ARM64=$(DOCKER_COMPOSE_SHA256_ARM64) \

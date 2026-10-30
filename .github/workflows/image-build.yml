@@ -1464,13 +1464,41 @@ jobs:
         run: |
           set -euo pipefail
           echo "$DOCKERHUB_TOKEN" | docker login -u swenske --password-stdin
-          docker tag janus-controller swenske/janus-controller:latest
-          docker tag janus-controller "swenske/janus-controller:$COMMIT_SHA"
-          docker push swenske/janus-controller:latest
-          docker push "swenske/janus-controller:$COMMIT_SHA"
+          # A version's tag names one image for good (#433: a rerun pushed
+          # v2026.10.30 again, another digest - the lab's Controller ran
+          # the first). Already on Docker Hub - an earlier attempt of this
+          # run got that far - it stays, and so do latest and the commit's
+          # tag pushed with it; only if it was built from this commit (its
+          # org.opencontainers.image.revision label, dashboard/Dockerfile).
+          keep=
           if [ -n "$RELEASE_VERSION" ]; then
-            docker tag janus-controller "swenske/janus-controller:$RELEASE_VERSION"
-            docker push "swenske/janus-controller:$RELEASE_VERSION"
+            image="swenske/janus-controller:$RELEASE_VERSION"
+            code=$(curl -sS --retry 3 -o build/hub-tag.json -w '%{http_code}' "https://hub.docker.com/v2/namespaces/swenske/repositories/janus-controller/tags/$RELEASE_VERSION")
+            if [ "$code" = 200 ]; then
+              docker pull -q "$image" >/dev/null
+              built=$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")
+              if [ "$built" != "$COMMIT_SHA" ]; then
+                echo "::error::$image is already on Docker Hub, built from ${built:-an unknown commit}, not $COMMIT_SHA: a version's image never changes - publish another version"
+                exit 1
+              fi
+              echo "::notice::$image is already on Docker Hub, built from this commit: kept, nothing pushed"
+              keep=1
+            elif [ "$code" != 404 ]; then
+              echo "::error::Docker Hub answered $code about $image"
+              exit 1
+            fi
+          fi
+          if [ -z "$keep" ]; then
+            docker tag janus-controller swenske/janus-controller:latest
+            docker tag janus-controller "swenske/janus-controller:$COMMIT_SHA"
+            docker push swenske/janus-controller:latest
+            docker push "swenske/janus-controller:$COMMIT_SHA"
+            if [ -n "$RELEASE_VERSION" ]; then
+              docker tag janus-controller "swenske/janus-controller:$RELEASE_VERSION"
+              docker push "swenske/janus-controller:$RELEASE_VERSION"
+            fi
+          fi
+          if [ -n "$RELEASE_VERSION" ]; then
             # The release names the exact image it ships: a Controller
             # updating itself (dashboard/updater) runs it pinned to this
             # digest, whatever later happens to the tag.
@@ -1617,52 +1645,61 @@ jobs:
           COMMIT_SHA: ${{ github.sha }}
         run: ./hack/release-body.sh "$RELEASE_VERSION" "$PREV_RELEASE" "$KIND" "$COMMIT_SHA" build/release-notes.md
 
+      # The release is a draft until every asset is there, then published
+      # (hack/releases publish): nobody sees one half uploaded, and an
+      # upload GitHub fails is tried again. A rerun of this job after a
+      # failure here completes the draft with its own build, in whole - a
+      # rebuild isn't byte for byte the same, and two attempts' files mixed
+      # would pair a rootfs with UKIs pinning another's root hash. A
+      # published release never changes: a rerun after a later step
+      # failed compares its assets with its build, says what differs and
+      # leaves it as it is (#433: v2026.10.30's rerun replaced all of
+      # them, the Controllers having cached the first sha256s).
       - name: Publish a real GitHub Release
         if: ${{ inputs.release_version != '' }}
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          tag_name: ${{ inputs.release_version }}
-          target_commitish: ${{ github.sha }}
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
           # "🔒 security update" when it fixes vulnerabilities: what the
           # Releases watch and the releases feed show (docs/upstreams.md).
-          name: "Janus ${{ inputs.release_version }} (Alpha)${{ inputs.prerelease && ' - pre-release' || '' }}${{ env.SECURITY_SEVERITY != '' && env.SECURITY_SEVERITY != 'none' && ' - 🔒 security update' || '' }}"
-          # A release is marked as the latest - the alpha status is stated
-          # in the name above and at the top of the notes (a pre-release is
+          RELEASE_NAME: "Janus ${{ inputs.release_version }} (Alpha)${{ inputs.prerelease && ' - pre-release' || '' }}${{ env.SECURITY_SEVERITY != '' && env.SECURITY_SEVERITY != 'none' && ' - 🔒 security update' || '' }}"
+          # A release is made the latest - the alpha status is stated in
+          # the name above and at the top of the notes (a pre-release is
           # never "Latest": the repository's home page once showed no
           # release at all, only "3 tags"). A pre-release, for testing,
           # never is: release-promote.yml clears the flag and makes it the
           # latest once it has been tested (docs/contributing/releasing.md).
-          body_path: build/release-notes.md
-          prerelease: ${{ inputs.prerelease }}
-          make_latest: ${{ inputs.prerelease && 'false' || 'true' }}
-          # hack/release-body.sh adds GitHub's generated changes itself:
-          # since the newest release, which GitHub can't tell for a
-          # pre-release.
-          generate_release_notes: false
-          files: |
-            build/release/rootfs.squashfs
-            build/release/rootfs.squashfs.sha256
-            build/release/rootfs.verity
-            build/release/uki-a.efi
-            build/release/uki-b.efi
-            build/release/controller-image.txt
-            build/security/security.json
-            build/security/sbom.cdx.json
-            build/janus.qcow2
-            build/janus-kvm.qcow2
-            build/janus.vmdk
-            build/janus.iso
-            build/rpi-uefi/pi4-disk.img
-            build/rpi-uefi/pi5-disk.img
-            build/inputs/schematic-catalog.json
-            build/inputs/kernel-*-amd64
-            build/inputs/kernel-*-arm64
-            build/inputs/rootfs-base-amd64.tar
-            build/inputs/rootfs-base-arm64.tar
-            build/inputs/haproxy-*.tar
-            build/inputs/extension-*.tar
-            build/deb/janusctl_*.deb
-            build/terraform-provider/terraform-provider-janus_*
+          PRERELEASE: ${{ inputs.prerelease }}
+          COMMIT_SHA: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        # hack/release-body.sh wrote the notes, GitHub's generated changes
+        # included: since the newest release, which GitHub can't tell for
+        # a pre-release.
+        run: |
+          go run ./hack/releases publish -commit "$COMMIT_SHA" -name "$RELEASE_NAME" -notes build/release-notes.md \
+            -prerelease="$PRERELEASE" "$RELEASE_VERSION" \
+            build/release/rootfs.squashfs \
+            build/release/rootfs.squashfs.sha256 \
+            build/release/rootfs.verity \
+            build/release/uki-a.efi \
+            build/release/uki-b.efi \
+            build/release/controller-image.txt \
+            build/security/security.json \
+            build/security/sbom.cdx.json \
+            build/janus.qcow2 \
+            build/janus-kvm.qcow2 \
+            build/janus.vmdk \
+            build/janus.iso \
+            build/rpi-uefi/pi4-disk.img \
+            build/rpi-uefi/pi5-disk.img \
+            build/inputs/schematic-catalog.json \
+            'build/inputs/kernel-*-amd64' \
+            'build/inputs/kernel-*-arm64' \
+            build/inputs/rootfs-base-amd64.tar \
+            build/inputs/rootfs-base-arm64.tar \
+            'build/inputs/haproxy-*.tar' \
+            'build/inputs/extension-*.tar' \
+            'build/deb/janusctl_*.deb' \
+            'build/terraform-provider/terraform-provider-janus_*'
 
       # A pre-release's janusctl goes to apt's "testing" suite only
       # (packaging/apt, README.md) - what a release gets beside it:

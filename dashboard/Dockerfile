@@ -96,3 +96,10 @@ EXPOSE 8080 8443
 # lowered - a capability wouldn't reach an unprivileged user here.
 USER 65532:65532
 ENTRYPOINT ["/dashboardd"]
+
+# What the image was built from: a publishing run that finds its version
+# already on Docker Hub keeps it only when it's the same commit's
+# (image-build.yml, #433). Last, so a new commit rebuilds no layer for it.
+ARG VERSION=dev
+ARG COMMIT=unknown
+LABEL org.opencontainers.image.version="${VERSION}" org.opencontainers.image.revision="${COMMIT}"
