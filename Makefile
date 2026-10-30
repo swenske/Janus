@@ -792,11 +792,11 @@ qemu-iso-boot-test: iso-image
 # (image-build.yml), so it's the one that has to be signed: pass
 # SIGNING_KEY=<key.pem> SIGNING_CERT=<cert.pem> to sign both UKIs (left
 # unsigned when unset). Signing a separately built bundle instead
-# doesn't work - rootfs-build reruns in every make invocation and
-# mksquashfs isn't byte-reproducible, so another invocation's UKIs
-# carry a different dm-verity root hash than this rootfs.squashfs
-# (image-build.yml builds the qcow2s, the VMDK and this ISO in one
-# invocation for that reason: one rootfs for the four).
+# isn't safe - rootfs-build reruns in every make invocation, and its
+# UKIs pin that rootfs.squashfs's dm-verity root hash: the same only
+# while the rootfs builds byte for byte the same (hack/reproducible.sh,
+# #433). image-build.yml builds the qcow2s, the VMDK and this ISO in one
+# invocation: one rootfs for the four.
 SIGNING_KEY ?=
 SIGNING_CERT ?=
 iso-image-with-bundle: kernel-build rootfs-build
@@ -1004,7 +1004,7 @@ qemu-dashboard-test: dashboard-bin disk-image versitygw
 # DASHBOARD_IMAGE: the tag (controller-self-update-test builds its own).
 DASHBOARD_IMAGE ?= janus-controller
 dashboard-image:
-	docker build -f dashboard/Dockerfile --build-arg VERSION=$(VERSION) \
+	docker build -f dashboard/Dockerfile --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(shell git rev-parse HEAD 2>/dev/null) \
 		--build-arg DOCKER_COMPOSE_VERSION=$(DOCKER_COMPOSE_VERSION) \
 		--build-arg DOCKER_COMPOSE_SHA256_AMD64=$(DOCKER_COMPOSE_SHA256_AMD64) \
 		--build-arg DOCKER_COMPOSE_SHA256_ARM64=$(DOCKER_COMPOSE_SHA256_ARM64) \

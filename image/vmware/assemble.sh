@@ -36,5 +36,21 @@ trap 'rm -f "$RAW"' EXIT
 
 mkdir -p "$(dirname "$OUT")"
 qemu-img convert -O vmdk -o subformat=streamOptimized "$RAW" "$OUT"
+# qemu-img draws the descriptor's content ID (CID) at random: one made
+# from the root hash instead, so two builds of a commit are the same
+# VMDK (hack/reproducible.sh, #433). The descriptor is text near the
+# start; the ID keeps its 8 hex digits.
+. "$SELF_DIR/../../hack/reproducible.sh"
+python3 - "$OUT" "$(uuid_of "vmdk $(cat "$ROOTFS_DIR/rootfs.roothash")" | cut -c1-8)" <<'PY'
+import re, sys
+path, cid = sys.argv[1], sys.argv[2].encode()
+with open(path, "r+b") as f:
+    head = f.read(1 << 20)
+    found = [m.start(1) for m in re.finditer(rb"\nCID=([0-9a-f]{8})\n", head)]
+    if len(found) != 1:
+        sys.exit(f"{path}: {len(found)} CID lines in the descriptor, not 1")
+    f.seek(found[0])
+    f.write(cid)
+PY
 
 echo "Wrote $OUT ($(du -h "$OUT" | cut -f1) VMDK, from a $(du -h "$RAW" | cut -f1) raw GPT disk)"

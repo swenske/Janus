@@ -36,12 +36,14 @@ Once every test job passed, the publishing job - on the runner labelled
 
 - builds the signed release bundle and checks its signatures against
   the committed certificate;
-- creates the tag and the GitHub release - the alpha warning, the notes,
-  the changelog link - with the images, the bundle, the build inputs of
-  custom images, the `janusctl` packages, the Terraform provider, the
-  Controller's image reference, `security.json` and an SBOM;
 - pushes the Controller's image to Docker Hub (`latest`, the commit, the
   version);
+- creates the GitHub release - the alpha warning, the notes, the
+  changelog link - with the images, the bundle, the build inputs of
+  custom images, the `janusctl` packages, the Terraform provider, the
+  Controller's image reference, `security.json` and an SBOM. It stays a
+  draft until every file is uploaded, then is published, with its tag:
+  nobody sees a release half there;
 - publishes `janusctl` to the apt repository;
 - deploys the docs - `/docs/` now follows the release;
 - publishes a security advisory for each fix of Janus's own code, and
@@ -49,6 +51,36 @@ Once every test job passed, the publishing job - on the runner labelled
 
 A release fixing something gets "🔒 security update" in its name, and
 the Controller marks the update on the nodes it concerns.
+
+## When publishing fails
+
+Rerun the failed job (`gh run rerun <run> --failed`): it builds
+everything again, then:
+
+- **a draft left behind** - the run failed while uploading, after
+  GitHub refused a file now and then (each upload is tried four times
+  first) - is completed with this attempt's files, all of them: those
+  already there with the same bytes stay, the others are replaced. A
+  draft was never seen. Two builds of a commit give the same bytes
+  (`hack/reproducible.sh`) - but for the signed UKIs and the ISO, whose
+  Secure Boot signatures hold the time they were made - and should
+  something break that, a bundle mixing two attempts would pair a root
+  filesystem with UKIs pinning another one's;
+- **a published release** - the run failed after it, publishing
+  janusctl or the docs - is never changed: its files are compared with
+  this attempt's, any difference is reported as a warning - expected
+  for the signed UKIs and the ISO, else a build that stopped being
+  reproducible - and the steps after it run again. One published
+  without a file it should have stops the rerun: adding a file from
+  another build to a release isn't done - publish another version;
+- **the Controller's version tag** already on Docker Hub, from this
+  commit, is kept - with `latest` and the commit's tag - and the release
+  names it. From another commit, the run stops: a version's image never
+  changes.
+
+A release or a tag of that version made from another commit stops it
+too. To start over from nothing, delete the draft - never a published
+release: people downloaded its files, Controllers cached their sha256.
 
 ## Pre-releases
 

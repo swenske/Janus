@@ -45,6 +45,11 @@ RUN test -n "${KERNEL_SHA256}" \
     && curl -fsSLO "https://cdn.kernel.org/pub/linux/kernel/v${major}.x/linux-${KERNEL_VERSION}.tar.xz" \
     && echo "${KERNEL_SHA256}  linux-${KERNEL_VERSION}.tar.xz" | sha256sum -c - \
     && tar xf linux-${KERNEL_VERSION}.tar.xz
+# The source's own date - its release commit's, which kernel.org's
+# tarballs give every file - read before a patch touches one: the build's
+# timestamp (uname -v), else the time it ran, and two builds of a version
+# two different kernels (#433).
+RUN stat -c %Y linux-${KERNEL_VERSION}/Makefile > /src/source-date-epoch
 # Janus's own patches (patches/README.md), in order, for every track and
 # architecture: each must apply exactly (no fuzz, not already applied) -
 # a release that already carries one fails the build, the cue to drop it.
@@ -80,7 +85,10 @@ ARG ARCH=x86_64
 ARG CROSS_COMPILE=
 ARG MAKE_TARGETS=bzImage
 WORKDIR /src/linux-${KERNEL_VERSION}
-RUN make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} olddefconfig \
+# The rest of the version string is BuildKit's, the same everywhere:
+# root@buildkitsandbox, #1 (a fresh tree's first build).
+RUN export KBUILD_BUILD_TIMESTAMP="$(date -u -d "@$(cat /src/source-date-epoch)")" \
+    && make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} olddefconfig \
     && make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} -j"$(nproc)" ${MAKE_TARGETS}
 # Every source file and header the build read, from kbuild's .o.cmd files
 # (source_<obj> and deps_<obj>): hack/upstream keeps the kernel CVEs whose

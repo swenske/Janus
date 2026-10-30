@@ -91,10 +91,23 @@ mkdir -p "$OUT_DIR"
 # 512 KiB: 61.22); the default image went from 14.96 to 14.10 MiB. The
 # kernel reads a block whole; janusd still listens 1.2 s after the
 # kernel started, as with 128 KiB (OVMF + KVM, six boots each).
-mksquashfs "$TREE" "$OUT_DIR/rootfs.squashfs" -noappend -comp zstd -Xcompression-level 19 -b 1M -all-root -root-mode 0755 \
-  "${PSEUDO[@]}"
+#
+# Every time in the image is the commit's (hack/reproducible.sh):
+# mksquashfs writes the same bytes for the same tree and times, and the
+# tree's own times are only when it was copied (#433: two builds of a
+# commit gave two rootfs.squashfs, the same files). Given as options:
+# from its environment, mksquashfs would only lower the later ones.
+. "$(dirname "$0")/../hack/reproducible.sh"
+env -u SOURCE_DATE_EPOCH mksquashfs "$TREE" "$OUT_DIR/rootfs.squashfs" -noappend -comp zstd -Xcompression-level 19 -b 1M -all-root -root-mode 0755 \
+  -mkfs-time "$SOURCE_DATE_EPOCH" -all-time "$SOURCE_DATE_EPOCH" "${PSEUDO[@]}"
 
-veritysetup format "$OUT_DIR/rootfs.squashfs" "$OUT_DIR/rootfs.verity" > "$OUT_DIR/rootfs.verity.info"
+# dm-verity's salt and its superblock's UUID come from the image instead
+# of the random ones veritysetup makes: the same image, the same hash
+# tree and root hash - the UKIs pin it in their signed command line.
+salt="$(sha256sum "$OUT_DIR/rootfs.squashfs" | cut -c1-64)"
+u="$(printf 'uuid %s' "$salt" | sha256sum)"
+veritysetup format --salt="$salt" --uuid="${u:0:8}-${u:8:4}-${u:12:4}-${u:16:4}-${u:20:12}" \
+  "$OUT_DIR/rootfs.squashfs" "$OUT_DIR/rootfs.verity" > "$OUT_DIR/rootfs.verity.info"
 grep "^Root hash:" "$OUT_DIR/rootfs.verity.info" | awk '{print $3}' > "$OUT_DIR/rootfs.roothash"
 
 echo "Wrote $OUT_DIR/{rootfs.squashfs,rootfs.verity,rootfs.roothash}"

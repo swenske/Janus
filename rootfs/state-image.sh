@@ -19,7 +19,11 @@ export PATH="$PATH:/usr/sbin:/sbin"
 OUT="${1:?usage: $0 <out-file> <size-mb>}"
 SIZE_MB="${2:?usage: $0 <out-file> <size-mb>}"
 
+# Its UUID, directory hash seed and times from the commit, not drawn
+# when it's made: two builds of a commit, the same image (#433).
+. "$(dirname "$0")/../hack/reproducible.sh"
 truncate -s "${SIZE_MB}M" "$OUT"
-mkfs.ext4 -q -F -L janus-state "$OUT"
+E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" mkfs.ext4 -q -F -L janus-state \
+  -U "$(uuid_of "state $SOURCE_DATE_EPOCH")" -E hash_seed="$(uuid_of "state hash seed $SOURCE_DATE_EPOCH")" "$OUT"
 
 echo "Wrote $OUT (${SIZE_MB}MiB, blank ext4, label janus-state)"

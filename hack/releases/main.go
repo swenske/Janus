@@ -17,12 +17,18 @@
 //	    VERSION's GitHub release as JSON (id, name, prerelease, draft,
 //	    the newest release and whether VERSION is newer, the assets with
 //	    their URL and SHA-256), for the promotion workflow
+//	go run ./hack/releases publish -commit SHA -name NAME -notes FILE [-prerelease] VERSION GLOB...
+//	    publishes VERSION's GitHub release with the files GLOB names, a
+//	    draft until every one is there, and never changes one already
+//	    published (publish.go), for image-build's publishing job
 //
 // GITHUB_REPOSITORY (swenske/Janus by default), GITHUB_API_URL
-// (https://api.github.com) and GITHUB_TOKEN (optional) as in a workflow.
+// (https://api.github.com) and GITHUB_TOKEN (optional - publish needs
+// one) as in a workflow.
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -42,15 +48,19 @@ import (
 type release struct {
 	ID         int64   `json:"id"`
 	Tag        string  `json:"tag_name"`
+	Commitish  string  `json:"target_commitish"`
 	Name       string  `json:"name"`
 	Draft      bool    `json:"draft"`
 	Prerelease bool    `json:"prerelease"`
 	HTMLURL    string  `json:"html_url"`
+	UploadURL  string  `json:"upload_url"` // "https://uploads.github.com/.../assets{?name,label}"
 	Assets     []asset `json:"assets"`
 }
 
 type asset struct {
+	ID     int64  `json:"id"`
 	Name   string `json:"name"`
+	State  string `json:"state"` // "uploaded", else an upload that didn't finish
 	URL    string `json:"browser_download_url"`
 	Size   int64  `json:"size"`
 	Digest string `json:"digest"` // "sha256:<hex>"
@@ -73,29 +83,52 @@ func newClient() *client {
 	return c
 }
 
+// backoff is the wait before a second try, doubled for a third (0 in
+// tests).
+var backoff = 2 * time.Second
+
 func (c *client) get(ctx context.Context, path string, out any) error {
+	return c.send(ctx, http.MethodGet, path, nil, out)
+}
+
+// send makes a request of the API with in as its JSON body (nil: none)
+// and decodes the answer into out (nil: ignored). GitHub's API answers
+// a 5xx now and then: tried again, but a POST only once - a second
+// might create the release twice.
+func (c *client) send(ctx context.Context, method, path string, in, out any) error {
+	tries := 3
+	if method == http.MethodPost {
+		tries = 1
+	}
 	var err error
-	for attempt := range 3 { // GitHub's API answers a 5xx now and then
+	for attempt := range tries {
 		if attempt > 0 {
-			time.Sleep(time.Duration(attempt) * 2 * time.Second)
+			time.Sleep(time.Duration(attempt) * backoff)
 		}
 		var retry bool
-		if retry, err = c.try(ctx, path, out); !retry {
+		if retry, err = c.try(ctx, method, path, in, out); !retry {
 			return err
 		}
 	}
 	return err
 }
 
-func (c *client) try(ctx context.Context, path string, out any) (retry bool, err error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.api+"/repos/"+c.repo+path, nil)
+func (c *client) try(ctx context.Context, method, path string, in, out any) (retry bool, err error) {
+	var reqBody io.Reader
+	if in != nil {
+		b, err := json.Marshal(in)
+		if err != nil {
+			return false, err
+		}
+		reqBody = bytes.NewReader(b)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.api+"/repos/"+c.repo+path, reqBody)
 	if err != nil {
 		return false, err
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
+	c.headers(req)
+	if in != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -106,14 +139,40 @@ func (c *client) try(ctx context.Context, path string, out any) (retry bool, err
 	if err != nil {
 		return true, err
 	}
-	if resp.StatusCode != http.StatusOK {
-		err := fmt.Errorf("GitHub API %s: %s", path, resp.Status)
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		err := fmt.Errorf("GitHub API %s %s: %s%s", method, path, resp.Status, apiMessage(body))
 		if resp.StatusCode == http.StatusNotFound {
 			err = fmt.Errorf("%w: %w", errNotFound, err)
 		}
 		return resp.StatusCode >= 500, err
 	}
+	if out == nil || len(body) == 0 {
+		return false, nil
+	}
 	return false, json.Unmarshal(body, out)
+}
+
+func (c *client) headers(req *http.Request) {
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+}
+
+// apiMessage is what GitHub said of a refused request (its JSON
+// "message", or the start of the page it answered), ": "-prefixed.
+func apiMessage(body []byte) string {
+	var m struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(body, &m) == nil && m.Message != "" {
+		return ": " + m.Message
+	}
+	if s := strings.Join(strings.Fields(string(body)), " "); s != "" {
+		return ": " + s[:min(len(s), 200)]
+	}
+	return ""
 }
 
 var errNotFound = errors.New("not found")
@@ -235,7 +294,10 @@ func main() {
 
 func run(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: releases newest [-reachable-from REF] | check-prerelease VERSION | info VERSION")
+		return errors.New(usage)
+	}
+	if args[0] == "publish" {
+		return runPublish(args[1:], out)
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	ref := fs.String("reachable-from", "", "only a release whose tag is an ancestor of this ref")
@@ -266,5 +328,7 @@ func run(args []string, out io.Writer) error {
 		enc.SetIndent("", "  ")
 		return enc.Encode(doc)
 	}
-	return fmt.Errorf("usage: releases newest [-reachable-from REF] | check-prerelease VERSION | info VERSION")
+	return errors.New(usage)
 }
+
+const usage = "usage: releases newest [-reachable-from REF] | check-prerelease VERSION | info VERSION | publish -commit SHA -name NAME -notes FILE [-prerelease] VERSION GLOB [GLOB...]"

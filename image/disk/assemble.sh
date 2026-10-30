@@ -107,6 +107,14 @@ if [ "$LOGS_MB" -gt 0 ]; then
   STATE_END="+${STATE_MB}M"
   LOGS_PART=(-n 7:0:0 -t 7:8300 -c 7:LOGS)
 fi
+# The disk's and partitions' GUIDs from its root hash, not drawn: two
+# builds of a commit, the same disk (hack/reproducible.sh, #433).
+. "$SELF_DIR/../../hack/reproducible.sh"
+PARTS=6
+if [ "$LOGS_MB" -gt 0 ]; then
+  PARTS=7
+fi
+mapfile -t GPT_IDS < <(gpt_ids "$(cat "$ROOTFS_DIR/rootfs.roothash")" "$PARTS")
 sgdisk --zap-all "$OUT" >/dev/null
 sgdisk \
   -n 1:0:+"${ESP_MB}"M  -t 1:ef00 -c 1:ESP \
@@ -116,6 +124,7 @@ sgdisk \
   -n 5:0:+"${HASH_MB}"M -t 5:8300 -c 5:BOOT-B-HASH \
   -n 6:0:"$STATE_END"   -t 6:8300 -c 6:STATE \
   "${LOGS_PART[@]}" \
+  "${GPT_IDS[@]}" \
   "$OUT" >/dev/null
 
 # Writes $2 at partition $1's own starting byte offset - sgdisk -i
