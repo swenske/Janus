@@ -26,11 +26,17 @@
 #   8. A member of a cluster (of one, its CA made here by hack/clusterca):
 #      its RFC 5424 lines carry the cluster as structured data, rsyslog
 #      parses it; its RFC 3164 lines don't change; once it left, none.
+#   9. Paused targets (`log-forwarding pause|resume`): nothing sent while
+#      paused, the state `disabled`, the secrets kept; resumed, what the
+#      LOGS partition (janusd's line) and STATE (an event, an audit
+#      entry) took meanwhile arrives from where each stopped - the access
+#      logs (memory only) don't.
 #
 # QEMU_LOGFORWARD_WITHOUT_LOGS=1: the same on a node installed before the
 # LOGS partition existed (partition 7 taken out of the test's copy) -
 # every node updated to a release with log forwarding: the outage's lines
-# and the new boot's kernel messages come from memory.
+# and the new boot's kernel messages come from memory, and janusd's line
+# logged while a target was paused never reaches it.
 #
 # Usage: hack/qemu-logforward-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
@@ -290,6 +296,62 @@ out="$(ctl cluster leave 2>&1)" || fail "cluster leave: $out"
 ctl system metrics -port 10085 >/dev/null
 wait_received "janusd's line once the node left, without structured data" "m['input'] == 'udp' and 'exporter: metrics served on :10085' in m['msg'] and m['sd'] == '-'"
 echo "Part 1d OK: a member's RFC 5424 lines carry its cluster as structured data (rsyslog parsed $SD), its RFC 3164 lines are as before; once it left, none"
+
+# --- paused targets: nothing sent, their place kept ---
+# tls (the defaults: janusd, events, audit...) and tcp (HAProxy's
+# messages, its access logs) paused; what's logged meanwhile - janusd's
+# line (the LOGS partition), an event and an audit entry (STATE), access
+# lines (memory: access_logs_on_disk never) - reaches udp, still
+# sending, and not them. Resumed: tls gets what the LOGS partition and
+# STATE kept for it from where it stopped (on a node without LOGS,
+# janusd's line is gone: memory only); tcp never gets the access lines.
+out="$(ctl system log-forwarding pause tls 2>&1)" || fail "pause tls: $out"
+echo "$out"
+grep -qE "^tls +disabled " <<<"$out" || fail "tls isn't disabled once paused: $out"
+grep -qE "^udp +ok " <<<"$out" || fail "pausing tls changed udp: $out"
+out="$(ctl system log-forwarding pause tls 2>&1)" || fail "pause tls again: $out"
+grep -q "^tls: already paused" <<<"$out" || fail "pausing a paused target: $out"
+out="$(ctl system log-forwarding pause tcp 2>&1)" || fail "pause tcp: $out"
+if out="$(ctl system log-forwarding pause nope 2>&1)"; then fail "paused a target that doesn't exist: $out"; fi
+grep -q 'no target "nope"' <<<"$out" || fail "pausing an unknown target: $out"
+ctl system log-forwarding get > "$WORKDIR/paused.json"
+python3 -c 'import json,sys; t={x["name"]: x for x in json.load(open(sys.argv[1]))["targets"]}; assert t["tls"].get("disabled") and t["tcp"].get("disabled") and not t["udp"].get("disabled") and t["tls"]["tls"]["clientCertPem"], t' "$WORKDIR/paused.json" ||
+  fail "the configuration once paused: $(cat "$WORKDIR/paused.json")"
+if grep -q "PRIVATE KEY" "$WORKDIR/paused.json"; then fail "the client key came back"; fi
+ctl system metrics -port 10086 >/dev/null || fail "MetricsConfigSet failed"
+printf 'paused\n' > "$WORKDIR/marker.txt"
+ctl haproxy file-put pause-marker.txt "$WORKDIR/marker.txt" >/dev/null || fail "file-put the marker"
+for _ in $(seq 3); do curl -s -o /dev/null "http://127.0.0.1:${P_HTTP}/logfwd-during-pause"; done
+wait_received "janusd's line while tls is paused, over UDP" 'm["input"] == "udp" and "exporter: metrics served on :10086" in m["msg"]'
+wait_received "the file-put event while tls is paused, over UDP" 'm["input"] == "udp" and m["msgid"] == "events" and m["msg"].startswith("haproxy.file.put") and "pause-marker.txt" in m["msg"]'
+sleep 5
+[ -z "$(received 'm["input"] == "tls" and ("exporter: metrics served on :10086" in m["msg"] or "pause-marker.txt" in m["msg"] or "HAProxyService/FilePut" in m["msg"])')" ] ||
+  fail "the paused tls target got what was logged meanwhile"
+[ -z "$(received 'm["input"] == "tcp" and "/logfwd-during-pause" in m["msg"]')" ] || fail "the paused tcp target got access lines"
+status="$(ctl system log-forwarding status)"
+grep -qE "^tls +disabled " <<<"$status" && grep -qE "^tcp +disabled " <<<"$status" || fail "the paused targets' state: $status"
+out="$(ctl system log-forwarding resume tls 2>&1)" || fail "resume tls: $out"
+grep -qE "^tls +(starting|ok) " <<<"$out" || fail "tls once resumed: $out"
+ctl system log-forwarding resume tcp >/dev/null || fail "resume tcp"
+wait_received "the event logged while paused, over TLS once resumed" 'm["input"] == "tls" and m["msgid"] == "events" and m["msg"].startswith("haproxy.file.put") and "pause-marker.txt" in m["msg"]'
+wait_received "the audit entry logged while paused, over TLS once resumed" 'm["input"] == "tls" and m["msgid"] == "audit" and "HAProxyService/FilePut by admin (os:admin)" in m["msg"]'
+for _ in $(seq 3); do curl -s -o /dev/null "http://127.0.0.1:${P_HTTP}/logfwd-after-resume"; done
+wait_received "the access logs once resumed, over TCP" 'm["input"] == "tcp" and "/logfwd-after-resume" in m["msg"]'
+if [ "$WITHOUT_LOGS" != 1 ]; then
+  wait_received "janusd's line logged while paused, over TLS once resumed (the LOGS partition)" 'm["input"] == "tls" and "exporter: metrics served on :10086" in m["msg"]'
+  kept="janusd's line (LOGS), an event and an audit entry (STATE)"
+else
+  sleep 5
+  [ -z "$(received 'm["input"] == "tls" and "exporter: metrics served on :10086" in m["msg"]')" ] ||
+    fail "janusd's line logged while paused reached tls without a LOGS partition (memory only: nothing kept for a paused target)"
+  kept="an event and an audit entry (STATE) - janusd's line not (no LOGS partition: memory only)"
+fi
+[ -z "$(received 'm["input"] == "tcp" and "/logfwd-during-pause" in m["msg"]')" ] || fail "access lines logged while tcp was paused reached it (memory only)"
+n="$(received 'm["input"] == "udp" and m["msgid"] == "events" and "pause-marker.txt" in m["msg"]' | wc -l)"
+[ "$n" = 1 ] || fail "udp, still sending, got the file-put event $n times"
+status="$(ctl system log-forwarding status)"
+grep -qE "^tls +ok " <<<"$status" || fail "tls once resumed: $status"
+echo "Part 1e OK: paused targets get nothing (state disabled, the client key kept); resumed, tls got what was logged meanwhile from where it stopped - $kept; tcp never got the paused time's access lines (memory only)"
 
 # --- 2. the server goes away ---
 docker stop -t 1 "$NAME" >/dev/null

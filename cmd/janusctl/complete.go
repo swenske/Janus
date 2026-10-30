@@ -483,6 +483,18 @@ func onlineCandidates(c context.Context, conn *grpc.ClientConn, kind argKind, pr
 		for _, f := range resp.GetFiles() {
 			out = append(out, candidate{f.GetName(), humanBytes(f.GetSize())})
 		}
+	case argLogTarget:
+		resp, err := sys.LogForwardingGet(c, &emptypb.Empty{})
+		if err != nil {
+			return nil, nil
+		}
+		for _, st := range resp.GetTargets() {
+			help := st.GetState()
+			if help == "disabled" {
+				help = "paused"
+			}
+			out = append(out, candidate{st.GetName(), st.GetKind() + ", " + help})
+		}
 	case argACMEName:
 		resp, err := hap.ACMEStatus(c, &emptypb.Empty{})
 		if err != nil {

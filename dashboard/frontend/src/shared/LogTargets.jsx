@@ -1,6 +1,6 @@
-import { Check, Pencil, Plus, Send, Trash2 } from 'lucide-react'
+import { Check, Pause, Pencil, Play, Plus, Send, Trash2 } from 'lucide-react'
 import { useState } from 'react'
-import { newTarget, sameTarget, targetWhere, trustMode } from './logTargets.js'
+import { newTarget, sameTarget, targetWhere, trustMode, withPaused } from './logTargets.js'
 import { Badge } from './ui.jsx'
 
 function Field({ label, children, grow, width }) {
@@ -191,26 +191,34 @@ function size(n) {
 
 // TargetSummary is a target folded: where it sends, what, and how it's
 // doing (status: its TargetStatus, when it's saved as shown) - the bytes
-// sent when it says them (a node older than bytes_sent doesn't).
-function TargetSummary({ target, sources, status, unsaved, onEdit, onRemove, onTest, testing, testNote, disabled }) {
+// sent when it says them (a node older than bytes_sent doesn't). A
+// paused target says so once: its status ("disabled") and its counts -
+// none while it's stopped - aren't shown. onPause pauses or resumes it,
+// in the list like Edit: the page's Save applies it.
+function TargetSummary({ target, sources, status, unsaved, onEdit, onPause, onRemove, onTest, testing, testNote, disabled }) {
   const t = target
   const bytes = status && 'bytes_sent' in status ? ` (${size(status.bytes_sent)})` : ''
   const sent = status ? `${status.sent || 0} sent${bytes} · ${status.dropped || 0} dropped · ${status.queued ?? status.queued_records ?? 0} waiting` : ''
   const labels = sources.filter((s) => t.sources.includes(s.id)).map((s) => s.label)
+  const showStatus = status && !unsaved && !(t.disabled && status.state === 'disabled')
   return (
     <div className="log-target">
       <div className="row" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
         <strong className="mono">{t.name || '(no name)'}</strong>
         <Badge>{t.elasticsearch ? 'Elasticsearch' : 'Syslog'}</Badge>
         <span className="mono small muted">{targetWhere(t)}</span>
-        {t.disabled && <Badge tone="warn">paused</Badge>}
+        {t.disabled && (
+          <Badge tone="warn" dot>
+            paused
+          </Badge>
+        )}
         {unsaved && <Badge tone="accent">not saved</Badge>}
-        {status && !unsaved && (
+        {showStatus && (
           <Badge tone={status.state === 'ok' ? 'ok' : status.state === 'failing' ? 'danger' : undefined} dot>
             {status.state}
           </Badge>
         )}
-        {status && !unsaved && <span className="small muted">{sent}</span>}
+        {showStatus && <span className="small muted">{sent}</span>}
         <span className="grow" />
         {onTest && (
           <button type="button" className="small" onClick={onTest} disabled={testing} title={testNote || 'Send one record to it now - as shown here'}>
@@ -219,6 +227,15 @@ function TargetSummary({ target, sources, status, unsaved, onEdit, onRemove, onT
         )}
         {!disabled && (
           <>
+            {t.disabled ? (
+              <button type="button" className="small" onClick={onPause} aria-label={`Resume target ${t.name}`} title="Send to it again, from where it stopped - once saved">
+                <Play size={14} /> Resume
+              </button>
+            ) : (
+              <button type="button" className="small" onClick={onPause} aria-label={`Pause target ${t.name}`} title="Stop sending to it, keeping its place - once saved">
+                <Pause size={14} /> Pause
+              </button>
+            )}
             <button type="button" className="small" onClick={onEdit}>
               <Pencil size={14} /> Edit
             </button>
@@ -287,6 +304,7 @@ export default function LogTargets({ value, onChange, sources, defaultSources, s
             status={st}
             unsaved={unsaved}
             onEdit={() => toggle(i, true)}
+            onPause={() => update(i, withPaused(t, !t.disabled))}
             onRemove={() => remove(i)}
             onTest={onTest ? () => onTest(t) : null}
             testing={testing}

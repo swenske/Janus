@@ -1050,8 +1050,12 @@ for every chart (`scheduler.js`).
   - an empty secret field keeps the saved secret, the server merges it).
   Each target shows folded - name, kind, where, its state and counts
   (the status merged in, by name), *not saved* when it differs from the
-  saved one - with Test, Edit and Remove; Edit or a new target opens the
-  editor (Done folds it). Nothing applies until the page is saved: an
+  saved one - with Test, Pause (Resume once paused), Edit and Remove;
+  Edit or a new target opens the editor (Done folds it). Pause flips the
+  target's `disabled` in the list like an edit (`withPaused`: resumed
+  before a save, the target is the same as saved); a paused target says
+  so once - the `paused` badge, not its status `disabled` nor its counts
+  (none while stopped). Nothing applies until the page is saved: an
   `UnsavedBar` (sticky) says so with Save and Discard; a save or a
   discard bumps the list's `key`, so everything folds again. Test sends
   the target as shown (the Controller's `POST /api/log-forwarding/test`
