@@ -40,7 +40,7 @@ no component follows.
 | Component | Follows | Checked by | Vulnerabilities |
 |---|---|---|---|
 | `linux-longterm`, `linux-stable` | kernel.org's newest "longterm" and "stable" release, moving to a newer branch from its x.y.2 | Greg Kroah-Hartman's or Linus Torvalds's signature on the tar, and kernel.org's signed sha256sums | kernel.org CNA, filtered by the files each track's kernels build |
-| `haproxy-3.4`, `haproxy-3.2`, `haproxy-3.0` | its LTS branch (3.4.x, 3.2.x, 3.0.x) | haproxy.org's published sha256 (`.sha256`, `releases.json`) - HAProxy signs nothing | haproxy.org's per-version bug lists |
+| `haproxy-3.4`, `haproxy-3.2`, `haproxy-3.0` | its LTS branch (3.4.x, 3.2.x, 3.0.x) | haproxy.org's published sha256 (`.sha256`, `releases.json`) - HAProxy signs nothing. The build fetches the tarball from haproxy.org, else from Gentoo's or FreeBSD's distfiles: the pinned sha256 decides | haproxy.org's per-version bug lists |
 | `zlib` | every release | Mark Adler's signature, and Alpine's sha512 | osv.dev |
 | `aws-lc` | every release | Alpine's or FreeBSD's checksum of GitHub's tag archive - AWS-LC signs nothing | AWS-LC's own GitHub advisories |
 | `musl-cross-make` | by hand (a commit) | - | - |
