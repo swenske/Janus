@@ -109,9 +109,9 @@ on the host, while the machine is off. Proven on Proxmox VE 9.2 (edk2
    ```
 
 In a cluster, one member at a time: the drain moves its virtual IPs or
-withdraws its routes first and is kept across the reboot. Right after
-the boot, the Controller may still hold its connection from before and
-fail the undrain once - run it again.
+withdraws its routes first and is kept across the reboot. A Controller
+up to v2026.10.30 may fail an undrain sent right after the boot, on its
+connection from before the reboot - run it again.
 
 Proxmox VE doesn't lock the firmware's flash to SMM (QEMU's
 `cfi.pflash01` `secure` property, which libvirt sets): the variables
