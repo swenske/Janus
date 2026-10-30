@@ -13,6 +13,14 @@ builds one; `make qemu-iso-boot-test` proves it boots under real OVMF
 (see `hack/qemu-iso-boot-test.sh`), and `make qemu-baremetal-test` boots
 it from an emulated USB stick and installs a virtio-scsi disk.
 
+> [!WARNING]
+> **Suspended since 2026-10-30, waiting for testers** (`baremetal` in
+> `variants.mk`'s `SUSPENDED_TARGETS`): never verified on a physical
+> machine, so image-build.yml neither tests nor releases the ISO - the
+> release bundle is built alone (`make release-bundle`); the targets
+> below still build and run by hand.
+> [Offer to test it](https://github.com/swenske/Janus/issues/new?template=need-tester-baremetal.yml).
+
 Deliberately ephemeral (no A/B slots, no persistent STATE partition) -
 this is a throwaway live environment, not a final installed system. It
 boots straight to a running `janusd` (mTLS, prints its bootstrap CA/

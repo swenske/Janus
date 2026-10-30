@@ -49,7 +49,7 @@ container](../../local-dev/README.md).
 - [Controller UI design](../controller-ui.md) - the Controller's design
   system and how to verify a UI change.
 - [Raspberry Pi hardware tests](../raspberry-pi-testing.md) - testing
-  the arm64 images on real boards.
+  the arm64 images on real boards (suspended, waiting for testers).
 - [CI runners](../ci-runners.md) - the self-hosted runners that build
   and boot-test the images.
 - [Following upstreams](../upstreams.md) - how every upstream is

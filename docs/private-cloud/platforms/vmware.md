@@ -6,11 +6,15 @@ CD-ROM for its first boot - then the same Controller, `janusctl` and
 HAProxy configuration as on any platform.
 
 > [!WARNING]
-> Not verified on a real ESXi host yet. VMware's devices - the PVSCSI
-> disk controller, the VMXNET 3 network card - and the screen console
-> are proven under QEMU (`make qemu-baremetal-test`), not on ESXi
-> itself. The Controller can't create nodes on vSphere yet (planned):
-> the virtual machines are made by hand or with `govc`, as below.
+> **Suspended since 2026-10-30, waiting for testers.** Janus was never
+> run on a real ESXi host: VMware's devices - the PVSCSI disk
+> controller, the VMXNET 3 network card - and the screen console were
+> proven under QEMU only. Until someone can test it, nothing builds or
+> tests the VMDK and releases don't publish `janus.vmdk` - v2026.10.30's
+> is the last; `make vmware-image` still builds one. Running ESXi?
+> [Offer to test it](https://github.com/swenske/Janus/issues/new?template=need-tester-vmware.yml).
+> The Controller can't create nodes on vSphere yet (planned): the
+> virtual machines are made by hand or with `govc`, as below.
 
 ## What you need
 
@@ -89,6 +93,6 @@ failing doesn't take both.
 
 ## Tell us
 
-Running Janus on ESXi? An issue saying what worked - or didn't - helps
-take the warning above off:
-[GitHub issues](https://github.com/swenske/Janus/issues).
+Running Janus on ESXi? Saying what worked - or didn't - is what lifts
+the suspension above:
+[offer to test it](https://github.com/swenske/Janus/issues/new?template=need-tester-vmware.yml).

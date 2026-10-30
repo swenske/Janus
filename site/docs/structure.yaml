@@ -95,8 +95,8 @@ topics:
             pages:
               - { file: docs/internals/image-build.md, label: How an image is built }
               - { file: image/disk/README.md, slug: disk-image, title: The disk image, label: The disk image }
-              - { file: image/iso/README.md, slug: iso-image, title: The ISO image, label: The ISO image }
-              - { file: image/pxe/README.md, slug: pxe, title: Network boot (PXE / HTTP Boot), label: Network boot }
+              - { file: image/iso/README.md, slug: iso-image, title: The ISO image, label: The ISO image, badge: suspended }
+              - { file: image/pxe/README.md, slug: pxe, title: Network boot (PXE / HTTP Boot), label: Network boot, badge: suspended }
 
   - id: developer
     label: Developer
@@ -116,7 +116,7 @@ topics:
               - { file: docs/controller-ui.md, title: Controller UI design notes, label: Controller UI design }
               - { file: docs/contributing/extensions.md, label: Writing an extension }
               - { file: docs/contributing/writing-docs.md, label: Writing docs }
-              - { file: docs/raspberry-pi-testing.md, label: Raspberry Pi hardware tests }
+              - { file: docs/raspberry-pi-testing.md, label: Raspberry Pi hardware tests, badge: suspended }
           - label: Ship
             pages:
               - { file: docs/contributing/releasing.md, label: Releasing }
@@ -149,8 +149,8 @@ topics:
             pages:
               - { file: docs/private-cloud/platforms/kvm-libvirt.md, label: libvirt/KVM }
               - { file: docs/private-cloud/platforms/proxmox.md, label: Proxmox VE }
-              - { file: docs/private-cloud/platforms/bare-metal.md, label: Bare metal }
-              - { file: docs/private-cloud/platforms/vmware.md, label: VMware vSphere, badge: unverified }
+              - { file: docs/private-cloud/platforms/bare-metal.md, label: Bare metal, badge: suspended }
+              - { file: docs/private-cloud/platforms/vmware.md, label: VMware vSphere, badge: suspended }
 
 # The pages most readers come for: the docs' home lists them, and search
 # suggests them before anything is typed.

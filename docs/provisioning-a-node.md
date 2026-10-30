@@ -24,6 +24,8 @@ without a fleet, or older, a service certificate it has just created.
 - **Method 4 - the installer ISO**: for a physical machine (USB stick)
   or a VM installed from a medium. The ISO boots a temporary Janus that
   installs the machine's disk, already configured with the Controller.
+  Suspended since 2026-10-30, waiting for testers: releases no longer
+  publish the ISO (v2026.10.30's is the last).
 
 Or let the Controller do it all on a libvirt/KVM host it's been given:
 it creates the virtual machine with a NoCloud volume of its own (method
@@ -397,6 +399,13 @@ data "cloudinit_config" "janus_seed" {
 ```
 
 ## Method 4: the installer ISO
+
+> [!WARNING]
+> **Suspended since 2026-10-30, waiting for testers.** The installer
+> was never run on a physical machine: until someone tests it, releases
+> don't publish `janus.iso` - v2026.10.30's is the last, and `make
+> iso-image-with-bundle` still builds one.
+> [Offer to test it](https://github.com/swenske/Janus/issues/new?template=need-tester-baremetal.yml).
 
 How it works: the ISO (`janus.iso` from the releases, or one for a
 schematic from [janus.sw-servers.net](https://janus.sw-servers.net))
