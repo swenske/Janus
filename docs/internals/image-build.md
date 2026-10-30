@@ -48,15 +48,20 @@ flowchart TB
 
 ## Signing
 
-The release key signs the UKIs of the release bundle - and the bundle is
-built only once, in the publishing job, since mksquashfs isn't
-byte-reproducible: another build's UKIs would carry another root hash.
-The private key lives only in a CI secret, used on the publishing runner
-and verified (`sbverify`) against the committed certificate,
+The release key signs the UKIs of the release bundle and those on the
+images' ESPs (the qcow2s, the VMDK, the ISO: `SIGNING_KEY`/
+`SIGNING_CERT` for every image `make release-images` builds) - and they
+are built only once, in the publishing job, in one `make`: the UKIs pin
+the root filesystem's dm-verity root hash. The private key lives only in
+a CI secret, used on the publishing runner and verified against the
+committed certificate,
 [`image/secureboot/production-cert.pem`](../../image/secureboot/production-cert.pem),
-before anything is published; janusd carries a copy of that certificate
-to check every update. A schematic's images are signed the same way, on
-the same runner.
+before anything is published - `sbverify` on the bundle,
+`hack/uki-verify.sh` on every EFI binary of every image's ESP; janusd
+carries a copy of that certificate to check every update. A schematic's
+images are signed and checked the same way, on the same runner. A node
+installed from a signed image can boot with
+[Secure Boot](../guide/secure-boot.md) on.
 
 ## Images with extensions
 

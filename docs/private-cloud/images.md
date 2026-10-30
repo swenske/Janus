@@ -76,9 +76,10 @@ how the factory builds an image.
 ## What a node needs
 
 - **UEFI firmware** - OVMF on QEMU, Proxmox's `ovmf` BIOS, VMware's EFI.
-  No legacy BIOS boot. Secure Boot off for the VM images (their boot
-  entries aren't signed); every update a node installs is signed and
-  checked anyway.
+  No legacy BIOS boot. Secure Boot stays off until the release
+  certificate is enrolled in the firmware
+  ([Secure Boot](../guide/secure-boot.md)); every update a node installs
+  is signed and checked either way.
 - **One disk** (virtio, SCSI, SATA, NVMe): the image's own layout - an
   EFI partition, two system slots for A/B updates, and STATE, a small
   partition keeping the node's identity and configuration. The images

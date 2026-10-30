@@ -59,9 +59,11 @@ boot chain: [boot, disk layout and A/B updates](internals/boot.md).
 
 - Each `BOOT-*` slot is a **Unified Kernel Image** (kernel + initrd +
   cmdline combined into one signed EFI binary).
-- The image is signed with the project's own Secure Boot key (`sbsign`);
-  UEFI Secure Boot refuses to boot anything not signed by a key enrolled
-  on the node.
+- The image is signed with the project's own Secure Boot key
+  (`sbsign`), the update bundles' UKIs and those on the images' ESPs
+  alike; UEFI Secure Boot refuses to boot anything not signed by a key
+  enrolled on the node (the release certificate, enrolled per node:
+  [Secure Boot](guide/secure-boot.md)).
 - The squashfs rootfs is mounted through **dm-verity**, so any tampering
   with the on-disk image (not just the boot chain) is detected at mount
   time, not silently trusted.

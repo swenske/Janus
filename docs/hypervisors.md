@@ -656,8 +656,9 @@ What happens then, followed on the machine's card:
      - the Controller's address and CA;
      - the node's network: hostname, interfaces;
      - a one-time registration token.
-   - **Firmware:** UEFI without Secure Boot. The VM images' boot entries
-     aren't signed; the release bundles are. On libvirt, the firmware
+   - **Firmware:** UEFI without Secure Boot - the hypervisors' keys
+     don't include the Janus release certificate; it can be turned on
+     node by node ([Secure Boot](guide/secure-boot.md)). On libvirt, the firmware
      libvirt chooses, then - before the first start - its plain OVMF
      code alone, read-only and without a UEFI variable store: Janus uses
      none, and a store fills up and slows a reboot now and then

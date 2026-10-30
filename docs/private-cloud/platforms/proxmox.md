@@ -280,7 +280,8 @@ removes them.
   qm terminal 9001                     # the serial console
   ```
 
-  `pre-enrolled-keys=0` leaves Secure Boot off. The NoCloud volume is an
+  `pre-enrolled-keys=0` leaves Secure Boot off - to turn it on later:
+  [Secure Boot](../../guide/secure-boot.md#on-proxmox-ve). The NoCloud volume is an
   ISO 9660 `cidata` with the node's `user-data`
   ([first boot](../first-boot.md#the-nocloud-volume)), uploaded to an
   ISO storage.
