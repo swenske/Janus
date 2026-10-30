@@ -502,9 +502,10 @@ vouched for, never to whatever answers:
 In the Controller: **Hypervisors**, then **Add hypervisor**, and its
 kind. A Proxmox VE node takes its API URL, the node, the token (ID and
 secret), the pool, the two storages, the networks, and optionally a
-VM ID range and the API's CA; its card then has one step left, trusting
-the API's certificate ([Trusting the API](#trusting-the-api)). A
-libvirt host takes:
+VM ID range, the API's CA and the CPU model its machines get
+([below](#the-cpu-model-of-proxmox-ve-machines)); its card then has one
+step left, trusting the API's certificate
+([Trusting the API](#trusting-the-api)). A libvirt host takes:
 - the SSH host;
 - the user;
 - the pool;
@@ -537,6 +538,54 @@ The card then shows the host:
 - CPU (and its use), memory;
 - the pool's space and the networks' state;
 - the machines.
+
+### The CPU model of Proxmox VE machines
+
+A Proxmox VE machine has the processor its CPU model describes, not the
+host's: the model decides which instructions HAProxy, AWS-LC and janusd
+may use, and which hosts the machine may run on. A libvirt machine
+always has the host's own (`host-passthrough`): no setting there.
+
+The Controller gives every machine its hypervisor's model, set in the
+form (**CPU model its machines get**), the API (`cpu_model`) or
+Terraform. The models, from Proxmox VE's own list:
+
+| Model | Adds | Runs on | HAProxy's TLS |
+|---|---|---|---|
+| `x86-64-v2-AES`, the default | AES-NI, SSE4.2, SSSE3, POPCNT | any x86-64-v2 host with AES | AES-NI, but no PCLMULQDQ: AWS-LC counts no AES hardware, and picks ChaCha20 whenever the client offers it |
+| `x86-64-v3` | AVX, AVX2, BMI1, BMI2, FMA, MOVBE | hosts with AVX2: Intel Haswell, AMD Zen and newer | faster ChaCha20 and SHA-2; still no PCLMULQDQ, nor ADX, which P-256's fastest code needs with BMI2 |
+| `x86-64-v4` | AVX-512 (F, BW, CD, DQ, VL) | hosts with AVX-512 - most desktop and laptop processors have none | as `x86-64-v3` |
+| `host` | everything the host's processor has | identical processors only | the fastest: PCLMULQDQ (AES-GCM, as the client prefers), ADX, the SHA extensions |
+| A named QEMU model: `Haswell-noTSX`, `Skylake-Client-v4`, `EPYC-Rome`... | that processor's features | hosts with them: that generation and newer | PCLMULQDQ, and what that processor has |
+
+Measured with the release's HAProxy (AWS-LC 5.12), QEMU emulating each
+model's features: a TLS 1.3 client listing AES-128-GCM first got ChaCha20 with
+`kvm64`, `x86-64-v2-AES` and `x86-64-v3`, and AES-128-GCM once the
+model had PCLMULQDQ.
+
+**The trade-off is live migration.** A running machine moves (by hand,
+or with Proxmox's HA) only to a host that can run its model:
+- QEMU refuses to start a machine whose host lacks one of its model's
+  features (Proxmox asks it to, for every model but `host`). The
+  Controller checks the x86-64 levels against the node's processor
+  itself: the card says when its machines' model can't run there, and a
+  new machine or **Apply settings** is refused before anything stops.
+  A named model is left to QEMU.
+- `host` is the processor itself: a machine moved to another processor
+  may crash. Keep it for a cluster of identical hosts.
+- Several hypervisors reaching the nodes of one Proxmox VE cluster: give
+  them the same model if their machines move between those nodes.
+
+Not offered: the models without AES-NI (`kvm64`, `qemu64`, `x86-64-v2`,
+`Nehalem` and older), `max`, and custom models (`custom-...`): the
+token would need `Mapping.Use` on each, which the host's preparation
+doesn't give.
+
+**Changing it restarts nothing.** New machines get the new model. The
+existing ones keep theirs: each card shows the difference, and **Apply
+settings** gives it to one, with a clean restart
+([below](#settings-an-earlier-controller-didnt-give)) - a cluster
+member drained first, one at a time.
 
 ## Labels: where a hypervisor is
 
@@ -616,11 +665,13 @@ What happens then, followed on the machine's card:
      isn't the plain code (a host with Secure Boot builds only), it stays
      as chosen, with a store.
    - **CPU model:** the host's own on libvirt (`host-passthrough`). On
-     Proxmox VE, `x86-64-v2-AES` - what Proxmox's own form gives a new
-     machine, and it still migrates between hosts. Its API alone would
-     give `kvm64`: no AES-NI, no SSE4 or AVX, and HAProxy's TLS falls
-     back to slower code (ChaCha20 instead of AES-GCM). A machine a
-     Controller before v2026.10.28-2 created keeps `kvm64` until its
+     Proxmox VE, the hypervisor's
+     ([above](#the-cpu-model-of-proxmox-ve-machines)): `x86-64-v2-AES`
+     unless set - what Proxmox's own form gives a new machine, and it
+     still migrates between hosts. Its API alone would give `kvm64`: no
+     AES-NI, no SSE4 or AVX, every cipher, curve and hash on slower
+     code. A machine a Controller before v2026.10.28-2 created keeps
+     `kvm64` until its
      [settings are applied](#settings-an-earlier-controller-didnt-give).
    - **QEMU guest agent:** libvirt machines always have its channel
      (`org.qemu.guest_agent.0`), harmless without the agent. On Proxmox
@@ -711,7 +762,7 @@ it:
 | What | Where it's changed |
 |---|---|
 | Hardware: vCPUs, memory, network interfaces (added, removed, moved to another network) | **Edit** on the machine's card, the API, or Terraform. The node shuts down cleanly, its virtual machine is reconfigured and started again. |
-| The hypervisor's settings: CPU model, the guest agent's option | Set when it's created. One that differs - an earlier Controller's machine, a change on the hypervisor - is shown on the card, and **Apply settings** applies it ([below](#settings-an-earlier-controller-didnt-give)). |
+| The hypervisor's settings: CPU model, the guest agent's option | Set when it's created. One that differs - an earlier Controller's machine, a Proxmox hypervisor's CPU model changed since, a change on the hypervisor - is shown on the card, and **Apply settings** applies it ([below](#settings-an-earlier-controller-didnt-give)). |
 | Its size while it runs, with the load | Its [auto-scaling](guide/auto-scaling.md) policy, set in **Edit** or the API: vCPUs and memory plugged in and taken back without a restart. |
 | The node's own settings: interfaces' addresses, DNS, NTP, VLANs, its version and extensions, HAProxy... | Its own page (**Open**): System › Network, System › Update... - or the API, or Terraform. |
 | Its name, hypervisor, image | Nowhere: that's a new machine. |
@@ -758,7 +809,7 @@ change with the Controller:
 
 | Setting | What an older machine has |
 |---|---|
-| Proxmox VE CPU model `x86-64-v2-AES` (Controllers since v2026.10.28-2) | no `cpu` line: Proxmox's `kvm64`, without AES-NI |
+| Proxmox VE CPU model: the hypervisor's, `x86-64-v2-AES` unless [set](#the-cpu-model-of-proxmox-ve-machines) (Controllers since v2026.10.28-2) | no `cpu` line: Proxmox's `kvm64`, without AES-NI; or the model of the hypervisor's previous setting |
 | Proxmox VE QEMU Guest Agent option, with the `qemu-guest-agent` extension | no `agent` line: the extension's service stays `waiting`, Proxmox shows no addresses and shuts the VM down through ACPI only |
 
 The record reads them with the rest (every minute) and shows what
@@ -769,9 +820,16 @@ Controller would otherwise restart every machine it made before.
 
 **Apply settings**, on the card (`POST /api/machines/{id}/apply-settings`),
 does it: the node shuts down cleanly, the virtual machine gets the
-settings and starts again at its size. A CPU model someone chose on the
-hypervisor (`host`, `x86-64-v3`...) is left as it is; a guest agent
-option turned on or off by hand follows the extension again.
+settings and starts again at its size. A guest agent option turned on
+or off by hand follows the extension again. The CPU model is the
+hypervisor's:
+- a machine with no model, `kvm64` or `qemu64` shows it;
+- so does one with another model the hypervisor's setting can name, as
+  the Controller writes it (`x86-64-v3`, `host`...): an earlier
+  setting's;
+- a model given options on the host (`host,flags=+pcid`), a custom one
+  or one the setting can't name (`x86-64-v2`, `max`) is someone's
+  choice, left as it is.
 
 **A cluster member** is refused while it's in service: drain it on its
 cluster's page, apply its settings, wait for it to come back, undrain it,
@@ -781,7 +839,7 @@ By hand, on the Proxmox VE host - then a stop and a start, since a
 reboot from inside keeps the same QEMU process:
 
 ```sh
-qm set <vmid> --cpu x86-64-v2-AES
+qm set <vmid> --cpu x86-64-v2-AES             # or the hypervisor's model
 qm set <vmid> --agent enabled=1,type=virtio   # with the qemu-guest-agent extension only
 qm shutdown <vmid> && qm start <vmid>
 ```
@@ -837,18 +895,18 @@ the one a Terraform provider needs, for the planned one:
 
 | Method and path | |
 |---|---|
-| `GET`, `POST /api/hypervisors` | list, add (`{name, kind: "libvirt", controller_address, labels, libvirt: {host, user, socket, pool, networks, name_prefix}}`, or `{name, kind: "proxmox", controller_address, labels, token_secret, proxmox: {url, node, token_id, pool, storage, image_storage, networks, name_prefix, vmids, ca_cert}}` - Proxmox networks: `vmbr0`, `vmbr0.20`, `vmbr0.100-199`, `vmbr0.*`; a machine's interface names one bridge or VLAN, `vmbr0.150`; `labels`: `{"dc": "lgs"}`, [inherited by its nodes](#labels-where-a-hypervisor-is)) - the token secret is never in an answer (`has_token_secret`) |
-| `GET`, `PATCH`, `DELETE /api/hypervisors/{id}` | one; change (the fields given - those left out keep their value, `{"labels": ...}` alone changes the labels alone; another host or API address must be trusted again; a Proxmox token secret is kept unless one is given; `labels` given replace them - `{}` clears them); remove (refused while it has machines) |
+| `GET`, `POST /api/hypervisors` | list, add (`{name, kind: "libvirt", controller_address, labels, libvirt: {host, user, socket, pool, networks, name_prefix}}`, or `{name, kind: "proxmox", controller_address, labels, token_secret, proxmox: {url, node, token_id, pool, storage, image_storage, networks, name_prefix, vmids, ca_cert, cpu_model}}` - Proxmox networks: `vmbr0`, `vmbr0.20`, `vmbr0.100-199`, `vmbr0.*`; a machine's interface names one bridge or VLAN, `vmbr0.150`; `cpu_model`: [its machines' CPU model](#the-cpu-model-of-proxmox-ve-machines), `x86-64-v2-AES` when left out, always in the answers; `labels`: `{"dc": "lgs"}`, [inherited by its nodes](#labels-where-a-hypervisor-is)) - the token secret is never in an answer (`has_token_secret`) |
+| `GET`, `PATCH`, `DELETE /api/hypervisors/{id}` | one; change (the fields given - those left out keep their value, `{"labels": ...}` alone changes the labels alone; another host or API address must be trusted again; a Proxmox token secret is kept unless one is given, and so is its `cpu_model`; `labels` given replace them - `{}` clears them); remove (refused while it has machines) |
 | `POST /api/hypervisors/preparation` | what to run on the host for these settings (the add form's body, plus `id` for one already added: its key goes in): `{steps: [{title, about, script}], script, has_key}` |
 | `POST /api/hypervisors/{id}/probe` | what the host presents: `{host_key, fingerprint}` (libvirt), `{fingerprint, subject, issuer}` (the API's certificate, Proxmox) |
 | `POST /api/hypervisors/{id}/trust` | `{fingerprint}`: pins the host key or certificate, if the host presents that one |
-| `GET /api/hypervisors/{id}/status` | the host, CPU use, and each of its machines' state |
+| `GET /api/hypervisors/{id}/status` | the host, CPU use, and each of its machines' state; Proxmox: `host.machine_cpu_error` when the node's processor can't run its machines' CPU model |
 | `GET`, `POST /api/machines` | list; create (`{name, hypervisor_id, vcpus, memory_mib, version, extensions, haproxy, kernel, image: {url, sha256}, nics: [{network, name, mac, mode, addresses, gateway}], dns, ntp, update_reboot_mode}`) - `update_reboot_mode`: how the node reboots into an update of its version or image, `kexec` (straight into the new kernel, without the firmware) or `firmware`, the default (left out of the answers) |
 | `GET`, `DELETE /api/machines/{id}` | one (`?refresh=true`: read from its node and hypervisor first): `phase` is `pending`, `preparing-image`, `creating`, `waiting-registration`, `ready`, `updating`, `failed` or `destroying`; `hardware_drift` (`[{setting, have, want}]`): its hypervisor settings that aren't today's; destroy (`?forget=true`: records only) |
 | `PATCH /api/machines/{id}` | change it in place (`{vcpus, memory_mib, version, extensions, haproxy, kernel, nics, dns, ntp, managed_by, locked, update_reboot_mode}`, those given; `nics` is the whole new set, by MAC; `update_reboot_mode` alone only changes the record, given with a version that update already reboots its way). A locked machine refuses its pages (`423`) except `{"locked": false}` |
 | `POST /api/machines/{id}/power` | `{action: "start" \| "force-off" \| "reset"}` |
 | `POST /api/machines/{id}/retry` | a failed creation, again |
-| `POST /api/machines/{id}/apply-settings` | gives it the hypervisor settings in its `hardware_drift`: a clean shutdown, then a start (`202`, phase `updating`); `200` when there's nothing to apply, `409` for a cluster member that isn't drained |
+| `POST /api/machines/{id}/apply-settings` | gives it the hypervisor settings in its `hardware_drift`: a clean shutdown, then a start (`202`, phase `updating`); `200` when there's nothing to apply, `409` for a cluster member that isn't drained, or for a CPU model its host's processor can't run |
 | `GET /api/machines/{id}/console` | Server-Sent Events, one JSON string per chunk; `failure` when it closes |
 | `GET /api/catalog` | the newest release and the image factory's extensions |
 | `GET`, `POST /api/tokens`, `DELETE /api/tokens/{id}` | API tokens (`{name, expires_in_days, role}`; the token is in the answer, once) - each account's own, from its session only, never a token; an admin sees everyone's |

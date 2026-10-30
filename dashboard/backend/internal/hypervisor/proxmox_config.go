@@ -50,6 +50,12 @@ type ProxmoxConfig struct {
 	// VMIDs is the range new machines' IDs come from, "first-last".
 	// Empty: the cluster's next free ID.
 	VMIDs string `json:"vmids,omitempty"`
+	// CPUModel is the CPU model its machines get (proxmox_cpu.go):
+	// x86-64-v3 or host is faster than the default, at the cost of the
+	// hosts a machine may run on. Empty: DefaultProxmoxCPUModel. A
+	// machine created with another one shows the difference, applied on
+	// demand - never by itself.
+	CPUModel string `json:"cpu_model,omitempty"`
 }
 
 // Prefix is the virtual machine name prefix to use.
@@ -213,6 +219,9 @@ func (c *ProxmoxConfig) validate() error {
 		if !pveVMIDsRe.MatchString(c.VMIDs) || !ok || first < 100 || last < first {
 			return fmt.Errorf("VM IDs %q isn't a range first-last, from 100 up", c.VMIDs)
 		}
+	}
+	if err := checkProxmoxCPUModel(c.CPUModel); err != nil {
+		return err
 	}
 	if c.Fingerprint != "" && !hexColonsRe.MatchString(c.Fingerprint) {
 		return fmt.Errorf("fingerprint %q isn't a SHA-256 fingerprint (AA:BB:...)", c.Fingerprint)

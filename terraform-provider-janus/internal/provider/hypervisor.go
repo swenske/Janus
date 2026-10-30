@@ -226,6 +226,7 @@ type hypervisorDataModel struct {
 	Trusted       types.Bool   `tfsdk:"trusted"`
 	AuthorizedKey types.String `tfsdk:"authorized_key"`
 	Labels        types.Map    `tfsdk:"labels"`
+	CPUModel      types.String `tfsdk:"cpu_model"`
 }
 
 func (d *hypervisorDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -245,6 +246,7 @@ func (d *hypervisorDataSource) Schema(_ context.Context, _ datasource.SchemaRequ
 			"trusted":        dsschema.BoolAttribute{Computed: true},
 			"authorized_key": dsschema.StringAttribute{Computed: true},
 			"labels":         dsschema.MapAttribute{Computed: true, ElementType: types.StringType, Description: "Its labels, which the nodes of its machines inherit."},
+			"cpu_model":      dsschema.StringAttribute{Computed: true, Description: "The CPU model its machines get (Proxmox VE); null for libvirt, whose machines have the host's own."},
 		},
 	}
 }
@@ -272,7 +274,7 @@ func (d *hypervisorDataSource) Read(ctx context.Context, req datasource.ReadRequ
 		}
 		m.ID, m.Kind, m.Trusted, m.AuthorizedKey = types.StringValue(h.ID), types.StringValue(h.Kind), types.BoolValue(h.Trusted), types.StringValue(h.AuthorizedKey)
 		m.Labels = mapOf(h.Labels)
-		m.Host, m.Pool, m.Networks = types.StringNull(), types.StringNull(), types.ListNull(types.StringType)
+		m.Host, m.Pool, m.Networks, m.CPUModel = types.StringNull(), types.StringNull(), types.ListNull(types.StringType), types.StringNull()
 		if l := h.Libvirt; l != nil {
 			m.Host, m.Pool = types.StringValue(l.Host), types.StringValue(l.Pool)
 			m.Networks = listOf(l.Networks, types.ListNull(types.StringType))
@@ -280,6 +282,9 @@ func (d *hypervisorDataSource) Read(ctx context.Context, req datasource.ReadRequ
 		if p := h.Proxmox; p != nil {
 			m.Host, m.Pool = types.StringValue(p.URL), types.StringValue(p.Pool)
 			m.Networks = listOf(p.Networks, types.ListNull(types.StringType))
+			if p.CPUModel != "" {
+				m.CPUModel = types.StringValue(p.CPUModel)
+			}
 		}
 		resp.Diagnostics.Append(resp.State.Set(ctx, &m)...)
 		return

@@ -3,8 +3,13 @@
 // janusd supervises reads it, reloaded over BIRD's control socket - its
 // protocols' state, read over that socket, and the HAProxy gate: the
 // protocols named haproxy_* are kept down while this node's HAProxy
-// doesn't answer, so the routes they carry (an anycast address) leave
-// the network until it answers again.
+// doesn't answer (or the cluster member is drained), so the routes they
+// carry (an anycast address) leave the network until it answers again.
+//
+// The gate holds in the copy of bird.conf BIRD reads too: while it is
+// closed, that copy disables the haproxy_* protocols (HoldDown), so a
+// BIRD that starts - at boot, after a crash - or is reconfigured never
+// brings them up, not even for the moment before janusd's next look.
 package bgp
 
 import (
@@ -56,17 +61,31 @@ type Manager struct {
 	svc Services
 	mod *modcfg.Module
 
-	mu      sync.Mutex      // the gate's state, and the commands that change BIRD's
-	held    map[string]bool // haproxy_* protocols janusd disabled
-	healthy bool
+	// mu guards the gate's state, the copy of bird.conf BIRD reads and
+	// the commands that change BIRD's protocols.
+	mu      sync.Mutex
+	held    map[string]bool // haproxy_* protocols janusd keeps down
+	healthy bool            // the gate is open
+	// gated: the haproxy_* protocols the copy BIRD reads disables - the
+	// last one written.
+	gated []string
 }
 
 func New(svc Services) *Manager {
-	return &Manager{svc: svc, held: map[string]bool{}, healthy: true, mod: &modcfg.Module{
+	m := &Manager{svc: svc, held: map[string]bool{}, healthy: true}
+	m.mod = &modcfg.Module{
 		Name: "bird", Binary: Binary, File: "bird.conf", RunDir: RunDir,
 		CheckArgs: func(path string) []string { return []string{"-p", "-c", path} },
-		Runtime:   func(config string) string { return WithTimeFormat(WithLog(config)) },
-	}}
+		// Called with mu held (Boot, Apply, the gate).
+		Runtime: func(config string) string {
+			m.gated = nil
+			if !m.healthy {
+				config, m.gated = HoldDown(config)
+			}
+			return WithTimeFormat(WithLog(config))
+		},
+	}
+	return m
 }
 
 var (
@@ -111,20 +130,65 @@ func (m *Manager) Available() bool { return m.mod.Available() }
 // Saved is the saved bird.conf; isDefault means there's none.
 func (m *Manager) Saved() (string, bool, error) { return m.mod.Saved() }
 
-// Check has BIRD check config (bird -p).
-func (m *Manager) Check(config string) ([]string, error) { return m.mod.Check(config) }
+// Check has BIRD check config (bird -p) - and the copy it reads while
+// the gate is closed, the haproxy_* protocols disabled in it.
+func (m *Manager) Check(config string) ([]string, error) {
+	if errs, err := m.mod.Check(config); err != nil {
+		return errs, err
+	}
+	if held, names := HoldDown(config); len(names) > 0 {
+		if errs, err := m.mod.Check(held); err != nil {
+			return append([]string{"BIRD refuses this bird.conf with its haproxy_* protocols disabled, as janusd hands it over while HAProxy doesn't answer:"}, errs...), err
+		}
+	}
+	return nil, nil
+}
 
 // Boot puts the saved configuration where BIRD reads it - the service
-// waits for that file.
-func (m *Manager) Boot() error {
+// waits for that file. open is the gate: HAProxy answers and the node
+// isn't a drained cluster member. Closed, the copy disables the haproxy_*
+// protocols: BIRD starts with them down, and KeepGate brings them up once
+// the gate opens.
+func (m *Manager) Boot(open bool) error {
 	if !m.Available() {
 		return nil
 	}
-	return m.mod.Boot()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.healthy = open
+	if err := m.writeRuntime(); err != nil {
+		return err
+	}
+	if len(m.gated) > 0 {
+		log.Printf("bgp: BIRD starts with %s down - HAProxy doesn't answer, or this cluster member is drained", strings.Join(m.gated, ", "))
+	}
+	return nil
+}
+
+// writeRuntime writes the copy of the saved bird.conf BIRD reads, as the
+// gate is; the haproxy_* protocols it disables are held. Called with mu
+// held.
+func (m *Manager) writeRuntime() error {
+	m.gated = nil
+	if err := m.mod.Boot(); err != nil {
+		return err
+	}
+	m.holdGated()
+	return nil
+}
+
+// holdGated counts the haproxy_* protocols the copy BIRD reads disables
+// among those janusd keeps down. Called with mu held.
+func (m *Manager) holdGated() {
+	for _, n := range m.gated {
+		m.held[n] = true
+	}
 }
 
 // Apply checks, saves and applies config: BIRD reconfigures (or starts
-// with it). An empty config removes it, and stops BIRD.
+// with it). An empty config removes it, and stops BIRD. The copy BIRD
+// reads is the gate's: while it is closed, a reconfiguration keeps the
+// haproxy_* protocols down - new ones are added down.
 func (m *Manager) Apply(config string) ([]string, error) {
 	empty := strings.TrimSpace(config) == ""
 	if !empty {
@@ -132,28 +196,34 @@ func (m *Manager) Apply(config string) ([]string, error) {
 			return errs, err
 		}
 	}
+	m.mu.Lock()
+	m.gated = nil
 	if err := m.mod.Save(config); err != nil {
+		m.mu.Unlock()
 		return nil, err
 	}
 	if empty {
-		m.mu.Lock()
 		m.held = map[string]bool{}
 		m.mu.Unlock()
 		return nil, m.svc.StopService(ServiceID)
 	}
+	defer m.mu.Unlock()
+	m.holdGated()
 	st, err := m.svc.State(ServiceID)
 	if err != nil {
 		return nil, err
 	}
 	switch st.State {
 	case "running":
-		m.mu.Lock()
-		defer m.mu.Unlock()
 		if _, err := Query("configure"); err != nil {
 			return []string{err.Error()}, err
 		}
-		// A reconfigured protocol comes back as its configuration says:
-		// put the gate back right away.
+		// BIRD's protocols are now as the copy says: the haproxy_* ones
+		// down while the gate is closed, each other as bird.conf says
+		// (BIRD 2 reconfigures a protocol in place only when its
+		// "disabled" is what it runs with, else it restarts it so).
+		m.held = map[string]bool{}
+		m.holdGated()
 		m.syncGate()
 		return nil, nil
 	case "stopped":
@@ -485,8 +555,9 @@ func (m *Manager) KeepGate(healthy func() bool, changed func() <-chan struct{}, 
 		m.mu.Lock()
 		if h != m.healthy {
 			log.Printf("bgp: HAProxy %s", map[bool]string{true: "answers again - the haproxy_* protocols come back", false: "doesn't answer - the haproxy_* protocols go down"}[h])
+			m.healthy = h
+			m.follow()
 		}
-		m.healthy = h
 		m.syncGate()
 		m.mu.Unlock()
 		select {
@@ -496,6 +567,33 @@ func (m *Manager) KeepGate(healthy func() bool, changed func() <-chan struct{}, 
 		case <-wake:
 		}
 	}
+}
+
+// follow puts a change of the gate in the copy of bird.conf BIRD reads,
+// so that a BIRD started or reconfigured from now on has its haproxy_*
+// protocols as the gate says. Opened, BIRD reconfigures from that copy:
+// the protocols it had down - disabled in the copy it started with, or
+// by syncGate - come up as bird.conf says (one bird.conf itself disables
+// stays down). syncGate does the rest - and all of it, the CLI way, when
+// the copy can't be written or BIRD doesn't reconfigure. Called with mu
+// held.
+func (m *Manager) follow() {
+	if err := m.writeRuntime(); err != nil {
+		log.Printf("bgp: %v - BIRD's copy of bird.conf doesn't follow HAProxy's health", err)
+		return
+	}
+	if !m.healthy {
+		return
+	}
+	if _, err := Query("configure"); err != nil {
+		// Not running yet, it may still have read the copy before this
+		// one: syncGate enables the held ones once BIRD answers.
+		if !errors.Is(err, extensions.ErrNotRunning) {
+			log.Printf("bgp: configure: %v", err)
+		}
+		return
+	}
+	m.held = map[string]bool{}
 }
 
 // syncGate disables the haproxy_* protocols that aren't down while

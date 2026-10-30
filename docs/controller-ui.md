@@ -213,7 +213,10 @@ token's secret is write-only: `has_token_secret`) - added in steps (for
 libvirt the command that authorizes the Controller's key; then the SSH
 host key or the API's certificate read and compared with the host's
 own, then trusted - a Proxmox node given its CA needs none), then its
-software, CPU, memory, pool and networks; its labels (`HVLabels`, under
+software, CPU, memory, pool and networks - and for Proxmox the CPU
+model its machines get, with the host's `machine_cpu_error` in red when
+its processor can't run it (in the list: under the CPU, the error on
+the row below); its labels (`HVLabels`, under
 its name on the card and in the list; the form's **Labels its nodes
 inherit** field, `dc`, `room`, `rack` suggested - `saveBody` sends them,
 `{}` when the field is empty, while `HostPrep`'s body leaves them
@@ -228,8 +231,14 @@ from a card not trusted yet, key included - shows the steps the backend
 writes (`POST /api/hypervisors/preparation`, again 250 ms after each
 change), each with Copy, plus Copy all and Download; the edit form warns
 when a change to the account, pool, networks or prefix means preparing
-the host again. **Create node** takes the hypervisor (with the labels its node will
-inherit, when it has some), name, size,
+the host again. A Proxmox form's **CPU model its machines get**
+(`CPUModelField`) is a select of the x86-64 levels and `host`, with a
+line under it on what the model gives HAProxy's TLS and which hosts it
+runs on, or **Other** and a field for a named QEMU model; the edit form
+of a hypervisor with machines says, when the model changes, that they
+keep theirs until **Apply settings** - nothing restarts. **Create
+node** takes the hypervisor (with the labels its node will inherit,
+when it has some), name, size,
 interfaces (network, name, static/DHCP/none), DNS/NTP, the version and the
 image factory's extensions, or an image by URL and SHA-256. The console
 (`Console.jsx`) is read-only, follows the SSE stream from
@@ -246,7 +255,8 @@ A machine's card shows:
 - the node's hostname when its page changed it;
 - its hypervisor settings that aren't the ones the Controller gives
   machines today (`DriftNotice`, the machine's `hardware_drift`: a
-  Proxmox CPU model without AES-NI, the guest agent's option), with
+  Proxmox CPU model without AES-NI or other than its hypervisor's, the
+  guest agent's option), with
   **Apply settings** for an admin - confirmed, since it restarts the
   machine (`POST /api/machines/{id}/apply-settings`).
 

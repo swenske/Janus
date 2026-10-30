@@ -35,14 +35,19 @@ protocol bgp upstream {
 
 - **HAProxy's health**: every protocol whose name starts with
   `haproxy_` is kept down while this node's HAProxy doesn't answer - on
-  its stats socket, and from the moment janusd begins stopping it. janusd
-  checks every second - and at once when HAProxy starts, stops or exits -
-  and disables those protocols over BIRD's control socket; once HAProxy
-  answers again, it enables the ones it disabled. A
-  `haproxy_*` static protocol therefore takes its routes - and the BGP
-  announcements exporting them - off the network while HAProxy can't
-  serve them. A `haproxy_*` BGP session would itself go down. A protocol
-  your `bird.conf` disables (`disabled;`) is left alone.
+  its stats socket, and from the moment janusd begins stopping it - or
+  while the node is a [drained cluster member](guide/clusters.md). janusd
+  checks every second - and at once when HAProxy starts, stops or exits,
+  or the member is drained or undrained - and disables those protocols
+  over BIRD's control socket; once HAProxy answers again, BIRD
+  reconfigures and brings them back. The file BIRD reads says so too:
+  meanwhile, janusd adds `disabled;` to each `haproxy_*` protocol in it,
+  so a BIRD that starts - at boot, after a crash - or reconfigures never
+  brings one up, not even for a moment. A `haproxy_*` static protocol
+  therefore takes its routes - and the BGP announcements exporting them -
+  off the network while HAProxy can't serve them. A `haproxy_*` BGP
+  session would itself go down. A protocol your `bird.conf` disables
+  (`disabled;`) is left alone.
 - **A deliberate stop drains first**: stopping HAProxy, rebooting or
   shutting the node down, and the reboot that ends an update or a
   rollback withdraw the `haproxy_*` routes at once, then keep HAProxy's
@@ -80,14 +85,15 @@ janusctl network bgp status
 janusctl network bgp apply /dev/null   # remove it: BIRD stops
 ```
 
-BIRD checks the file itself before anything is replaced; refused, its
-message comes back with the line and column. Applied, the file is saved on
-the node and BIRD reconfigures - sessions whose configuration doesn't
-change stay up. A reconfiguration brings disabled protocols back as the
-file says; janusd puts the `haproxy_*` ones down again at once if HAProxy
-still doesn't answer. At boot, BIRD starts as soon as janusd has put the
-saved file in place; with none saved, it doesn't run (`janusctl system
-services` shows it `waiting`).
+BIRD checks the file itself before anything is replaced - also as it
+reads it while HAProxy doesn't answer, the `haproxy_*` protocols
+disabled -; refused, its message comes back with the line and column.
+Applied, the file is saved on the node and BIRD reconfigures - sessions
+whose configuration doesn't change stay up, and the `haproxy_*`
+protocols stay down while HAProxy doesn't answer. At boot, BIRD starts
+as soon as janusd has put the saved file in place, its `haproxy_*`
+protocols down until HAProxy answers; with none saved, it doesn't run
+(`janusctl system services` shows it `waiting`).
 
 `status` lists every protocol: its type, state, since when, BIRD's info
 (`Established`, `Active`, the last error), the BGP neighbor and AS, the

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -225,13 +226,19 @@ type fakeBIRD struct {
 	state    map[string]string // protocol -> "up", "down", "start"
 	order    []string
 	commands []string
-	disabled map[string]bool // what "configure" brings back: the config's own
+	disabled map[string]bool       // what "configure" brings back: the config's own
+	ups      map[string]int        // how many times each protocol came up
+	read     func() (string, bool) // the copy of bird.conf BIRD reads, if any
 }
 
 func startFakeBIRD(t *testing.T, protocols ...string) *fakeBIRD {
 	t.Helper()
 	RunDir = t.TempDir()
-	f := &fakeBIRD{state: map[string]string{}, disabled: map[string]bool{}}
+	f := &fakeBIRD{state: map[string]string{}, disabled: map[string]bool{}, ups: map[string]int{}}
+	f.read = func() (string, bool) {
+		data, err := os.ReadFile(filepath.Join(RunDir, "bird.conf"))
+		return string(data), err == nil
+	}
 	for _, p := range protocols {
 		name, st, _ := strings.Cut(p, "=")
 		f.order = append(f.order, name)
@@ -283,16 +290,54 @@ func (f *fakeBIRD) serve(c net.Conn) {
 			fmt.Fprintf(c, "8003 %s: no such protocol\n", arg)
 			return
 		}
-		f.state[arg] = map[string]string{"disable": "down", "enable": "up"}[verb]
+		f.set(arg, map[string]string{"disable": "down", "enable": "up"}[verb])
 		fmt.Fprintf(c, "0009-%s: %sd\n0000 \n", arg, verb)
 	case cmd == "configure":
-		for n := range f.state { // a reconfigured protocol comes back as configured
-			f.state[n] = map[bool]string{true: "down", false: "up"}[f.disabled[n]]
-		}
+		f.configure()
 		fmt.Fprint(c, "0002-Reading configuration\n0003 Reconfigured\n")
 	default:
 		fmt.Fprint(c, "9001 syntax error\n")
 	}
+}
+
+// configure: each protocol as the copy of bird.conf BIRD reads says -
+// disabled when bird.conf disables it, or janusd's gate (BIRD 2 restarts
+// a protocol whose "disabled" changed, else reconfigures it in place).
+// Without a copy, as bird.conf itself says. Called with mu held.
+func (f *fakeBIRD) configure() {
+	run, ok := f.read()
+	for n := range f.state {
+		down := f.disabled[n]
+		if ok && regexp.MustCompile(`protocol \w+ `+n+` \{[^}]*held down by janusd`).MatchString(run) {
+			down = true
+		}
+		f.set(n, map[bool]string{true: "down", false: "up"}[down])
+	}
+}
+
+// start is BIRD starting: every protocol as its copy of bird.conf says.
+func (f *fakeBIRD) start() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for n := range f.state {
+		f.state[n] = "down"
+	}
+	f.configure()
+}
+
+// set changes a protocol's state, counting it coming up. Called with mu
+// held.
+func (f *fakeBIRD) set(name, state string) {
+	if state == "up" && f.state[name] != "up" {
+		f.ups[name]++
+	}
+	f.state[name] = state
+}
+
+func (f *fakeBIRD) upCount(name string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.ups[name]
 }
 
 func (f *fakeBIRD) get(name string) string {
@@ -396,20 +441,37 @@ func TestApply(t *testing.T) {
 		t.Fatal("a refused bird.conf was saved")
 	}
 
-	// Applied while HAProxy doesn't answer: BIRD reconfigures (bringing
-	// the protocol back) and the gate puts it down again at once.
+	// Applied while HAProxy doesn't answer: BIRD reconfigures from a copy
+	// that disables haproxy_anycast - it never comes up, not even for
+	// the moment before the gate's next look.
+	conf := "router id 192.0.2.1;\nprotocol static haproxy_anycast { ipv4; }\n"
 	gateOnce(m, false)
-	if errs, err := m.Apply("router id 192.0.2.1;\n"); err != nil {
+	ups := f.upCount("haproxy_anycast")
+	if errs, err := m.Apply(conf); err != nil {
 		t.Fatalf("Apply: %v %v", errs, err)
 	}
-	if !strings.Contains(strings.Join(f.commands, "\n"), "configure") || f.get("haproxy_anycast") != "down" {
-		t.Errorf("after Apply: %v %v", f.commands, f.state)
+	if !strings.Contains(strings.Join(f.commands, "\n"), "configure") || f.get("haproxy_anycast") != "down" || f.upCount("haproxy_anycast") != ups {
+		t.Errorf("after Apply: %v %v, came up %d times", f.commands, f.state, f.upCount("haproxy_anycast")-ups)
+	}
+	if got := m.Held(); !reflect.DeepEqual(got, []string{"haproxy_anycast"}) {
+		t.Errorf("held %v", got)
 	}
 	saved, _, _ := m.Saved()
 	run, _ := os.ReadFile(filepath.Join(RunDir, "bird.conf"))
-	if saved != "router id 192.0.2.1;\n" || !strings.HasPrefix(string(run), saved) || !strings.Contains(string(run), "log stderr all;") ||
-		!strings.Contains(string(run), "timeformat protocol iso long;") {
+	if saved != conf || !strings.Contains(string(run), "haproxy_anycast { ipv4; disabled; /* held down by janusd */ }") ||
+		!strings.Contains(string(run), "log stderr all;") || !strings.Contains(string(run), "timeformat protocol iso long;") {
 		t.Errorf("saved %q, BIRD reads %q", saved, run)
+	}
+	// HAProxy answers: the copy no longer disables it, BIRD reconfigures
+	// from it and the protocol comes up; applied again, it stays up.
+	gateOnce(m, true)
+	run, _ = os.ReadFile(filepath.Join(RunDir, "bird.conf"))
+	if f.get("haproxy_anycast") != "up" || strings.Contains(string(run), "held down") || len(m.Held()) != 0 {
+		t.Errorf("gate open: %v, held %v, BIRD reads %q", f.state, m.Held(), run)
+	}
+	ups = f.upCount("haproxy_anycast")
+	if _, err := m.Apply(conf + "# again\n"); err != nil || f.get("haproxy_anycast") != "up" || f.upCount("haproxy_anycast") != ups {
+		t.Errorf("applied with the gate open: %v %v", err, f.state)
 	}
 
 	svc.state = "stopped"
@@ -421,5 +483,143 @@ func TestApply(t *testing.T) {
 	}
 	if _, isDefault, _ := m.Saved(); !isDefault {
 		t.Error("an empty bird.conf isn't removed")
+	}
+}
+
+// The gate closed when janusd starts (a drained cluster member, an
+// HAProxy that doesn't answer): BIRD starts from a copy that disables the
+// haproxy_* protocols - they never come up until the gate opens, when
+// BIRD reconfigures from a copy that no longer does. One bird.conf
+// itself disables stays down.
+func TestGateAtBoot(t *testing.T) {
+	f := startFakeBIRD(t, "device1=up", "haproxy_anycast=up", "haproxy_off=down", "peer=up")
+	modcfg.Dir = t.TempDir()
+	bin := filepath.Join(t.TempDir(), "bird")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	Binary = bin
+	conf := "protocol device {}\nprotocol static haproxy_anycast { ipv4; }\nprotocol static haproxy_off { ipv4; disabled; }\nprotocol bgp peer { local as 1; }\n"
+	if err := os.WriteFile(filepath.Join(modcfg.Dir, "bird.conf"), []byte(conf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := New(nil)
+	if err := m.Boot(false); err != nil {
+		t.Fatal(err)
+	}
+	run, _ := os.ReadFile(filepath.Join(RunDir, "bird.conf"))
+	if !strings.Contains(string(run), "protocol static haproxy_anycast { ipv4; disabled; /* held down by janusd */ }") ||
+		!strings.Contains(string(run), "protocol static haproxy_off { ipv4; disabled; }\n") {
+		t.Fatalf("BIRD reads %q", run)
+	}
+	if got := m.Held(); !reflect.DeepEqual(got, []string{"haproxy_anycast"}) {
+		t.Errorf("held %v", got)
+	}
+	f.start()
+	gateOnce(m, false)
+	if f.get("haproxy_anycast") != "down" || f.upCount("haproxy_anycast") != 0 || f.get("peer") != "up" {
+		t.Fatalf("started with the gate closed: %v, haproxy_anycast came up %d times", f.state, f.upCount("haproxy_anycast"))
+	}
+	if strings.Contains(strings.Join(f.commands, "\n"), "disable") {
+		t.Errorf("the gate had to disable something: %v", f.commands)
+	}
+
+	gateOnce(m, true)
+	run, _ = os.ReadFile(filepath.Join(RunDir, "bird.conf"))
+	if f.get("haproxy_anycast") != "up" || f.get("haproxy_off") != "down" || strings.Contains(string(run), "held down") || len(m.Held()) != 0 {
+		t.Fatalf("gate open: %v, held %v, BIRD reads %q", f.state, m.Held(), run)
+	}
+	if strings.Contains(strings.Join(f.commands, "\n"), "enable") {
+		t.Errorf("enabled from the CLI: %v - BIRD reconfigures from bird.conf, which knows what it disables", f.commands)
+	}
+
+	// Closed again: the CLI takes it down at once, and the copy says so -
+	// a BIRD restarting now starts with it down.
+	gateOnce(m, false)
+	run, _ = os.ReadFile(filepath.Join(RunDir, "bird.conf"))
+	if f.get("haproxy_anycast") != "down" || !strings.Contains(string(run), "held down") {
+		t.Fatalf("gate closed: %v, BIRD reads %q", f.state, run)
+	}
+	ups := f.upCount("haproxy_anycast")
+	f.start()
+	gateOnce(m, false)
+	if f.get("haproxy_anycast") != "down" || f.upCount("haproxy_anycast") != ups {
+		t.Errorf("BIRD restarted with the gate closed: %v", f.state)
+	}
+
+	// Started with the gate open: nothing disabled in the copy.
+	if err := m.Boot(true); err != nil {
+		t.Fatal(err)
+	}
+	run, _ = os.ReadFile(filepath.Join(RunDir, "bird.conf"))
+	if strings.Contains(string(run), "held down") {
+		t.Errorf("gate open at boot, BIRD reads %q", run)
+	}
+}
+
+// A copy BIRD would refuse is refused before anything is saved.
+func TestCheckHeldCopy(t *testing.T) {
+	RunDir = t.TempDir()
+	modcfg.Dir = t.TempDir()
+	bin := filepath.Join(t.TempDir(), "bird")
+	script := "#!/bin/sh\nif grep -q 'held down' \"$3\"; then echo \"$3:2:40 syntax error\"; exit 1; fi\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	Binary = bin
+	m := New(nil)
+	errs, err := m.Check("router id 192.0.2.1;\nprotocol static haproxy_anycast { ipv4; }\n")
+	if err == nil || len(errs) != 2 || !strings.Contains(errs[0], "haproxy_* protocols disabled") || !strings.Contains(errs[1], "bird.conf:2:40") {
+		t.Errorf("%v %v", errs, err)
+	}
+	if errs, err := m.Check("router id 192.0.2.1;\n"); err != nil {
+		t.Errorf("no haproxy_* protocol: %v %v", errs, err)
+	}
+}
+
+func TestHoldDown(t *testing.T) {
+	const held = "disabled; /* held down by janusd */ "
+	for _, c := range []struct {
+		name, in, want string
+		names          []string
+	}{
+		{"static", "protocol static haproxy_anycast { ipv4; route 192.0.2.100/32 blackhole; }\n",
+			"protocol static haproxy_anycast { ipv4; route 192.0.2.100/32 blackhole; " + held + "}\n", []string{"haproxy_anycast"}},
+		{"empty body, closing brace alone on its line", "protocol static haproxy_a {\n}\n", "protocol static haproxy_a {\n" + held + "}\n", []string{"haproxy_a"}},
+		{"channel blocks, others untouched",
+			"protocol device {}\nprotocol bgp haproxy_up {\n  local as 65001;\n  ipv4 { import none; export all; };\n}\nprotocol bgp upstream { ipv4 { export all; }; }\n",
+			"protocol device {}\nprotocol bgp haproxy_up {\n  local as 65001;\n  ipv4 { import none; export all; };\n" + held + "}\nprotocol bgp upstream { ipv4 { export all; }; }\n",
+			[]string{"haproxy_up"}},
+		{"two of them", "protocol static haproxy_v4 { ipv4; }\nprotocol static haproxy_v6 { ipv6; }\n",
+			"protocol static haproxy_v4 { ipv4; " + held + "}\nprotocol static haproxy_v6 { ipv6; " + held + "}\n", []string{"haproxy_v4", "haproxy_v6"}},
+		{"comments and strings",
+			"# protocol static haproxy_x { }\n/* protocol static haproxy_y { } */\nprotocol bgp haproxy_z { description \"a } b { c\"; # } \n ipv4; }\n",
+			"# protocol static haproxy_x { }\n/* protocol static haproxy_y { } */\nprotocol bgp haproxy_z { description \"a } b { c\"; # } \n ipv4; " + held + "}\n",
+			[]string{"haproxy_z"}},
+		{"timeformat protocol, functions, a template",
+			"timeformat protocol iso long;\nfunction f() { if net = 192.0.2.0/24 then { return true; } return false; }\ntemplate bgp haproxy_tpl { local as 1; }\nprotocol bgp haproxy_b from haproxy_tpl { neighbor 192.0.2.2 as 2; }\nprotocol bgp from haproxy_tpl { neighbor 192.0.2.3 as 2; }\n",
+			"timeformat protocol iso long;\nfunction f() { if net = 192.0.2.0/24 then { return true; } return false; }\ntemplate bgp haproxy_tpl { local as 1; }\nprotocol bgp haproxy_b from haproxy_tpl { neighbor 192.0.2.2 as 2; " + held + "}\nprotocol bgp from haproxy_tpl { neighbor 192.0.2.3 as 2; }\n",
+			[]string{"haproxy_b"}},
+		{"two-word type, apostrophed name", "protocol ospf v3 haproxy_o { area 0 { interface \"eth0\"; }; }\nprotocol static 'haproxy_q' { ipv4; }\n",
+			"protocol ospf v3 haproxy_o { area 0 { interface \"eth0\"; }; " + held + "}\nprotocol static 'haproxy_q' { ipv4; " + held + "}\n", []string{"haproxy_o", "haproxy_q"}},
+		{"disabled by bird.conf", "protocol static haproxy_a { disabled; ipv4; }\nprotocol static haproxy_b { ipv4; disabled yes; }\nprotocol static haproxy_c { disabled 1; }\n",
+			"protocol static haproxy_a { disabled; ipv4; }\nprotocol static haproxy_b { ipv4; disabled yes; }\nprotocol static haproxy_c { disabled 1; }\n", nil},
+		{"enabled by bird.conf", "protocol static haproxy_a { disabled no; ipv4; }\nprotocol static haproxy_b { disabled; disabled off; }\n",
+			"protocol static haproxy_a { disabled no; ipv4; " + held + "}\nprotocol static haproxy_b { disabled; disabled off; " + held + "}\n", []string{"haproxy_a", "haproxy_b"}},
+		{"a channel's word isn't the protocol's", "protocol bgp haproxy_a { ipv4 { import filter { if disabled then reject; accept; }; }; }\n",
+			"protocol bgp haproxy_a { ipv4 { import filter { if disabled then reject; accept; }; }; " + held + "}\n", []string{"haproxy_a"}},
+		{"no haproxy_* protocol", "router id 192.0.2.1;\nprotocol static anycast { ipv4; }\n", "router id 192.0.2.1;\nprotocol static anycast { ipv4; }\n", nil},
+		{"unterminated comment", "protocol static haproxy_a { ipv4; }\n/* no end\n", "protocol static haproxy_a { ipv4; }\n/* no end\n", nil},
+		{"unterminated string", "protocol static haproxy_a { description \"x; }\n", "protocol static haproxy_a { description \"x; }\n", nil},
+		{"unbalanced", "protocol static haproxy_a { ipv4;\n", "protocol static haproxy_a { ipv4;\n", nil},
+		{"one brace too many", "protocol static haproxy_a { ipv4; }\n}\n", "protocol static haproxy_a { ipv4; }\n}\n", nil},
+	} {
+		got, names := HoldDown(c.in)
+		if got != c.want || !reflect.DeepEqual(names, c.names) {
+			t.Errorf("%s:\n got  %q %v\n want %q %v", c.name, got, names, c.want, c.names)
+		}
+		if strings.Count(got, "\n") != strings.Count(c.in, "\n") {
+			t.Errorf("%s: the line numbers moved", c.name)
+		}
 	}
 }
