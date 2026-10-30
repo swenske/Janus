@@ -73,7 +73,7 @@ ARG AWSLC_SHA256
 ARG ZLIB_VERSION
 ARG ZLIB_SHA256
 
-FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS fetch-base
+FROM debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS fetch-base
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -119,7 +119,7 @@ RUN test -n "${HAPROXY_SHA256}" \
     && test -f "$f" \
     && tar xf "$f"
 
-FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS deps
+FROM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS deps
 ARG AWSLC_VERSION
 ARG ZLIB_VERSION
 RUN apk add --no-cache build-base linux-headers cmake samurai perl
@@ -181,7 +181,7 @@ COPY --from=build /src/haproxy-${HAPROXY_VERSION}/haproxy /haproxy
 
 # --- arm64 cross-compile path -----------------------------------------
 
-FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS deps-arm64
+FROM debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS deps-arm64
 ARG AWSLC_VERSION
 ARG ZLIB_VERSION
 RUN apt-get update && apt-get install -y --no-install-recommends \

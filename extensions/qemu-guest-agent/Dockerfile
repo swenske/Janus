@@ -11,7 +11,7 @@
 ARG QEMU_VERSION
 ARG QEMU_SHA256
 
-FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS fetch
+FROM debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS fetch
 ARG QEMU_VERSION
 ARG QEMU_SHA256
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates xz-utils \
@@ -21,7 +21,7 @@ RUN curl -fsSLO "https://download.qemu.org/qemu-${QEMU_VERSION}.tar.xz" \
     && echo "${QEMU_SHA256}  qemu-${QEMU_VERSION}.tar.xz" | sha256sum -c - \
     && tar xJf "qemu-${QEMU_VERSION}.tar.xz"
 
-FROM --platform=linux/amd64 alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS build
+FROM --platform=linux/amd64 alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS build
 ARG QEMU_VERSION
 RUN apk add --no-cache build-base linux-headers python3 meson ninja pkgconf bash perl \
     glib-dev glib-static pcre2-dev pcre2-static libffi-dev zlib-dev zlib-static gettext-dev gettext-static \

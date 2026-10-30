@@ -17,7 +17,7 @@ ARG LIBMNL_VERSION
 ARG LIBNFTNL_VERSION
 ARG NFTABLES_VERSION
 
-FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS fetch
+FROM debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS fetch
 ARG LIBMNL_VERSION
 ARG LIBMNL_SHA256
 ARG LIBNFTNL_VERSION
@@ -85,12 +85,12 @@ if readelf -l /out/usr/local/sbin/nft | grep -q INTERP; then echo "nft isn't sta
 if readelf -rW /out/usr/local/sbin/nft | grep -Eq 'R_X86_64_TPOFF|R_AARCH64_TLS_TPREL'; then echo "nft has TLS relocations a static PIE doesn't apply" >&2; exit 1; fi
 SCRIPT
 
-FROM --platform=linux/amd64 alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS build
+FROM --platform=linux/amd64 alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS build
 RUN apk add --no-cache build-base linux-headers pkgconf bison flex
 COPY --from=fetch /src /src
 RUN STRIP=strip /src/build.sh
 
-FROM --platform=linux/amd64 debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS build-arm64
+FROM --platform=linux/amd64 debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS build-arm64
 RUN apt-get update && apt-get install -y --no-install-recommends make pkgconf bison flex file binutils \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=musltoolchain / /opt/musl-cross
