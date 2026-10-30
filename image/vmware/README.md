@@ -5,6 +5,13 @@ image (ESP + both A/B slots + STATE) to a `streamOptimized` VMDK via
 `qemu-img convert` - VMware/ESXi's own native disk format. `make
 vmware-image` builds one end to end.
 
+> [!WARNING]
+> **Suspended since 2026-10-30, waiting for testers** (`vmware` in
+> `variants.mk`'s `SUSPENDED_TARGETS`): never verified on a real ESXi
+> host, so image-build.yml neither builds nor releases the VMDK; `make
+> vmware-image` still does.
+> [Offer to test it](https://github.com/swenske/Janus/issues/new?template=need-tester-vmware.yml).
+
 Bare VMDK only for now, not a full OVA - an OVA additionally needs an
 OVF XML descriptor (CPU/memory/network hardware, disk controller type)
 plus a tar wrapper around it and the VMDK, which this project doesn't

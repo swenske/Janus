@@ -115,6 +115,35 @@ a.button.primary:hover { filter: brightness(1.07); }
 .choice.selected { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent) inset; }
 .choice.disabled { opacity: 0.55; cursor: not-allowed; }
 .choice-title { font-weight: 650; display: inline-flex; align-items: center; gap: 0.35rem; }
+/* A target variants.mk suspends: greyed by its colours, not by opacity -
+   its text and its "Need tester" link keep their AA contrast. */
+.choice.suspended { cursor: default; border-style: dashed; background: var(--bg); color: var(--muted); }
+.choice.suspended:hover { border-color: var(--border); }
+.suspended-why { color: var(--text); }
+a.need-tester { text-decoration: none; margin-top: 0.15rem; }
+a.need-tester:hover { text-decoration: underline; }
+a.need-tester:focus-visible, a.ext-request:focus-visible, a.ext-link:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 2px;
+}
+/* An extension: the card is a toggle button (aria-pressed), its project
+   link below it. */
+.choice.ext { padding: 0; gap: 0; cursor: default; }
+.choice.ext.disabled { cursor: not-allowed; }
+.ext-toggle {
+  display: flex; flex-direction: column; align-items: stretch; gap: 0.35rem; width: 100%; text-align: left;
+  white-space: normal; padding: 0.8rem 0.9rem; background: transparent; border: 0; color: inherit;
+}
+.ext-toggle:hover:not(:disabled) { background: transparent; }
+.ext-toggle:disabled { opacity: 1; }
+.ext-toggle .row { align-items: center; }
+.ext-check {
+  margin-left: auto; display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 1.15rem; height: 1.15rem; border-radius: 50%; border: 1px solid var(--border); color: transparent;
+}
+.ext-check.on { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.ext-link { padding: 0 0.9rem 0.8rem; }
+a.ext-request { text-decoration: none; color: var(--text); border-style: dashed; }
+.ext-request-go { color: var(--accent-ink); display: inline-flex; align-items: center; gap: 0.25rem; margin-top: auto; }
 .choice-meta { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; color: var(--muted); font-family: var(--mono); }
 .downloads { display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.35rem; }
 .nowrap { white-space: nowrap; }

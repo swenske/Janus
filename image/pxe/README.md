@@ -9,6 +9,13 @@ SATA, virtio - with no rebuild, provided slot A holds that release's
 rootfs (the UKI carries its root hash). (A node booted this way still updates
 its local ESP on Upgrade/Rollback; the PXE server decides what boots.)
 
+> [!WARNING]
+> **Suspended since 2026-10-30, waiting for testers**, with the rest of
+> the bare-metal target (`baremetal` in `variants.mk`'s
+> `SUSPENDED_TARGETS`): image-build.yml no longer runs `make
+> qemu-pxe-fetch-test`; it still runs by hand.
+> [Offer to test it](https://github.com/swenske/Janus/issues/new?template=need-tester-baremetal.yml).
+
 ## Serving it - native PXE/HTTP Boot (recommended)
 
 Almost all real bare-metal UEFI firmware supports one of these

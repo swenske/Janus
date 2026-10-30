@@ -59,20 +59,31 @@ HAProxy's health. Every node also serves its own
 **Status: early alpha.** Real bootable images exist (kernel hardening,
 dm-verity, A/B updates, Secure Boot, SELinux enforcing by default), built
 and boot-tested on every image workflow run: an unsigned qcow2 for
-Proxmox/generic KVM-libvirt, a VMDK for VMware/ESXi, and a hybrid
-ISO/GPT installer/maintenance-mode medium (bootable via USB or optical
-media) with a real release bundle embedded, so `LifecycleService.Install`
-can provision a target disk using nothing but the medium itself. PXE/HTTP
-Boot is documented (`image/pxe/README.md`) - native PXE/HTTP Boot loads
-the same image directly on real hardware; an iPXE fallback path is
-also documented for firmware without that stack, with a known,
-firmware-specific limitation. A Raspberry Pi 4/5 (aarch64/BCM2711) port
-has its first proven increment: a minimal kernel boots `rootfs/init`
-as PID 1 under QEMU's `raspi4b` machine (`make qemu-raspi4-boot-test`),
-though real hardware support (SD/MMC, USB, Ethernet, UEFI firmware) is
-not yet built - see `docs/companion-site-builder-scope.md`. See
-[`docs/architecture.md`](docs/architecture.md) for the design and roadmap,
-and [`docs/api-routes.md`](docs/api-routes.md) for the gRPC API catalog.
+Proxmox/generic KVM-libvirt, and the signed update bundle.
+
+Three targets are **suspended since 2026-10-30, waiting for testers**:
+none was ever verified on real hardware, so nothing builds, tests or
+publishes them for now - their code and docs stay, and one line in
+`variants.mk` brings each back
+([suspended targets](docs/internals/image-build.md#suspended-targets)).
+Have the hardware? Offer to test from the
+[image builder](https://janus.sw-servers.net/builder).
+
+- **VMware/ESXi**: a VMDK, proven under QEMU with VMware's devices.
+- **Bare metal**: a hybrid ISO/GPT installer/maintenance-mode medium
+  (bootable via USB) with a real release bundle embedded, so
+  `LifecycleService.Install` can provision a target disk using nothing
+  but the medium itself; PXE/HTTP Boot is documented
+  (`image/pxe/README.md`) - native PXE/HTTP Boot loads the same image
+  directly on real hardware, and an iPXE fallback path for firmware
+  without that stack, with a known, firmware-specific limitation.
+- **Raspberry Pi 4/5** (aarch64/BCM2711): SD card images with UEFI
+  firmware, booted under QEMU (`raspi4b` and `virt` machines), never on
+  a real board ([hardware tests](docs/raspberry-pi-testing.md)).
+
+See [`docs/architecture.md`](docs/architecture.md) for the design and
+roadmap, and [`docs/api-routes.md`](docs/api-routes.md) for the gRPC API
+catalog.
 
 ## Installing janusctl
 

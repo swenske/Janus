@@ -18,6 +18,9 @@
 #          boot test, which isn't published
 #   arm64: pi4-disk.img, pi5-disk.img
 # and manifest.json (schematic, version, files with size and sha256).
+# A target variants.mk suspends (hack/target-suspended.sh) isn't built:
+# no janus.vmdk without vmware, no janus.iso without baremetal, no arm64
+# at all without raspberry-pi.
 set -euo pipefail
 export PATH="$PATH:/usr/sbin:/sbin"
 
@@ -29,6 +32,12 @@ SIGNING_KEY="${5:-}"
 SIGNING_CERT="${6:-}"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO"
+
+suspended() { ./hack/target-suspended.sh "$1"; }
+if [ "$ARCH" = arm64 ] && suspended raspberry-pi; then
+  echo "arm64 only makes the Raspberry Pi images, suspended (variants.mk's SUSPENDED_TARGETS)" >&2
+  exit 1
+fi
 
 extpack() { go run ./hack/extpack "$@"; }
 
@@ -76,9 +85,17 @@ amd64)
   ./image/disk/assemble.sh "$OUT/disk.img" "$KERNEL" "$WORK/rootfs" "$WORK/state.img" A
   ./image/kvm-proxmox/assemble.sh "$OUT/janus.qcow2" "$KERNEL" "$WORK/rootfs" "$WORK/state.img" A
   ./image/kvm/assemble.sh "$OUT/janus-kvm.qcow2" "$KERNEL" "$WORK/rootfs" "$WORK/state.img" A
-  ./image/vmware/assemble.sh "$OUT/janus.vmdk" "$KERNEL" "$WORK/rootfs" "$WORK/state.img" A
-  echo "== installer ISO"
-  ./image/iso/assemble.sh "$OUT/janus.iso" "$KERNEL" "$WORK/rootfs" "$WORK/bundle"
+  if suspended vmware; then
+    echo "== no VMware image: vmware is suspended"
+  else
+    ./image/vmware/assemble.sh "$OUT/janus.vmdk" "$KERNEL" "$WORK/rootfs" "$WORK/state.img" A
+  fi
+  if suspended baremetal; then
+    echo "== no installer ISO: baremetal is suspended"
+  else
+    echo "== installer ISO"
+    ./image/iso/assemble.sh "$OUT/janus.iso" "$KERNEL" "$WORK/rootfs" "$WORK/bundle"
+  fi
   ;;
 arm64)
   echo "== Raspberry Pi images"

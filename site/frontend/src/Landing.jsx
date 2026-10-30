@@ -304,8 +304,8 @@ export default function Landing() {
             <span className="step-n">2</span>
             <h3>Boot</h3>
             <p className="muted">
-              Import the disk in Proxmox, KVM or VMware, flash the ISO or the Raspberry Pi image - or let the Controller create the VM on libvirt or Proxmox VE. A node prints its admin
-              credentials once, on its console.
+              Import the disk in Proxmox or KVM - or let the Controller create the VM on libvirt or Proxmox VE. A node prints its admin credentials once, on its console. VMware, bare
+              metal and Raspberry Pi are suspended, <Link to="/builder">waiting for testers</Link>.
             </p>
           </div>
           <div className="step">

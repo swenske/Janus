@@ -1,8 +1,9 @@
-import { AlertTriangle, Check, Copy, Cpu, Download, ExternalLink, Hammer, Layers, Loader2, Package, RefreshCcw, Rocket, Terminal } from 'lucide-react'
+import { AlertTriangle, Check, Copy, Cpu, Download, ExternalLink, FlaskConical, Hammer, Layers, Loader2, Package, PackagePlus, RefreshCcw, Rocket, Terminal } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { requirementError, toggleExtension } from '@shared/requires.js'
 import { Badge, Card, ErrorBox, Loading, useToast } from '@shared/ui.jsx'
 import { DOCS, REPO, bytes, getJSON, postJSON } from './api.js'
+import { extensionRequestURL, selectablePlatform, testerIssueURL } from './builder.js'
 
 // The image builder, after factory.talos.dev: where the image runs, which
 // release, which HAProxy branch and kernel track, which extensions -
@@ -50,6 +51,33 @@ function Downloads({ images = 0, updates = 0, days }) {
       <span aria-hidden="true">{compact.format(n)}</span>
       <span className="sr-only">{said}</span>
     </span>
+  )
+}
+
+// SuspendedPlatform is a target variants.mk suspends: shown, never
+// selectable, saying why in plain text (read on a phone and by a screen
+// reader alike), with a "Need tester" link to its issue form.
+function SuspendedPlatform({ p }) {
+  const id = `suspended-${p.id}`
+  return (
+    <div className="choice suspended" role="group" aria-labelledby={`${id}-name`} aria-describedby={`${id}-why`}>
+      <span className="choice-title" id={`${id}-name`}>
+        {p.name} {p.experimental && <Badge tone="warn">experimental</Badge>}
+      </span>
+      <span className="small">{p.description}</span>
+      <span className="small suspended-why" id={`${id}-why`}>
+        Suspended: not verified on real hardware yet - no image is built until someone can test it.
+      </span>
+      <span className="choice-meta">
+        <Cpu size={12} aria-hidden="true" /> {p.arch}
+      </span>
+      <a className="badge accent need-tester" href={testerIssueURL(p.target)} target="_blank" rel="noopener">
+        <FlaskConical size={12} aria-hidden="true" />
+        Need tester
+        <span className="sr-only">: offer to test {p.name} (a GitHub issue form, in a new tab)</span>
+        <ExternalLink size={11} aria-hidden="true" />
+      </a>
+    </div>
   )
 }
 
@@ -145,6 +173,14 @@ export default function Builder() {
       .then(([p, v]) => {
         setPlatforms(p)
         setVersions(v)
+        // A link or bookmark naming a suspended (or unknown) platform
+        // selects nothing, and the address stops saying it does.
+        setChoice((c) => {
+          if (!c.platform || selectablePlatform(p, c.platform)) return c
+          const next = { ...c, platform: '' }
+          writeQuery(next)
+          return next
+        })
       })
       .catch(setError)
   }, [])
@@ -156,7 +192,7 @@ export default function Builder() {
       return next
     })
 
-  const platform = platforms?.find((p) => p.id === choice.platform)
+  const platform = platforms?.find((p) => p.id === selectablePlatform(platforms, choice.platform))
   // The newest release unless asked for another: never a pre-release (for
   // testing) by default.
   const latest = versions?.find((v) => !v.prerelease)
@@ -271,7 +307,10 @@ export default function Builder() {
             <div className="choice-grid">
               {platforms
                 .filter((p) => p.group === g)
-                .map((p) => (
+                .map((p) =>
+                  p.suspended ? (
+                    <SuspendedPlatform key={p.id} p={p} />
+                  ) : (
                   <button key={p.id} className={`choice ${choice.platform === p.id ? 'selected' : ''}`} onClick={() => update({ platform: p.id })}>
                     <span className="choice-title">
                       {p.name} {p.experimental && <Badge tone="warn">experimental</Badge>}
@@ -281,7 +320,8 @@ export default function Builder() {
                       <Cpu size={12} /> {p.arch} <Downloads images={stats?.platforms?.[p.id]} days={days} />
                     </span>
                   </button>
-                ))}
+                  ),
+                )}
             </div>
           </div>
         ))}
@@ -290,7 +330,7 @@ export default function Builder() {
       {platform && (
         <Step n={2} title="Which release?" done={!!version}>
           <div className="row">
-            <select value={version?.version || ''} onChange={(e) => update({ version: e.target.value })}>
+            <select aria-label="Release" value={version?.version || ''} onChange={(e) => update({ version: e.target.value })}>
               {versions.map((v) => (
                 <option key={v.version} value={v.version}>
                   {v.version}
@@ -400,38 +440,56 @@ export default function Builder() {
               {catalog.extensions.map((e) => {
                 const ok = e.arches.includes(arch)
                 const on = chosen.includes(e.name)
+                // The card is the toggle (no checkbox): a button pressed
+                // or not, its project link beside it - a link can't sit
+                // inside a button.
                 return (
-                  <label key={e.name} className={`choice ext ${on ? 'selected' : ''} ${ok ? '' : 'disabled'}`}>
-                    <span className="row">
-                      <input
-                        type="checkbox"
-                        disabled={!ok}
-                        checked={on}
-                        onChange={() => {
-                          const r = toggleExtension(chosen, e.name, !on, catalog.extensions)
-                          setExtNote(r.note)
-                          update({ extensions: r.extensions })
-                        }}
-                      />
-                      <span className="choice-title">
-                        <Package size={14} /> {e.name}
+                  <div key={e.name} className={`choice ext ${on ? 'selected' : ''} ${ok ? '' : 'disabled'}`}>
+                    <button
+                      type="button"
+                      className="ext-toggle"
+                      aria-pressed={on}
+                      disabled={!ok}
+                      onClick={() => {
+                        const r = toggleExtension(chosen, e.name, !on, catalog.extensions)
+                        setExtNote(r.note)
+                        update({ extensions: r.extensions })
+                      }}
+                    >
+                      <span className="row">
+                        <span className="choice-title">
+                          <Package size={14} aria-hidden="true" /> {e.name}
+                        </span>
+                        <span className="muted small mono nowrap">
+                          {e.version}
+                          <Downloads {...stats?.extensions?.[e.name]} days={days} />
+                        </span>
+                        <span className={`ext-check ${on ? 'on' : ''}`} aria-hidden="true">
+                          <Check size={13} />
+                        </span>
                       </span>
-                      <span className="muted small mono nowrap">
-                        {e.version}
-                        <Downloads {...stats?.extensions?.[e.name]} days={days} />
-                      </span>
-                    </span>
-                    <span className="muted small">{e.description}</span>
-                    {e.requires?.length > 0 && <span className="small">Requires {e.requires.join(', ')}</span>}
-                    {!ok && <span className="small warn-text">Not available for {arch}</span>}
+                      <span className="muted small">{e.description}</span>
+                      {e.requires?.length > 0 && <span className="small">Requires {e.requires.join(', ')}</span>}
+                      {!ok && <span className="small warn-text">Not available for {arch}</span>}
+                    </button>
                     {e.homepage && (
-                      <a className="small" href={e.homepage} onClick={(ev) => ev.stopPropagation()}>
-                        Project page <ExternalLink size={11} />
+                      <a className="small ext-link" href={e.homepage}>
+                        Project page<span className="sr-only"> of {e.name}</span> <ExternalLink size={11} aria-hidden="true" />
                       </a>
                     )}
-                  </label>
+                  </div>
                 )
               })}
+              <a className="choice ext-request" href={extensionRequestURL()} target="_blank" rel="noopener">
+                <span className="choice-title">
+                  <PackagePlus size={14} aria-hidden="true" /> Need something else…
+                </span>
+                <span className="muted small">An extension this release doesn't have: tell us what it is and what it's for.</span>
+                <span className="small ext-request-go">
+                  Request an extension <ExternalLink size={11} aria-hidden="true" />
+                  <span className="sr-only">(a GitHub issue form, in a new tab)</span>
+                </span>
+              </a>
             </div>
           )}
           {catalog && missing && (

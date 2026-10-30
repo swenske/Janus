@@ -6,8 +6,15 @@ its network and its Controller, then admitted on an enrollment token
 with no approval to click through. The same steps install a virtual
 machine from the ISO.
 
-> [!NOTE]
-> Proven, under QEMU with UEFI and SELinux enforcing:
+> [!WARNING]
+> **Suspended since 2026-10-30, waiting for testers.** Janus was never
+> installed on a physical machine. Until someone can test one, nothing
+> builds or tests the installer ISO, PXE or HTTP Boot, and releases
+> don't publish `janus.iso` - v2026.10.30's is the last; `make
+> iso-image-with-bundle` still builds one. A machine to spare?
+> [Offer to test it](https://github.com/swenske/Janus/issues/new?template=need-tester-baremetal.yml).
+>
+> Proven under QEMU until the suspension, with UEFI and SELinux enforcing:
 > `make qemu-iso-install-test` installs a disk from the ISO's own bundle,
 > and `make qemu-baremetal-test` boots NVMe, SATA and USB disks with
 > Intel network cards, and the installer from a USB stick installing a

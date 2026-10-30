@@ -6,7 +6,8 @@ one difference that shapes everything here: there is no shell to log
 into. A node is configured through its API, by the Controller,
 `janusctl` or Terraform, and an integration automates those, never a
 login. This section is for platform engineers bringing Janus into a
-private cloud: on libvirt/KVM, Proxmox VE, VMware or bare metal.
+private cloud: on libvirt/KVM or Proxmox VE - VMware and bare metal
+are suspended, waiting for testers.
 
 ## The pieces
 
@@ -27,8 +28,8 @@ And one end-to-end guide per platform, each with a complete example:
 |---|---|---|---|
 | [libvirt/KVM](platforms/kvm-libvirt.md) | `janus-kvm.qcow2` | the Controller, over SSH - Terraform drives it | `make terraform-provider-test` applies the example as written, on a real libvirt host |
 | [Proxmox VE](platforms/proxmox.md) | `janus.qcow2` | the Controller, through Proxmox's API - Terraform drives it | a real Proxmox VE 9.2 node |
-| [Bare metal](platforms/bare-metal.md) | `janus.iso` | the installer, driven by `janusctl` | `make qemu-iso-install-test`, `make qemu-baremetal-test` (UEFI; NVMe, SATA, USB and virtio-scsi disks; Intel NICs) |
-| [VMware vSphere](platforms/vmware.md) | `janus.vmdk` | hand or `govc` | QEMU with VMware's devices (pvscsi, vmxnet3) - not yet a real ESXi host |
+| [Bare metal](platforms/bare-metal.md) - **suspended**, waiting for testers | `janus.iso` | the installer, driven by `janusctl` | `make qemu-iso-install-test`, `make qemu-baremetal-test` (UEFI; NVMe, SATA, USB and virtio-scsi disks; Intel NICs) - not yet a physical machine |
+| [VMware vSphere](platforms/vmware.md) - **suspended**, waiting for testers | `janus.vmdk` | hand or `govc` | QEMU with VMware's devices (pvscsi, vmxnet3) - not yet a real ESXi host |
 
 ## A typical deployment
 

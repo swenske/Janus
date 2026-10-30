@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "lint": "oxlint"
+    "lint": "oxlint",
+    "test": "node --test"
   },
   "dependencies": {
     "lucide-react": "^1.59.0",

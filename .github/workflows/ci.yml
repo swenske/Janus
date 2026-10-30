@@ -377,6 +377,8 @@ jobs:
 
       - run: npm run lint
 
+      - run: npm test
+
       - name: Check the committed build is up to date
         run: |
           npm run build

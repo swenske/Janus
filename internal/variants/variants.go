@@ -2,7 +2,8 @@
 // and kernel tracks an image can be built with (a schematic picks one of
 // each), the upstream version each one is, and which are the defaults.
 // hack/extpack writes them into a release's schematic catalog and an
-// image's image.json; hack/upstream follows each variant's pins.
+// image's image.json; hack/upstream follows each variant's pins. It also
+// says which image targets are suspended (SUSPENDED_TARGETS).
 package variants
 
 import (
@@ -10,10 +11,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	janus "github.com/swenske/Janus"
 	"github.com/swenske/Janus/internal/schematic"
 )
 
@@ -23,6 +26,17 @@ var (
 	Arches            = []string{"amd64", "arm64"}
 	DefaultOnlyArches = []string{"arm64"}
 )
+
+// Image targets variants.mk's SUSPENDED_TARGETS may name: kept in the
+// tree, never built, tested nor published automatically while listed.
+const (
+	TargetVMware      = "vmware"       // janus.vmdk
+	TargetBareMetal   = "baremetal"    // janus.iso, PXE
+	TargetRaspberryPi = "raspberry-pi" // the Pi SD cards: every arm64 image
+)
+
+// Targets are the image targets SUSPENDED_TARGETS may name.
+var Targets = []string{TargetVMware, TargetBareMetal, TargetRaspberryPi}
 
 // Variant is a HAProxy branch or a kernel track.
 type Variant struct {
@@ -39,6 +53,8 @@ type Set struct {
 	HAProxy []Variant // newest branch first; the first is the default
 	Kernel  []Variant // in variants.mk's order
 	Retired []schematic.Retired
+	// Suspended image targets (SUSPENDED_TARGETS), in variants.mk's order.
+	Suspended []string
 }
 
 // VersionVar is the versions.mk variable pinning a variant's version.
@@ -152,11 +168,38 @@ func Parse(variantsMk, versionsMk []byte) (*Set, error) {
 		}
 		s.Retired = append(s.Retired, ret)
 	}
+	suspended, err := SuspendedTargets(vars)
+	if err != nil {
+		return nil, err
+	}
+	s.Suspended = suspended
 	// The catalog's own checks (names, one default each, retired entries).
 	if err := s.CatalogVariants().Validate(); err != nil {
 		return nil, err
 	}
 	return &s, nil
+}
+
+// SuspendedTargets returns the image targets vars' SUSPENDED_TARGETS
+// names, refusing one Targets doesn't know: a typo would otherwise leave
+// a target built without a word.
+func SuspendedTargets(vars map[string]string) ([]string, error) {
+	var out []string
+	for _, t := range strings.Fields(vars["SUSPENDED_TARGETS"]) {
+		if !slices.Contains(Targets, t) {
+			return nil, fmt.Errorf("variants.mk: SUSPENDED_TARGETS: %q isn't an image target (%s)", t, strings.Join(Targets, ", "))
+		}
+		if !slices.Contains(out, t) {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+// Suspended returns the image targets suspended in the variants.mk this
+// binary was built from (the site's builder).
+func Suspended() ([]string, error) {
+	return SuspendedTargets(ParseMk(janus.VariantsMk))
 }
 
 // compareBranches orders "major.minor" branches.

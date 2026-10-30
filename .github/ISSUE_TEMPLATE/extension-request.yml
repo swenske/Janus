@@ -1,0 +1,101 @@
+# Shown by the site's image builder (its "Need something else…" card:
+# site/frontend/src/builder.js) - hack/docscheck checks its label.
+name: Need something else…
+description: Ask for an extension the image builder doesn't offer yet.
+title: "Extension request: "
+labels: ["extension-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        An extension is built into the image - Janus has no package manager to add one later - and configured through the node's API. The ones there are: [the image factory](https://janus.sw-servers.net/docs/image-factory.md). Only the first three questions are required; answer the others if you know.
+  - type: input
+    id: what
+    attributes:
+      label: What
+      description: The extension or software you'd want.
+      placeholder: e.g. vector, frr, wireguard-tools
+    validations:
+      required: true
+  - type: textarea
+    id: need
+    attributes:
+      label: What for
+      description: The problem it solves, and your concrete use case.
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: Where it comes from
+      description: Its upstream repository or official site, the version you'd want, the dependencies you know of.
+    validations:
+      required: true
+  - type: input
+    id: license
+    attributes:
+      label: License
+      description: Is it open source - under which license?
+      placeholder: e.g. Apache-2.0, GPL-2.0-only
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: What you've considered, or what in Janus already does part of it - its API, HAProxy itself, another extension.
+  - type: textarea
+    id: footprint
+    attributes:
+      label: Attack surface
+      description: Janus is immutable and runs every daemon in its own SELinux domain. What would this run on the node - a daemon, a one-shot tool, a library? The ports it opens, the privileges it needs (root, capabilities, raw sockets), the files it writes.
+  - type: textarea
+    id: size
+    attributes:
+      label: Size and kernel needs
+      description: Roughly how big it is with its dependencies - every image fits a fixed boot slot - and any kernel option or module it needs.
+  - type: dropdown
+    id: integration
+    attributes:
+      label: Integration you'd want
+      multiple: true
+      options:
+        - Configuration through the gRPC API (janusctl, the Controller)
+        - Prometheus metrics
+        - Working with HAProxy (health, reloads, maps)
+        - BGP (the bird extension)
+        - VRRP (the keepalived extension)
+        - The firewall (the nftables extension)
+  - type: dropdown
+    id: arches
+    attributes:
+      label: Architectures
+      multiple: true
+      options:
+        - amd64
+        - arm64 (Raspberry Pi - suspended for now)
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Could you help?
+      multiple: true
+      options:
+        - With a pull request
+        - By testing it
+        - By helping maintain it
+        - Not this time
+  - type: dropdown
+    id: priority
+    attributes:
+      label: How much does it matter to you?
+      options:
+        - Nice to have
+        - Important - I'd use it soon
+        - Blocking - I can't use Janus without it
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send it
+      options:
+        - label: I searched the existing issues (extension requests are labelled `extension-request`).
+          required: true
+        - label: I understand Janus has no SSH, no shell and no package manager - an extension is built into the image and configured through the API.
+          required: true

@@ -18,6 +18,10 @@
 #      boots alone and registers itself - docs/provisioning-a-node.md's
 #      ISO method, end to end.
 #
+# Parts 3 and 4 are skipped while variants.mk suspends their image target
+# (vmware, baremetal - hack/target-suspended.sh): 1 and 2 boot the disk
+# every image is made of, the qcow2s' too.
+#
 # A native dashboardd stands in for the Controller, reached from the
 # guests at QEMU's host gateway (10.0.2.2).
 #
@@ -124,6 +128,7 @@ wait_pending() { # wait_pending N WHAT
 
 DISK_SRC="$ROOTFS_DIR/disk.img"
 [ -f "$DISK_SRC" ] || fail "no $DISK_SRC (make disk-image)"
+passed="NVMe/e1000e with 4 CPUs and a rollback, SATA/igb with a cloud-init CD-ROM"
 
 # === 1. NVMe + e1000e, 4 CPUs ================================================
 cp "$DISK_SRC" "$WORKDIR/nvme.img"
@@ -195,59 +200,69 @@ stop
 echo "  ok: SATA (AHCI) + igb - the node read its Controller off the cloud-init CD-ROM and registered itself"
 
 # === 3. VMware: pvscsi + vmxnet3 =============================================
-# OVMF has no pvscsi driver (VMware's own firmware does), so it can't boot
-# from one: the system disk is SATA - VMware offers that too - and a
-# second disk sits on pvscsi, for the kernel's driver.
-cp "$DISK_SRC" "$WORKDIR/vmware.img"
-truncate -s 64M "$WORKDIR/pvscsi-data.img"
-# shellcheck disable=SC2046
-boot vmware -drive "if=none,id=d0,file=$WORKDIR/vmware.img,format=raw" -device ide-hd,drive=d0,bus=ide.0 \
-  -device pvscsi,id=pv -drive "if=none,id=d1,file=$WORKDIR/pvscsi-data.img,format=raw" -device scsi-hd,drive=d1,bus=pv.0 \
-  $(net vmxnet3)
-wait_up "SATA + pvscsi + vmxnet3"
-grep -aq "vmw_pvscsi" "$LOG" || fail "the pvscsi driver didn't show up"
-grep -aqE "sd [0-9:]+: \[sd[a-z]\] 131072 512-byte logical blocks" "$LOG" || fail "the kernel doesn't see the 64 MiB pvscsi disk"
-grep -aq "vmxnet3" "$LOG" || fail "the vmxnet3 driver didn't show up"
-no_denials "VMware devices"
-stop
-echo "  ok: VMware's devices - a pvscsi disk, the API and HTTP over vmxnet3"
+if "$SELF_DIR/target-suspended.sh" vmware; then
+  echo "  skipped: VMware's devices - vmware is suspended (variants.mk)"
+else
+  # OVMF has no pvscsi driver (VMware's own firmware does), so it can't boot
+  # from one: the system disk is SATA - VMware offers that too - and a
+  # second disk sits on pvscsi, for the kernel's driver.
+  cp "$DISK_SRC" "$WORKDIR/vmware.img"
+  truncate -s 64M "$WORKDIR/pvscsi-data.img"
+  # shellcheck disable=SC2046
+  boot vmware -drive "if=none,id=d0,file=$WORKDIR/vmware.img,format=raw" -device ide-hd,drive=d0,bus=ide.0 \
+    -device pvscsi,id=pv -drive "if=none,id=d1,file=$WORKDIR/pvscsi-data.img,format=raw" -device scsi-hd,drive=d1,bus=pv.0 \
+    $(net vmxnet3)
+  wait_up "SATA + pvscsi + vmxnet3"
+  grep -aq "vmw_pvscsi" "$LOG" || fail "the pvscsi driver didn't show up"
+  grep -aqE "sd [0-9:]+: \[sd[a-z]\] 131072 512-byte logical blocks" "$LOG" || fail "the kernel doesn't see the 64 MiB pvscsi disk"
+  grep -aq "vmxnet3" "$LOG" || fail "the vmxnet3 driver didn't show up"
+  no_denials "VMware devices"
+  stop
+  echo "  ok: VMware's devices - a pvscsi disk, the API and HTTP over vmxnet3"
+  passed="$passed, VMware's pvscsi/vmxnet3"
+fi
 
 # === 4. The ISO on a USB stick installs a virtio-scsi disk ===================
-BUNDLE="$WORKDIR/bundle"
-"$SELF_DIR/../image/release/assemble.sh" "$BUNDLE" "$KERNEL" "$ROOTFS_DIR" >/dev/null
-SHA256="$(cat "$BUNDLE/rootfs.squashfs.sha256")"
-"$SELF_DIR/../image/iso/assemble.sh" "$WORKDIR/janus.iso" "$KERNEL" "$ROOTFS_DIR" "$BUNDLE" >/dev/null 2>&1
-truncate -s 1G "$WORKDIR/target.img"
-# shellcheck disable=SC2046
-boot iso -device qemu-xhci -drive "if=none,id=usb,file=$WORKDIR/janus.iso,format=raw" -device usb-storage,drive=usb,bootindex=0 \
-  -device virtio-scsi-pci,id=vs -drive "if=none,id=t,file=$WORKDIR/target.img,format=raw" -device scsi-hd,drive=t,bus=vs.0 \
-  $(net e1000)
-wait_up "the ISO on USB"
-grep -aq "Kernel command line:.*PARTLABEL=JANUS-ISO-DATA" "$LOG" || fail "the ISO doesn't name its root by its own label"
-creds "$WORKDIR/i-"
-mounts="$(ctl "$WORKDIR/i-" system mounts)"
-iso_disk="$(awk '$3 == "/etc/janus/release" {sub(/[0-9]+$/, "", $1); print $1}' <<<"$mounts")"
-[ -n "$iso_disk" ] || fail "the ISO's bundle isn't mounted: $mounts"
-target=""
-for d in /dev/sda /dev/sdb; do [ "$d" != "$iso_disk" ] && target=$d; done
-echo "  the ISO is $iso_disk, the target $target"
-out="$(ctl "$WORKDIR/i-" lifecycle install -insecure-skip-signature-check -sha256 "$SHA256" \
-  -controller-address "$GATEWAY:$REG_PORT" -controller-ca "$CONTROLLER_CA" "$target" /etc/janus/release 2>&1)" \
-  || fail "Install: $out"
-grep -q '\[done ' <<<"$out" || fail "Install didn't finish: $out"
-no_denials "the ISO"
-stop
-echo "  ok: the ISO booted from USB and installed $target with a Controller"
+if "$SELF_DIR/target-suspended.sh" baremetal; then
+  echo "  skipped: the ISO - baremetal is suspended (variants.mk)"
+else
+  BUNDLE="$WORKDIR/bundle"
+  "$SELF_DIR/../image/release/assemble.sh" "$BUNDLE" "$KERNEL" "$ROOTFS_DIR" >/dev/null
+  SHA256="$(cat "$BUNDLE/rootfs.squashfs.sha256")"
+  "$SELF_DIR/../image/iso/assemble.sh" "$WORKDIR/janus.iso" "$KERNEL" "$ROOTFS_DIR" "$BUNDLE" >/dev/null 2>&1
+  truncate -s 1G "$WORKDIR/target.img"
+  # shellcheck disable=SC2046
+  boot iso -device qemu-xhci -drive "if=none,id=usb,file=$WORKDIR/janus.iso,format=raw" -device usb-storage,drive=usb,bootindex=0 \
+    -device virtio-scsi-pci,id=vs -drive "if=none,id=t,file=$WORKDIR/target.img,format=raw" -device scsi-hd,drive=t,bus=vs.0 \
+    $(net e1000)
+  wait_up "the ISO on USB"
+  grep -aq "Kernel command line:.*PARTLABEL=JANUS-ISO-DATA" "$LOG" || fail "the ISO doesn't name its root by its own label"
+  creds "$WORKDIR/i-"
+  mounts="$(ctl "$WORKDIR/i-" system mounts)"
+  iso_disk="$(awk '$3 == "/etc/janus/release" {sub(/[0-9]+$/, "", $1); print $1}' <<<"$mounts")"
+  [ -n "$iso_disk" ] || fail "the ISO's bundle isn't mounted: $mounts"
+  target=""
+  for d in /dev/sda /dev/sdb; do [ "$d" != "$iso_disk" ] && target=$d; done
+  echo "  the ISO is $iso_disk, the target $target"
+  out="$(ctl "$WORKDIR/i-" lifecycle install -insecure-skip-signature-check -sha256 "$SHA256" \
+    -controller-address "$GATEWAY:$REG_PORT" -controller-ca "$CONTROLLER_CA" "$target" /etc/janus/release 2>&1)" \
+    || fail "Install: $out"
+  grep -q '\[done ' <<<"$out" || fail "Install didn't finish: $out"
+  no_denials "the ISO"
+  stop
+  echo "  ok: the ISO booted from USB and installed $target with a Controller"
 
-before="$(pending)"
-# shellcheck disable=SC2046
-boot installed -device virtio-scsi-pci,id=vs -drive "if=none,id=t,file=$WORKDIR/target.img,format=raw" -device scsi-hd,drive=t,bus=vs.0 \
-  $(net e1000)
-wait_up "the installed disk"
-grep -aq "Kernel command line:.*PARTLABEL=BOOT-A-DATA" "$LOG" || fail "the installed disk doesn't boot by label"
-wait_pending $((before + 1)) "the installed disk"
-no_denials "the installed disk"
-stop
-echo "  ok: the installed disk (virtio-scsi) booted and registered itself with the Controller"
+  before="$(pending)"
+  # shellcheck disable=SC2046
+  boot installed -device virtio-scsi-pci,id=vs -drive "if=none,id=t,file=$WORKDIR/target.img,format=raw" -device scsi-hd,drive=t,bus=vs.0 \
+    $(net e1000)
+  wait_up "the installed disk"
+  grep -aq "Kernel command line:.*PARTLABEL=BOOT-A-DATA" "$LOG" || fail "the installed disk doesn't boot by label"
+  wait_pending $((before + 1)) "the installed disk"
+  no_denials "the installed disk"
+  stop
+  echo "  ok: the installed disk (virtio-scsi) booted and registered itself with the Controller"
+  passed="$passed, the ISO on USB installing a virtio-scsi disk that registers itself"
+fi
 
-echo "Bare-metal test OK: NVMe/e1000e with 4 CPUs and a rollback, SATA/igb with a cloud-init CD-ROM, VMware's pvscsi/vmxnet3, the ISO on USB installing a virtio-scsi disk that registers itself - all by partition label, enforcing, zero AVC denials"
+echo "Bare-metal test OK: $passed - all by partition label, enforcing, zero AVC denials"

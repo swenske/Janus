@@ -13,10 +13,15 @@ configuration given at boot or through its API afterwards
 |---|---|---|
 | `janus.qcow2` | Proxmox VE | Imported with `qm importdisk`, or by the Controller |
 | `janus-kvm.qcow2` | libvirt/KVM, any QEMU host | What the Controller uses on a libvirt host; `virt-install --import` |
-| `janus.vmdk` | VMware vSphere/ESXi, Workstation, Fusion | `streamOptimized`; no OVA yet ([VMware](platforms/vmware.md)) |
-| `janus.iso` | Bare metal; a VM installed from a medium | An installer, with the release's signed bundle inside: written to a USB stick, presented as a disk by a BMC, or attached to a VM as a disk - never as a CD/DVD ([bare metal](platforms/bare-metal.md)) |
-| `pi4-disk.img`, `pi5-disk.img` | Raspberry Pi 4 and 5 | For testing only ([hardware tests](../raspberry-pi-testing.md)) |
+| `janus.vmdk` | VMware vSphere/ESXi, Workstation, Fusion | **Suspended** since 2026-10-30, waiting for testers - v2026.10.30's is the last. `streamOptimized`; no OVA yet ([VMware](platforms/vmware.md)) |
+| `janus.iso` | Bare metal; a VM installed from a medium | **Suspended** since 2026-10-30, waiting for testers - v2026.10.30's is the last. An installer, with the release's signed bundle inside: written to a USB stick, presented as a disk by a BMC, or attached to a VM as a disk - never as a CD/DVD ([bare metal](platforms/bare-metal.md)) |
+| `pi4-disk.img`, `pi5-disk.img` | Raspberry Pi 4 and 5 | **Suspended** since 2026-10-30, waiting for testers - v2026.10.30's are the last. For testing only ([hardware tests](../raspberry-pi-testing.md)) |
 | `rootfs.squashfs`, `rootfs.squashfs.sha256`, `rootfs.verity`, `uki-a.efi`, `uki-b.efi` | Updates and installs | The update bundle: its UKIs are signed with the release key, which pins the root filesystem's dm-verity hash |
+
+The suspended targets were never verified on real hardware; a release
+publishes them again once someone has tested them - the
+[image builder](https://janus.sw-servers.net/builder) links the forms
+to offer it.
 
 Releases are on [GitHub](https://github.com/swenske/Janus/releases);
 `latest` is the newest:

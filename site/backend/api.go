@@ -441,7 +441,10 @@ func (a *app) handleImageBuild(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, st)
 		return
 	}
-	if err := a.startBuild(r.Context(), sc, version, arch, clientIP(r), st.State == "failed"); err != nil {
+	if err := a.startBuild(r.Context(), sc, version, arch, clientIP(r), st.State == "failed"); errors.Is(err, errSuspended) {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	} else if err != nil {
 		writeError(w, http.StatusTooManyRequests, err.Error())
 		return
 	}
@@ -449,7 +452,14 @@ func (a *app) handleImageBuild(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, st)
 }
 
+// errSuspended refuses a build of an architecture whose every image is
+// suspended (variants.mk's SUSPENDED_TARGETS).
+var errSuspended = errors.New("this architecture's images are suspended, waiting for testers - see the builder's \"Need tester\" link")
+
 func (a *app) startBuild(ctx context.Context, sc *schematic.Schematic, version, arch, ip string, retry bool) error {
+	if suspendedArch(arch) {
+		return errSuspended
+	}
 	key := buildKey(sc.ID(), version, arch)
 	start, err := a.builds.allow(key, ip, retry)
 	if err != nil || !start {

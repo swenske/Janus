@@ -26,7 +26,7 @@ const cards = [
     out: '/out/site/og/builder.png',
     kicker: 'Image builder',
     title: 'Build your Janus image',
-    text: 'Proxmox, KVM, VMware, an installer ISO or a Raspberry Pi - with the extensions you need, signed, kept up to date.',
+    text: 'For Proxmox VE or KVM - with the extensions you need, signed, kept up to date.',
     url: 'janus.sw-servers.net/builder',
   },
   {

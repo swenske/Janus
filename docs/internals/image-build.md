@@ -43,7 +43,7 @@ flowchart TB
 | The root filesystem | `rootfs/assemble.sh` | squashfs and its dm-verity hash tree (`veritysetup format`). The SELinux labels of the executables and `/var/empty`'s mode go in as mksquashfs pseudo-files: no root needed |
 | The kernel image (UKI) | `image/uki/assemble.sh` | `ukify`, with systemd's stub from a pinned Debian - never the build host's. The command line: the dm-verity table with its root hash, `enforcing=1`, the consoles, `ipv6.disable_ipv6=1` (init turns IPv6 on once hardened), `janus.schematic=`. Signed when the release key is given |
 | The disk | `image/disk/assemble.sh` | `sgdisk`, `mtools`, `dd seek=`, `debugfs` - no `mount`, no loop device. Both slots, the ESP with both UKIs, an empty STATE |
-| The formats | `image/{kvm-proxmox,kvm,vmware,iso,rpi-uefi}` | `qemu-img` for qcow2 and VMDK; `xorriso` for the hybrid installer ISO, with the release bundle inside |
+| The formats | `image/{kvm-proxmox,kvm,vmware,iso,rpi-uefi}` | `qemu-img` for qcow2 and VMDK; `xorriso` for the hybrid installer ISO, with the release bundle inside. VMDK, ISO and SD card images are [suspended](#suspended-targets) |
 | The update bundle | `image/release/assemble.sh` | Exactly these names - `rootfs.squashfs`, `.sha256`, `rootfs.verity`, `uki-a.efi`, `uki-b.efi` - which an upgrade fetches under a base URL |
 
 ## Signing
@@ -74,7 +74,8 @@ factory runs it on demand (`schematic-build.yml`), and
 `image-build.yml`, on the self-hosted runners, dispatched by hand:
 
 - **The boot chain**: QEMU with OVMF, SELinux enforcing - dm-verity,
-  A/B, Secure Boot, the ISO, PXE, bare-metal hardware.
+  A/B, Secure Boot, bare-metal hardware (the ISO, PXE and arm64 while
+  they're [suspended](#suspended-targets): not).
 - **Lifecycle**: install, upgrades by every path, rollbacks, the
   automatic revert.
 - **Features**: the API, the network, the firewall, VRRP, BGP, Let's
@@ -86,3 +87,35 @@ factory runs it on demand (`schematic-build.yml`), and
   security notes and the SBOM.
 
 Every test, and how to run one: [testing](../contributing/testing.md).
+
+## Suspended targets
+
+An image target never verified on real hardware can be suspended: one
+line, `SUSPENDED_TARGETS` in
+[`variants.mk`](../../variants.mk). Since 2026-10-30 it reads `vmware
+baremetal raspberry-pi` - none of the three was ever run on a real ESXi
+host, a physical machine or a real Raspberry Pi - waiting for testers.
+A suspended target keeps its recipes, its tests and its docs; what
+builds images automatically leaves it out:
+
+| Target | What it suspends |
+|---|---|
+| `vmware` | The VMDK (`janus.vmdk`): neither built nor released; `qemu-baremetal-test` skips its VMware devices |
+| `baremetal` | The installer ISO (`janus.iso`), `qemu-iso-boot-test`, `qemu-iso-install-test`, `qemu-pxe-fetch-test`, and `qemu-baremetal-test`'s ISO install. The release bundle is built alone (`make release-bundle`), in the same make invocation as the qcow2s |
+| `raspberry-pi` | Everything arm64: the Pi 4/5 SD cards, `qemu-raspi4-*` and `qemu-arm64-*`, the arm64 kernel config check, and the arm64 build inputs - a release's catalog then offers amd64 alone. janusctl's arm64 package isn't an image: it's still built |
+
+- `image-build.yml` asks `hack/target-suspended.sh` and skips those
+  steps; the publish job builds `make release-images` and releases what
+  `make release-image-files` lists.
+- `image/schematic/build.sh` builds none of them for a custom image, and
+  the site's builder shows them greyed out with a "Need tester" link -
+  an issue form per target (`.github/ISSUE_TEMPLATE/`); it starts no
+  arm64 build.
+- They still build by hand: `make vmware-image`, `make
+  iso-image-with-bundle`, `make pi4-sdcard-image`...
+
+To lift one, take it off the line - nothing else changes. For
+`raspberry-pi`, first run `make rpi4-kernel-config-refresh
+kernel-built-files` and commit the result: the arm64 kernel config and
+its list of built files aren't refreshed while it's suspended. The next
+release publishes the target again; say so in its notes.

@@ -9,6 +9,13 @@ emulation) - **this document exists because the only way to close that
 gap is a real boot, on real hardware, which this project's own
 development and CI environments genuinely don't have.**
 
+> [!WARNING]
+> **Suspended since 2026-10-30, waiting for testers.** Until someone
+> tests a real board, nothing builds or tests the Raspberry Pi images
+> (nor any arm64 image) and releases don't publish them - v2026.10.30's
+> are the last. They still build by hand, below. Have a Pi 4 or 5?
+> [Offer to test it](https://github.com/swenske/Janus/issues/new?template=need-tester-raspberry-pi.yml).
+
 ## What you're testing, and why the two boards differ
 
 Both images use the same underlying approach: the Pi's own GPU-side
@@ -50,8 +57,9 @@ make pi4-sdcard-image   # -> build/rpi-uefi/pi4-disk.img
 make pi5-sdcard-image   # -> build/rpi-uefi/pi5-disk.img
 ```
 
-or download `janus-alpha-rpi4-<sha>` / `janus-alpha-rpi5-<sha>` from a
-recent `Image Build` GitHub Actions run's artifacts.
+or download `pi4-disk.img` / `pi5-disk.img` from
+[v2026.10.30](https://github.com/swenske/Janus/releases/tag/v2026.10.30),
+the last release that published them.
 
 Both are already `394MiB`, un-compressed, GPT-partitioned raw disk
 images - no conversion needed, just written directly to an SD card
@@ -116,7 +124,8 @@ pins is the only way to see what's actually happening:
 
 This is genuinely unverified until your test - **please report exactly
 what the serial console shows**, even (especially) if something fails
-partway through:
+partway through, in
+[a "Need tester" issue](https://github.com/swenske/Janus/issues/new?template=need-tester-raspberry-pi.yml):
 
 - Nothing at all on the serial console -> likely a wiring/baud
   mismatch, or the EEPROM is too old to boot from an SD card at all

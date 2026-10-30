@@ -1,6 +1,7 @@
 package variants
 
 import (
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -41,6 +42,7 @@ HAPROXY_3_2_EOL  := 2030-04-01
 KERNEL_TRACKS        := stable longterm
 KERNEL_DEFAULT_TRACK := stable
 VARIANTS_RETIRED := haproxy:3.0:v2027.06.01
+SUSPENDED_TARGETS := vmware raspberry-pi
 `
 
 func TestParse(t *testing.T) {
@@ -80,14 +82,15 @@ func TestParse(t *testing.T) {
 
 func TestParseRefuses(t *testing.T) {
 	for name, edit := range map[string][2]string{
-		"no pin":        {"3.4 3.2", "3.4 3.2 3.0"},
-		"oldest first":  {"3.4 3.2", "3.2 3.4"},
-		"no EOL":        {"HAPROXY_3_2_EOL  := 2030-04-01", ""},
-		"bad EOL":       {"2030-04-01", "Q2 2030"},
-		"bad branch":    {"3.4 3.2", "3.4 3.2.1"},
-		"default track": {"KERNEL_DEFAULT_TRACK := stable", "KERNEL_DEFAULT_TRACK := mainline"},
-		"retired twice": {"haproxy:3.0:", "haproxy:3.2:"},
-		"retired form":  {"haproxy:3.0:v2027.06.01", "haproxy-3.0"},
+		"no pin":         {"3.4 3.2", "3.4 3.2 3.0"},
+		"oldest first":   {"3.4 3.2", "3.2 3.4"},
+		"no EOL":         {"HAPROXY_3_2_EOL  := 2030-04-01", ""},
+		"bad EOL":        {"2030-04-01", "Q2 2030"},
+		"bad branch":     {"3.4 3.2", "3.4 3.2.1"},
+		"default track":  {"KERNEL_DEFAULT_TRACK := stable", "KERNEL_DEFAULT_TRACK := mainline"},
+		"retired twice":  {"haproxy:3.0:", "haproxy:3.2:"},
+		"retired form":   {"haproxy:3.0:v2027.06.01", "haproxy-3.0"},
+		"unknown target": {"vmware raspberry-pi", "vmware rpi"},
 	} {
 		doc := strings.Replace(good, edit[0], edit[1], 1)
 		if doc == good {
@@ -103,6 +106,40 @@ func TestParseRefuses(t *testing.T) {
 	}
 	if _, err := Parse([]byte("HAPROXY_BRANCHES :=\nKERNEL_TRACKS := stable\nKERNEL_DEFAULT_TRACK := stable\n"), []byte(pins)); err == nil {
 		t.Error("no HAProxy branch accepted")
+	}
+}
+
+// TestSuspended: SUSPENDED_TARGETS is read, and the variants.mk built into
+// the binaries (the site's) is the tree's own.
+func TestSuspended(t *testing.T) {
+	s, err := Parse([]byte(good), []byte(pins))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(s.Suspended, []string{TargetVMware, TargetRaspberryPi}) {
+		t.Errorf("Suspended = %v", s.Suspended)
+	}
+	tree, err := Load("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	embedded, err := Suspended()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(embedded, tree.Suspended) {
+		t.Errorf("Suspended() = %v, the tree's variants.mk says %v", embedded, tree.Suspended)
+	}
+	if got, err := SuspendedTargets(map[string]string{"SUSPENDED_TARGETS": "  "}); err != nil || got != nil {
+		t.Errorf("an empty SUSPENDED_TARGETS = %v, %v", got, err)
+	}
+	// The workflows' side knows the same targets.
+	script, err := os.ReadFile("../../hack/target-suspended.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `known="` + strings.Join(Targets, " ") + `"`; !strings.Contains(string(script), "\n"+want+"\n") {
+		t.Errorf("hack/target-suspended.sh doesn't say %s", want)
 	}
 }
 

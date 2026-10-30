@@ -90,7 +90,9 @@ pinned or the release's default) and kernel track, the Controller shows
 them, and the node's metrics export them (`janus_component_info`).
 
 Only amd64 images can be built with a HAProxy branch or kernel track other
-than the defaults; Raspberry Pi images come with the defaults.
+than the defaults; Raspberry Pi images come with the defaults - and are
+[suspended](internals/image-build.md#suspended-targets) since
+2026-10-30, waiting for testers, like the VMDK and the installer ISO.
 
 ### The console
 
@@ -285,8 +287,9 @@ HAProxy of its branch and its extensions onto the base tree
 (`rootfs/assemble-from-base.sh`, refusing any layer that would replace a
 file), writes the image's `image.json`, the squashfs and its
 dm-verity tree, signs the update bundle's UKIs with the release key -
-the key never leaves the runner - builds the disk, ISO and SD card images
-(`image/schematic/build.sh`), boots the amd64 disk under UEFI with SELinux
+the key never leaves the runner - builds the disk images
+(`image/schematic/build.sh`; the VMDK, ISO and SD card images too, when
+their target isn't [suspended](internals/image-build.md#suspended-targets)), boots the amd64 disk under UEFI with SELinux
 enforcing (`hack/qemu-schematic-smoke-test.sh`), and uploads everything
 to the site with a manifest listing each file's sha256.
 
