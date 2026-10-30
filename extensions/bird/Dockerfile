@@ -15,7 +15,7 @@
 
 ARG BIRD_VERSION
 
-FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS fetch
+FROM debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS fetch
 ARG BIRD_VERSION
 ARG BIRD_SHA256
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
@@ -47,7 +47,7 @@ RUN apk add --no-cache build-base linux-headers flex bison m4
 COPY --from=fetch /src /src
 RUN STRIP=strip /src/build.sh
 
-FROM --platform=linux/amd64 debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS build-arm64
+FROM --platform=linux/amd64 debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS build-arm64
 # Debian's arm64 kernel headers rather than the cross-toolchain's older
 # ones - the kernel's own uapi directories only, nothing of glibc's.
 RUN apt-get update && apt-get install -y --no-install-recommends make flex bison m4 file binutils linux-libc-dev-arm64-cross \

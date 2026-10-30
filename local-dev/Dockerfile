@@ -35,7 +35,7 @@
 #
 # Usage: see local-dev/README.md for docker run flags (port mapping vs.
 # --network host, and how to persist PKI/config across restarts).
-FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS runtime
+FROM debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS runtime
 
 RUN mkdir -p /etc/haproxy
 COPY build/janusd /usr/local/bin/janusd
