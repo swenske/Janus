@@ -880,6 +880,25 @@ the nodes it reaches, node pages, a node rebooted through its page, a
 cluster apply, and the Controller restarted (its state, every node
 reached).
 
+Since v2026.10.31-3: the time from the click to the renewal's answer
+(the browser waits for the `POST /api/fleet/renew` response), the card
+read right after it without a reload, and `GET /api/fleet` at the same
+moment - they must name only the node switched off. A renewal after a
+renewal: the bundle keeps the current CA and the new one, the first is
+dropped (`janusctl access trust`). The rescue (`POST
+/api/fleet/rescue`, the kit and passphrase read from the lab's secrets
+by the script and sent, never printed) with every node up, timed, and
+its answer - the card offers it only while a node needs the kit.
+
+### Where nodes register
+
+Since v2026.10.31-3: the Controller's `-help` for `-advertise-address`
+(from its image), and its start line `registration: nodes are told to
+register at …` without the setting, with the address first and a name
+after, and with the name first; `controller-info`'s `address` and the
+Provision panel's *Controller address* (headless Chromium) for each.
+The Compose file is put back after.
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -915,6 +934,9 @@ ran:
 - `rolling`: the drained rolling update through the Controller (since
   v2026.10.19-2 it trusts its own wait and names the check that fails);
 - `ctl-update`: the Controller's update with its probe;
+- `renew`, `renew.mjs`: the Fleet card's renewal in headless Chromium
+  (the answer's time, the card right after it) or the card alone;
+  `rescue`: the rescue through the API, timed (v2026.10.31-3);
 - `sso-keycloak`, `sso-check`: a Keycloak next to the lab's Controller,
   and single sign-on through it in the browser (v2026.10.22-2);
 - `x-slow-reboot`: the rolling update there and back with the nodes'
