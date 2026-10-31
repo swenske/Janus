@@ -45,6 +45,7 @@ import { EnrollMFA, MFAPanel, SecondFactorForm, TrustedBrowsers } from './MFA.js
 import { SSHKeys } from './SSHKeys.jsx'
 import { Identities, LINK, SSO_DONE, SSOButtons, SSODone } from './SSO.jsx'
 import { backupAlert } from './backupAlert.js'
+import { fleetAlert } from './fleetAlert.js'
 import EnrollTokens from './Enroll.jsx'
 import { SecurityBadge } from './SecurityBadge.jsx'
 import { PrereleaseBadge } from './PrereleaseBadge.jsx'
@@ -1334,6 +1335,21 @@ function MainApp() {
             </Badge>
           )}
           {pending.length > 0 && <Badge tone="warn">{pending.length} pending</Badge>}
+          {isAdmin && fleetAlert(fleet)?.badge && (
+            <a
+              href="#/"
+              className="badge-link"
+              title={fleetAlert(fleet).text}
+              onClick={(e) => {
+                e.preventDefault()
+                navigate('/')
+              }}
+            >
+              <Badge tone={fleetAlert(fleet).level} dot>
+                {fleetAlert(fleet).badge}
+              </Badge>
+            </a>
+          )}
           {isAdmin && backups?.alert && (
             <a
               href="#/backups"
@@ -1495,7 +1511,7 @@ function MainApp() {
             </section>
             ))
             )}
-            <FleetCard fleet={fleet} nodes={nodes} />
+            <FleetCard fleet={fleet} nodes={nodes} isAdmin={can('admin')} onChanged={reload} />
             {can('admin') && <ProvisionInfo />}
             {can('admin') && <EnrollTokens focus={route.startsWith('/enrollment-tokens')} />}
           </div>

@@ -1,6 +1,7 @@
-import { CheckCircle2, Copy, Download, KeyRound, ShieldCheck, Upload } from 'lucide-react'
+import { CheckCircle2, Copy, Download, KeyRound, RefreshCw, ShieldCheck, Upload } from 'lucide-react'
 import { useState } from 'react'
 import { postJSON } from './call.js'
+import { fleetAlert, needsKit, renewalProgress } from './fleetAlert.js'
 import { Badge, Card, useAction, useConfirm, useToast } from './shared/ui.jsx'
 import { fmtDate } from './shared/units.js'
 
@@ -30,13 +31,56 @@ function MasterKeyNotice({ fleet }) {
   )
 }
 
+// KitForm takes the recovery kit and its passphrase back - to confirm
+// the fleet, renew its issuing CA, or reach the nodes only the kit does.
+function KitForm({ busy, action, icon: Icon = Upload, onSubmit, onCancel, cancelLabel = 'Cancel', children }) {
+  const [kit, setKit] = useState('')
+  const [typed, setTyped] = useState('')
+  const readKit = (e) => {
+    const f = e.target.files?.[0]
+    if (f) f.text().then(setKit)
+  }
+  const submit = (e) => {
+    e.preventDefault()
+    onSubmit(kit, typed)
+  }
+  return (
+    <form className="stack" style={{ gap: '0.6rem' }} onSubmit={submit}>
+      {children}
+      <label className="field">
+        <span>Recovery kit</span>
+        <input type="file" accept=".age,text/plain" onChange={readKit} />
+      </label>
+      <label className="field">
+        <span>Passphrase</span>
+        <input
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+          placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
+          className="mono"
+          autoComplete="off"
+          spellCheck={false}
+        />
+      </label>
+      <div className="row">
+        <button className="primary" disabled={busy || !kit || !typed}>
+          <Icon size={15} /> {action}
+        </button>
+        {onCancel && (
+          <button type="button" className="ghost" onClick={onCancel}>
+            {cancelLabel}
+          </button>
+        )}
+      </div>
+    </form>
+  )
+}
+
 // FleetSetup is shown until the fleet is ready.
 export function FleetSetup({ fleet, onChanged }) {
   const [passphrase, setPassphrase] = useState(null)
   const [kitFile, setKitFile] = useState('')
   const [saved, setSaved] = useState(false)
-  const [kit, setKit] = useState('')
-  const [typed, setTyped] = useState('')
   const [busy, run] = useAction()
   const toast = useToast()
   const confirm = useConfirm()
@@ -76,17 +120,11 @@ export function FleetSetup({ fleet, onChanged }) {
       toast('Copy failed - select the text instead', 'warn')
     }
   }
-  const readKit = (e) => {
-    const f = e.target.files?.[0]
-    if (f) f.text().then(setKit)
-  }
-  const prove = (e) => {
-    e.preventDefault()
+  const prove = (kit, passphrase) =>
     run(async () => {
-      await postJSON('/api/fleet/confirm', { kit, passphrase: typed })
+      await postJSON('/api/fleet/confirm', { kit, passphrase })
       await onChanged()
     }, 'The fleet is ready - its root key is gone from this Controller')
-  }
 
   return (
     <Card title="Secure your fleet" icon={ShieldCheck} className="fleet-setup">
@@ -142,34 +180,11 @@ export function FleetSetup({ fleet, onChanged }) {
             )}
           </Step>
           <Step n={3} active={pending && saved} title="Prove you kept them">
-            <form className="stack" style={{ gap: '0.6rem' }} onSubmit={prove}>
+            <KitForm busy={busy} action="Confirm" onSubmit={prove} onCancel={() => setSaved(false)} cancelLabel="Back">
               <div className="muted small">
                 Give the kit and its passphrase back: once they open, the root key is deleted from this Controller, and your nodes are brought to trust the fleet.
               </div>
-              <label className="field">
-                <span>Recovery kit</span>
-                <input type="file" accept=".age,text/plain" onChange={readKit} />
-              </label>
-              <label className="field">
-                <span>Passphrase</span>
-                <input
-                  value={typed}
-                  onChange={(e) => setTyped(e.target.value)}
-                  placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
-                  className="mono"
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-              </label>
-              <div className="row">
-                <button className="primary" disabled={busy || !kit || !typed}>
-                  <Upload size={15} /> Confirm
-                </button>
-                <button type="button" className="ghost" onClick={() => setSaved(false)}>
-                  Back
-                </button>
-              </div>
-            </form>
+            </KitForm>
           </Step>
         </ol>
         <MasterKeyNotice fleet={fleet} />
@@ -180,8 +195,83 @@ export function FleetSetup({ fleet, onChanged }) {
 
 const day = (s) => (s ? fmtDate(s) : '–')
 
+// Renewal is the issuing CA's renewal: its notice when due, where a
+// renewal stands, and for an admin the kit's form - to renew, or to reach
+// the nodes only the kit does.
+function Renewal({ fleet, nodes, isAdmin, onChanged }) {
+  const [open, setOpen] = useState(null) // 'renew' | 'rescue'
+  const [busy, run] = useAction()
+  const confirm = useConfirm()
+  const alert = fleetAlert(fleet)
+  const progress = renewalProgress(fleet)
+  const locked = needsKit(fleet)
+  const name = (id) => nodes?.find((n) => n.id === id)?.name || id
+  const send = (path, done) => (kit, passphrase) =>
+    run(async () => {
+      await postJSON(`/api/fleet/${path}`, { kit, passphrase })
+      setOpen(null)
+      await onChanged?.()
+    }, done)
+  const startRenew = async () => {
+    const ok = await confirm({
+      title: 'Renew the issuing CA?',
+      body: (
+        <>
+          <p>
+            The recovery kit and its passphrase make a new issuing CA, valid 2 years, and a bundle listing it and the current one. The Controller brings every node to that
+            bundle - reaching each with a certificate it already lets in -, then signs janusctl&apos;s certificates with the new CA.
+          </p>
+          <p className="muted">The root&apos;s key leaves this Controller again: only a certificate it signs stays an hour in memory, for nodes no other reaches.</p>
+        </>
+      ),
+      action: 'Continue',
+    })
+    if (ok) setOpen('renew')
+  }
+  return (
+    <>
+      {alert && <div className={`notice ${alert.level} small`}>{alert.text}</div>}
+      {progress && (
+        <div className="notice small">
+          Renewing: bundle version {progress.version} goes to every node -{' '}
+          {progress.behind.length === 0 ? 'all have it' : `still on an older one: ${progress.behind.join(', ')}`}. janusctl&apos;s certificates come from the new CA once all
+          have it{progress.switchBy ? `, or on ${day(progress.switchBy)} at the latest` : ''}.
+        </div>
+      )}
+      {locked.length > 0 && (
+        <div className="notice danger small">
+          {locked.length === 1 ? '1 node' : `${locked.length} nodes`} the Controller reaches only with the recovery kit - their bundle lists no issuing CA it can still sign
+          with: {locked.map((l) => name(l.id)).join(', ')}.
+        </div>
+      )}
+      {isAdmin && open === null && (
+        <div className="row">
+          <button className="small" onClick={startRenew} disabled={busy || !!progress}>
+            <RefreshCw size={14} /> Renew the issuing CA…
+          </button>
+          {locked.length > 0 && (
+            <button className="small" onClick={() => setOpen('rescue')} disabled={busy}>
+              <KeyRound size={14} /> Reach them with the recovery kit…
+            </button>
+          )}
+        </div>
+      )}
+      {isAdmin && open === 'renew' && (
+        <KitForm busy={busy} action="Renew" icon={RefreshCw} onSubmit={send('renew', 'Issuing CA renewed - the nodes are brought to its bundle')} onCancel={() => setOpen(null)}>
+          <div className="muted small">The recovery kit and its passphrase - the ones you stored when the fleet was set up.</div>
+        </KitForm>
+      )}
+      {isAdmin && open === 'rescue' && (
+        <KitForm busy={busy} action="Reach them" icon={KeyRound} onSubmit={send('rescue', 'The kit opens the way for an hour')} onCancel={() => setOpen(null)}>
+          <div className="muted small">For an hour, the Controller reaches them with a certificate the root signs, and brings them to the fleet&apos;s bundle.</div>
+        </KitForm>
+      )}
+    </>
+  )
+}
+
 // FleetCard is the fleet once ready.
-export function FleetCard({ fleet, nodes }) {
+export function FleetCard({ fleet, nodes, isAdmin, onChanged }) {
   if (!fleet || fleet.state !== 'ready') return null
   const states = Object.values(fleet.nodes || {})
   const trusted = states.filter((s) => s.state === 'trusted').length
@@ -204,9 +294,19 @@ export function FleetCard({ fleet, nodes }) {
           <dd>
             until {day(fleet.issuing_not_after)} - bundle version {fleet.bundle_version}
           </dd>
+          {fleet.renewal?.renewed && (
+            <>
+              <dt>Renewed</dt>
+              <dd>
+                {day(fleet.renewal.renewed)}
+                {fleet.renewal.previous_name ? ` - the CA before until ${day(fleet.renewal.previous_not_after)}` : ''}
+              </dd>
+            </>
+          )}
           <dt>Set up</dt>
           <dd>{day(fleet.confirmed)}</dd>
         </dl>
+        <Renewal fleet={fleet} nodes={nodes} isAdmin={isAdmin} onChanged={onChanged} />
         <MasterKeyNotice fleet={fleet} />
       </div>
     </Card>
@@ -229,6 +329,12 @@ export function TrustBadge({ fleet, nodeID }) {
       return (
         <span title={`${t.error} - until then the Controller reaches it with the credential it got when it was added`}>
           <Badge tone="warn">needs an update</Badge>
+        </span>
+      )
+    case 'needs-kit':
+      return (
+        <span className="trust-error" title={t.error || ''}>
+          <Badge tone="danger">needs the recovery kit</Badge>
         </span>
       )
     case 'other-fleet':
