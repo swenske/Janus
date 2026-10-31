@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -230,5 +231,36 @@ func TestFleetRenewRoute(t *testing.T) {
 	}
 	if code, body := post("rescue", pass); code != http.StatusOK || !strings.Contains(body, "rescue_until") {
 		t.Errorf("rescue: %d %s", code, body)
+	}
+}
+
+// TestRenewAnswersAfterThePass: with the trust loop running, POST
+// /api/fleet/renew answers once the loop brought the nodes it reaches to
+// the bundle - not with the moment before, every node behind.
+func TestRenewAnswersAfterThePass(t *testing.T) {
+	a, kit, pass := fleetApp(t)
+	alpha, _ := realFleetNode(t, a, "alpha")
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go a.trustLoop(ctx)
+	for i := 0; a.trust.get(alpha.ID).State != trustTrusted; i++ {
+		if i > 100 {
+			t.Fatalf("alpha never trusted: %+v", a.trust.get(alpha.ID))
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	body, _ := json.Marshal(kitRequest{Kit: string(kit), Passphrase: pass})
+	rec := httptest.NewRecorder()
+	a.handleFleetRenew(rec, httptest.NewRequest(http.MethodPost, "/api/fleet/renew", bytes.NewReader(body)))
+	var out struct {
+		Renewal     *fleet.Renewal       `json:"renewal"`
+		Nodes       map[string]nodeTrust `json:"nodes"`
+		NodesBehind []string             `json:"nodes_behind"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("renew: %d %s", rec.Code, rec.Body)
+	}
+	if len(out.NodesBehind) != 0 || out.Nodes[alpha.ID].BundleVersion != out.Renewal.Version || out.Renewal.Switched.IsZero() {
+		t.Errorf("the answer is the moment before the loop's pass: behind %v, alpha %+v, renewal %+v", out.NodesBehind, out.Nodes[alpha.ID], out.Renewal)
 	}
 }

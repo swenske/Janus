@@ -101,7 +101,7 @@ func main() {
 	addr := flag.String("addr", envOr("JANUS_CONTROLLER_ADDR", ":8080"), "main HTTPS address (node list, add/remove - never a credential) - e.g. \":443\" to run the UI on the standard HTTPS port; also settable via JANUS_CONTROLLER_ADDR (same \":port\"/\"host:port\" format - a flag takes precedence over the env var if both are given), for Docker Compose deployments where an environment: entry is more natural than overriding the container's command")
 	registerAddr := flag.String("register-addr", ":8443", "TLS address nodes self-register against (see internal/pending) - not the same port pool as approved nodes' own per-node listeners")
 	dataDir := flag.String("data-dir", "/data", "persistent data directory (Docker volume) - node registry + this dashboard's own TLS identity")
-	advertiseAddresses := flag.String("advertise-address", envOr("JANUS_CONTROLLER_ADVERTISE_ADDRESS", ""), "comma-separated extra IPs/hostnames to add to this dashboard's TLS identity certificate, alongside loopback and this host's own local IPs (see internal/identity) - needed whenever a node or browser reaches -addr/-register-addr through an address this process can't see on its own network interfaces (Docker bridge networking's host-side published port, a NAT/port-forwarded address, ...); an address added here gets a new certificate at the next start, signed by the same identity CA (the -addr port serves -tls-cert/-tls-key instead when they're set); also settable via JANUS_CONTROLLER_ADVERTISE_ADDRESS, same reasoning as JANUS_CONTROLLER_ADDR above")
+	advertiseAddresses := flag.String("advertise-address", envOr("JANUS_CONTROLLER_ADVERTISE_ADDRESS", ""), "comma-separated extra IPs/hostnames to add to this dashboard's TLS identity certificate, alongside loopback and this host's own local IPs (see internal/identity) - needed whenever a node or browser reaches -addr/-register-addr through an address this process can't see on its own network interfaces (Docker bridge networking's host-side published port, a NAT/port-forwarded address, ...); an address added here gets a new certificate at the next start, signed by the same identity CA (the -addr port serves -tls-cert/-tls-key instead when they're set); the FIRST entry is also the address nodes are told to register at (the Provision panel, the machines a hypervisor without a controller address of its own creates): add a name for the certificate after it, not instead of it; also settable via JANUS_CONTROLLER_ADVERTISE_ADDRESS, same reasoning as JANUS_CONTROLLER_ADDR above")
 	tlsCertFile := flag.String("tls-cert", envOr("JANUS_CONTROLLER_TLS_CERT", ""), "path to a PEM certificate (then its chain) the main HTTPS port (-addr) serves - the page, janusctl, Terraform - instead of the Controller's self-signed identity, read again when the file changes (a renewal needs no restart); with -tls-key, both or neither; nodes keep registering against the self-signed identity on -register-addr; also settable via JANUS_CONTROLLER_TLS_CERT; without it, an admin can upload one on the page")
 	masterKeyFile := flag.String("master-key-file", envOr("JANUS_CONTROLLER_MASTER_KEY_FILE", ""), "the master key sealing the fleet's issuing CA key (internal/secrets), made there the first time - keep it outside -data-dir so a copy of the data holds nothing usable; empty: <data-dir>/master.key, which the Controller warns about; also settable via JANUS_CONTROLLER_MASTER_KEY_FILE")
 	tlsKeyFile := flag.String("tls-key", envOr("JANUS_CONTROLLER_TLS_KEY", ""), "path to the PEM private key matching -tls-cert; also settable via JANUS_CONTROLLER_TLS_KEY")
@@ -169,6 +169,13 @@ func main() {
 	masterKey, err := secrets.LoadOrCreate(*masterKeyFile, *dataDir)
 	if err != nil {
 		log.Fatalf("master key: %v", err)
+	}
+	if addr := suggestRegisterAddress(*advertiseAddresses, *registerAddr); addr != "" {
+		from := "this host's first address"
+		if strings.TrimSpace(*advertiseAddresses) != "" {
+			from = "the first -advertise-address"
+		}
+		log.Printf("registration: nodes are told to register at %s (%s)", addr, from)
 	}
 	if masterKey.BesideData {
 		log.Printf("WARNING: the master key is %s, in the data directory: a copy of it holds the fleet's issuing CA key, the identity CA's and the accounts' authenticator secrets - set JANUS_CONTROLLER_MASTER_KEY_FILE to a file outside it (dashboard/README.md)", masterKey.Path)
@@ -719,7 +726,7 @@ func (a *app) handleNodesStatus(w http.ResponseWriter, r *http.Request) {
 // should be given as -controller-address (see cmd/janusctl's own
 // lifecycle install flags) - the same host-selection logic
 // internal/identity's SAN list already applies (prefer an
-// explicitly configured -advertise-address, since this process can't
+// explicitly configured -advertise-address - its first entry -, since this process can't
 // reliably know its own externally-reachable address otherwise - see
 // that function's own doc comment for why), paired with -register-addr's
 // port. Best-effort only, and always presented as a suggestion the

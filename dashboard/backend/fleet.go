@@ -55,10 +55,62 @@ type trustTracker struct {
 	kick  chan struct{}
 	// warned is when the issuing CA's expiry was last logged.
 	warned time.Time
+
+	// The loop's passes: whether it runs, how many began and ended, and
+	// a channel closed (then replaced) at each pass's end.
+	looping           bool
+	started, finished uint64
+	passDone          chan struct{}
 }
 
 func newTrustTracker() *trustTracker {
-	return &trustTracker{nodes: map[string]nodeTrust{}, kick: make(chan struct{}, 1)}
+	return &trustTracker{nodes: map[string]nodeTrust{}, kick: make(chan struct{}, 1), passDone: make(chan struct{})}
+}
+
+func (t *trustTracker) beginPass() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.started++
+}
+
+func (t *trustTracker) endPass() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.finished++
+	close(t.passDone)
+	t.passDone = make(chan struct{})
+}
+
+// KickAndWait makes the trust loop run now, and waits - wait at most -
+// for a pass begun after this call to end: what changed (a renewal) has
+// reached the nodes it can reach, and the answer says so. Nothing to wait
+// for without a running loop (a test's app).
+func (t *trustTracker) KickAndWait(wait time.Duration) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	looping, target := t.looping, t.started+1
+	t.mu.Unlock()
+	t.Kick()
+	if !looping {
+		return
+	}
+	deadline := time.NewTimer(wait)
+	defer deadline.Stop()
+	for {
+		t.mu.Lock()
+		done, ch := t.finished >= target, t.passDone
+		t.mu.Unlock()
+		if done {
+			return
+		}
+		select {
+		case <-ch:
+		case <-deadline.C:
+			return
+		}
+	}
 }
 
 // Kick makes the trust loop run now (nothing without a tracker: a test's
@@ -90,6 +142,9 @@ func (t *trustTracker) get(id string) nodeTrust {
 }
 
 func (a *app) trustLoop(ctx context.Context) {
+	a.trust.mu.Lock()
+	a.trust.looping = true
+	a.trust.mu.Unlock()
 	tick := time.NewTicker(10 * time.Minute)
 	defer tick.Stop()
 	for {
@@ -107,6 +162,8 @@ func (a *app) trustLoop(ctx context.Context) {
 const trustParallel = 8
 
 func (a *app) trustAll(ctx context.Context) {
+	a.trust.beginPass()
+	defer a.trust.endPass()
 	st := a.fleet.Status()
 	if st.State != fleet.StateReady {
 		return
@@ -351,6 +408,10 @@ func fleetError(w http.ResponseWriter, err error) {
 	}
 }
 
+// renewWait is how long a renewal or a rescue waits for the trust loop's
+// pass before it answers.
+const renewWait = 15 * time.Second
+
 // handleFleetRenew renews the issuing CA with the kit and its passphrase
 // - a JSON body {"kit": "...", "passphrase": "..."}: a new issuing CA, a
 // bundle listing it and the current one, brought to the nodes at once.
@@ -378,7 +439,9 @@ func (a *app) handleFleetRenew(w http.ResponseWriter, r *http.Request) {
 	}
 	st := a.fleet.Status()
 	log.Printf("fleet: the issuing CA renewed with the recovery kit - %q until %s, bundle version %d; bringing the nodes to it", st.IssuingName, st.IssuingNotAfter.UTC().Format(time.DateOnly), st.BundleVersion)
-	a.trust.Kick()
+	// The answer says where the nodes stand once the loop brought those it
+	// reaches to the bundle - not the moment before.
+	a.trust.KickAndWait(renewWait)
 	a.handleFleetStatus(w, r)
 }
 
@@ -395,7 +458,7 @@ func (a *app) handleFleetRescue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("fleet: the recovery kit opened for an hour - the nodes no issuing CA reaches are brought to the bundle with a certificate of the root")
-	a.trust.Kick()
+	a.trust.KickAndWait(renewWait)
 	a.handleFleetStatus(w, r)
 }
 
