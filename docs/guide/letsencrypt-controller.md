@@ -59,7 +59,8 @@ Encrypt** tab, **Relay for the nodes**.
   registration, with the relay's port. A name the identity doesn't hold
   makes the node's check fail ("certificate is valid for ..."): add it
   to `-advertise-address` - the Controller renews its certificate with
-  it at its next start.
+  it at its next start. Add it after the list's first entry, not in its
+  place: the first is the address nodes are told to register at.
 - **Destinations allowed besides the built-in ones**: `host:port`, one
   a line. The built-in ones are listed under the form.
 

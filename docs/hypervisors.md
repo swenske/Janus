@@ -512,7 +512,8 @@ step left, trusting the API's certificate
 - the networks its machines may use;
 - optionally, the name prefix (`janus-` by default);
 - optionally, the address its machines register at. By default it's the
-  Controller's own guess: `-advertise-address` and `-register-addr`.
+  Controller's own guess: `-advertise-address`'s first entry and
+  `-register-addr`'s port (the Controller's log says it at start).
 
 Once the required fields are filled in, **Show host preparation** gives
 what to run on the host with those values

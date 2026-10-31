@@ -222,7 +222,13 @@ example - a self-registering node's plain `net/http` client, unlike a
 browser, can't click through a hostname/SAN mismatch, so it would
 refuse the handshake outright without this). An address added here
 gets a new certificate at the next start, signed by the same CA - every
-name the one before had, kept.
+name the one before had, kept. **The first entry is also the address
+nodes are told to register at** (the Provision panel, the machines the
+Controller creates on a hypervisor without a controller address of its
+own; its log says it at start: `registration: nodes are told to
+register at ...`): to give the certificate another name, add it after
+that entry, e.g. `192.0.2.10,controller.example.com`, not instead of
+it.
 
 A Controller made before it kept a CA has only its first certificate -
 signed by a CA whose key was thrown away -, and gave nodes that very
