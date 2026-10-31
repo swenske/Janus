@@ -15,7 +15,8 @@ import (
 
 // Taking the machine down - a reboot, through the firmware or kexec, or
 // a power-off - after the RPC that asked for it has answered: HAProxy
-// soft-stopped, the shutdown hooks (what must survive: the event log,
+// soft-stopped, the extension services stopped (StopServices), the
+// shutdown hooks (what must survive: the event log,
 // the audit, the log shipper's cursors), the disks synced, the console
 // drained, then reboot(2). Each step is timed, in one line logged just
 // before the console is drained: a reboot that takes long says whether
@@ -59,6 +60,16 @@ func powerVerb(cmd int) string {
 // log targets have sent what was logged, its argument at most.
 var DrainLogs func(time.Duration)
 
+// StopServices, when set (janusd, on a node with extension services),
+// stops them before the machine goes down, after HAProxy's soft stop -
+// whose drain has already moved the traffic: Consul's services put in
+// maintenance while its agent runs, then each daemon on its SIGTERM,
+// keepalived and BIRD last. BIRD then closes its BGP sessions (a Cease)
+// and keepalived sends its priority 0; left running into reboot(2), a
+// peer kept its session with the node - and the routes it had from it -
+// until its hold timer (#446).
+var StopServices func()
+
 // logsDrain bounds DrainLogs: a working target sends in milliseconds.
 const logsDrain = time.Second
 
@@ -72,6 +83,10 @@ func powerDown(who string, h *haproxy.Manager, cmd int) {
 			log.Printf("%s: stop haproxy: %v", who, err)
 		}
 		t.done("haproxy stopped")
+	}
+	if StopServices != nil {
+		StopServices()
+		t.done("extension services")
 	}
 	shutdown.Run()
 	t.done("shutdown hooks")
