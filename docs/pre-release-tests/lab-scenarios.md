@@ -829,6 +829,57 @@ Since v2026.10.31: the site's `/api/v1/platforms` (which targets are
 schematic, a schematic made for the test, the default one): no build
 may start.
 
+### A rebooting node's BGP and VRRP
+
+Since v2026.10.31-2: each node rebooted through the firmware under the
+usual load and probes, while the lab router's view is read every
+0.23 s (each BGP session's state, the anycast route's next hops, the BFD
+sessions, the MAC behind the VIP), every line stamped by the client;
+the router's own log for how each session ended (a `Cease` notification,
+or nothing before `Idle`), and the node's serial console for BIRD's and
+keepalived's lines and the reboot line's timing (`extension services`).
+The release is measured the same way first, with and without the
+cluster. The lab's sessions run BFD, so the release's sessions end
+within a second of the kernel's restart rather than at the hold time.
+
+### The Controller's identity
+
+Since v2026.10.31-2, on the lab's Controller, made before it kept a CA:
+
+- before the update: the certificate's fingerprint on each port,
+  `controller-info`, two janusctl contexts signed in (one pinned by
+  fingerprint, one with `-controller-ca`), and a throwaway Controller
+  machine using the Let's Encrypt relay with the certificate as
+  `proxy_ca` (`haproxy acme test-path` to Let's Encrypt's staging
+  directory);
+- after the update: the log's line about the switch date, the same
+  fingerprint served, `controller-info`'s two certificates, Settings ›
+  HTTPS certificate in headless Chromium (light and dark, axe), the
+  contexts without a new sign-in and `controller_identity_ca` after one,
+  the relay node's `proxy_ca` rewritten (its log line) and `test-path`;
+- the switch, forced by one more address in the Controller's
+  `JANUS_CONTROLLER_ADVERTISE_ADDRESS` and a restart: the renewal's log
+  line, the new certificate verified with the identity CA, the contexts
+  (their certificates renewed by the API token), the relay, every node
+  page, a cluster apply, and a machine created then (registration, and
+  its NoCloud's CA). The Compose file is put back after; the Controller
+  keeps its renewed certificate.
+
+### The fleet's issuing CA renewed
+
+Since v2026.10.31-2: every node's bundle version (`GET /api/fleet`,
+`janusctl access trust`), then one Controller machine outside the
+cluster shut down, and the Fleet card's renewal in headless Chromium -
+the kit mounted read-only, the passphrase typed by the script, never
+printed nor captured (screenshots of the card, the confirmation and the
+empty form only). Then: when each node takes the bundle and logs it, the
+switch waiting for the node behind, a `janusctl login` meanwhile (the CA
+before), the node powered on through the Controller and how long it
+takes to get the bundle, the switch's log line, a new login's issuer and
+the nodes it reaches, node pages, a node rebooted through its page, a
+cluster apply, and the Controller restarted (its state, every node
+reached).
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -982,3 +1033,11 @@ ran:
   made to revert; `sb-vm create|destroy`: the Secure Boot machine;
   `u-check` (+ `.mjs`): `u-check56` counting the Secure Boot badges
   (v2026.10.31).
+- `rwatch SECONDS OUT`: the lab router's BGP sessions, anycast next
+  hops, BFD sessions and the VIP's MAC every 0.23 s; `rb-reboot NAME
+  NODE firmware|kexec`: a node rebooted under `runder-load` with
+  `rwatch`, its serial console's reboot line; `rb-summary NAME`: the
+  router's changes relative to the call; `ctx.sh`: the lab-only janusctl
+  contexts; `renew OUT [shots]` (+ `renew.mjs`): the Fleet card's renewal
+  in headless Chromium; `u-check` can click a button in a card first
+  (v2026.10.31-2).
