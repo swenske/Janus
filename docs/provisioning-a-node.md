@@ -82,14 +82,20 @@ directly into the image rather than delivering it separately at boot.
   conversion).
 - `janusctl`: [the Debian package](janusctl.md#installing-janusctl), or
   `make build` (then `./bin/janusctl` instead of `janusctl` below).
-- The Controller's CA certificate (not sensitive, retrievable without
-  credentials):
+- The Controller's CA certificate (not sensitive): `controller-ca.crt`
+  from its **Provision** panel - the CA of its identity, which signs the
+  certificate it renews by itself -, or without an account the last
+  certificate it serves on its registration port:
 
 ```sh
 echo | openssl s_client -connect <CONTROLLER_HOST>:8443 \
-    -servername <CONTROLLER_HOST> 2>/dev/null \
-  | openssl x509 -outform PEM > controller-ca.crt
+    -servername <CONTROLLER_HOST> -showcerts 2>/dev/null \
+  | awk '/BEGIN CERTIFICATE/{c=""} {c=c $0 "\n"} /END CERTIFICATE/{last=c} END{printf "%s", last}' > controller-ca.crt
 ```
+
+  A Controller made before it kept a CA serves its first certificate
+  alone until 35 days before it ends: that's what this takes then - good
+  until that switch; the Provision panel's file is good after it too.
 
 ### For a raw disk
 
@@ -189,10 +195,13 @@ bundles only).
 
 ### 2. Get the Controller's CA certificate
 
+The Provision panel's `controller-ca.crt` (its identity CA), or the last
+certificate its registration port serves:
+
 ```sh
 echo | openssl s_client -connect <CONTROLLER_HOST>:8443 \
-    -servername <CONTROLLER_HOST> 2>/dev/null \
-  | openssl x509 -outform PEM > /tmp/provision/controller-ca.crt
+    -servername <CONTROLLER_HOST> -showcerts 2>/dev/null \
+  | awk '/BEGIN CERTIFICATE/{c=""} {c=c $0 "\n"} /END CERTIFICATE/{last=c} END{printf "%s", last}' > /tmp/provision/controller-ca.crt
 ```
 
 ### 3. Prepare a blank target disk

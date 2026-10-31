@@ -193,13 +193,21 @@ What follows from it:
 ### TLS identity
 
 The Controller has its own self-signed TLS identity
-(`loadOrCreateDashboardIdentity`), generated on first run and persisted
-to `-data-dir`: what nodes register against (`-register-addr`) and are
-provisioned with, and what the page is served with until you give it a
-certificate of your own (below) - your browser's one-time trust
-click-through survives restarts (passkeys need a certificate the
-browser really trusts: give the page one, or trust the Controller's).
-Its SAN list covers `localhost`/`127.0.0.1`/`::1`
+(`internal/identity`), made on first run and kept in `-data-dir`: a CA
+(20 years, its key sealed with the master key -
+`dashboard-identity-ca.crt`) and a certificate it signs (a year,
+`dashboard-identity.crt`), which the Controller renews by itself 35
+days before it ends. It's what nodes register against
+(`-register-addr`) and are provisioned with - the CA, so a renewal
+changes nothing for them -, what the Let's Encrypt relay serves, and
+what the page is served with until you give it a certificate of your
+own (below). Your browser's trust click-through survives restarts but
+not a renewal: install the CA instead (**Settings** > **HTTPS
+certificate** > **Download the identity CA**) - passkeys need a
+certificate the browser really trusts. Give Terraform (`ca_cert`),
+Prometheus (`ca_file`) or a script (`curl --cacert`) the CA too:
+`ca_cert_pem` of `GET /api/controller-info`, or that file. The
+certificate's SAN list covers `localhost`/`127.0.0.1`/`::1`
 plus every real address this process can see on its own network
 interfaces - with `--network host`, that's the host's actual LAN
 address(es) directly, no extra configuration needed. Pass
@@ -212,10 +220,20 @@ process can't otherwise see the address a node or browser will actually
 reach it through (Docker bridge networking's own internal IP is a real
 example - a self-registering node's plain `net/http` client, unlike a
 browser, can't click through a hostname/SAN mismatch, so it would
-refuse the handshake outright without this). Only read the first time
-the identity is generated - delete
-`<data-dir>/dashboard-identity.{crt,key}` and restart to regenerate it
-after changing this.
+refuse the handshake outright without this). An address added here
+gets a new certificate at the next start, signed by the same CA - every
+name the one before had, kept.
+
+A Controller made before it kept a CA has only its first certificate -
+signed by a CA whose key was thrown away -, and gave nodes that very
+certificate. It keeps serving it until 35 days before it ends, then one
+its CA signs: its log says when, every day, and so does **Settings** >
+**HTTPS certificate**. Meanwhile `ca_cert_pem` is the CA *and* that
+certificate - what's provisioned then works on both sides of the
+switch. The nodes' relay settings and janusctl contexts follow by
+themselves; give the CA to whatever else was given that certificate
+(Terraform, Prometheus, scripts, a seeded image or a NoCloud user-data
+of a node not registered yet) before the switch.
 
 The main UI's own port (`-addr`, default `:8080`) is similarly settable
 via the `JANUS_CONTROLLER_ADDR` environment variable (same `":port"`
@@ -244,7 +262,7 @@ The page (`-addr`) - and janusctl and the Terraform provider, which
 reach the same port - can be served with a certificate of your own: a
 public one (Let's Encrypt...) or one of your organization's CA. Nodes
 keep registering against the Controller's self-signed identity on
-`-register-addr` whatever the page uses: a node provisioned with it
+`-register-addr` whatever the page uses: a node provisioned with its CA
 (`controller-ca.crt`, the Provision panel) never notices.
 
 - **On the page**: **HTTPS certificate** (an admin, at the bottom of

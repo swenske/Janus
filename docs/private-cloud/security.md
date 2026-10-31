@@ -69,10 +69,11 @@ vulnerability: [security policy](../../SECURITY.md).
   renewed by the node itself with the [Let's Encrypt](../letsencrypt.md)
   extension. `janus_certificate_expiry_timestamp_seconds` tracks every
   one HAProxy has loaded.
-- **The Controller's page**: its own self-signed identity, or a
+- **The Controller's page**: its own self-signed identity - a
+  certificate its identity CA signs and renews by itself -, or a
   certificate of yours - public or your organization's CA - read again
   within 30 seconds of a renewal. Nodes register against its own
-  identity either way.
+  identity either way, checked with its CA.
 
 ## What to expose
 

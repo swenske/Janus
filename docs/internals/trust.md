@@ -80,7 +80,8 @@ flowchart LR
 | [`janus:controller`](#the-controllers-certificate) | the Controller's issuing CA | the Controller's memory | a day | nodes |
 | [`controller.fleet.janus`](#the-controllers-registration-certificate) | the Controller's issuing CA | the Controller's memory | 30 days | nodes registering, against the fleet root |
 | [janusctl's](#janusctl-certificates) | an issuing CA - with the kit, the root | the operator's machine | 12 hours; an hour with an API token or the kit | nodes |
-| [The Controller's identity](#the-controllers-identity) | a CA made for it, then thrown away | the Controller's data directory | a year | nodes registering without a fleet; browsers and janusctl, unless the pages have a certificate of their own |
+| [The Controller's identity CA](#the-controllers-identity) | itself | sealed on the Controller | 20 years | nodes registering without a fleet, the Let's Encrypt relay's nodes, janusctl contexts that pinned the Controller |
+| [The Controller's identity](#the-controllers-identity) | the identity CA | the Controller's data directory | a year; renewed 35 days before | nodes registering without a fleet; browsers and janusctl, unless the pages have a certificate of their own |
 | [The pages' certificate](#the-pages-certificate) | your CA | given to the Controller | yours | browsers and janusctl |
 
 ## What a node accepts
@@ -269,17 +270,37 @@ before it sends anything.
 
 ### The Controller's identity
 
-Made at the Controller's first start: a certificate for its addresses
-(and `-advertise-address`), signed by a CA made for it whose key is
-thrown away. Valid a year; its key in the data directory
-(`dashboard-identity.key`).
+A CA of its own, made at the Controller's first start and kept: valid
+20 years, its key sealed in the data directory with the master key
+(`dashboard-identity-ca.key.sealed`). It signs a certificate for the
+Controller's addresses (and `-advertise-address`), valid a year, its
+key in the data directory (`dashboard-identity.key`). The Controller
+renews that certificate by itself 35 days before it ends - for the
+same names, and the addresses it has then - and as soon as
+`-advertise-address` names something it doesn't cover.
 
 - **Its registration port** (8443) shows it to a node that doesn't ask
-  for `controller.fleet.janus`. A node is given this certificate to
+  for `controller.fleet.janus`. A node is given **the identity CA** to
   check the Controller with - by the installer, a seeded image or
-  NoCloud; with the fleet's root as well, it tries the fleet first. A node never uses the system's trust store there, and never
-  trusts on first use.
+  NoCloud (`ca_cert_pem` of the Controller's information, its machines'
+  NoCloud); with the fleet's root as well, it tries the fleet first. A
+  node never uses the system's trust store there, and never trusts on
+  first use. A renewed certificate changes nothing for it.
+- **The Let's Encrypt relay** (8444) shows it too: its nodes check the
+  relay with the identity CA (`proxy_ca`).
 - **Its pages** show it too, unless they have a certificate of their own.
+  A janusctl context that pinned the certificate keeps the CA the
+  Controller gives it at each sign-in, and takes the next certificate it
+  signs.
+- **Controllers made before** they kept a CA had only the certificate,
+  signed by a CA whose key was thrown away, and gave nodes that very
+  certificate. Such a Controller keeps serving it until 35 days before
+  it ends, giving the CA *and* that certificate meanwhile, then serves
+  one its CA signs. The nodes' relay settings and janusctl contexts
+  follow by themselves; what was given that certificate alone and isn't
+  a registered node - a seeded image, a saved NoCloud user-data,
+  Terraform's or Prometheus's settings - needs the CA instead. The
+  Controller says when it switches, in its log and on its Settings page.
 
 ### The pages' certificate
 
@@ -313,11 +334,12 @@ Controller keeps none of yours.
 ## Renewal and rotation
 
 - **Renewed by themselves**: the server certificate, the Controller's
-  certificate and its registration certificate, janusctl's certificates
-  (when it can sign in again on its own).
+  certificate and its registration certificate, the Controller's
+  identity, janusctl's certificates (when it can sign in again on its
+  own).
 - **Not renewed**: the node CA (10 years), the first-boot admin
   certificate and the service credentials (a year), the issuing CAs (2
-  years), the fleet root (20 years), the Controller's identity (a year).
+  years), the fleet root and the Controller's identity CA (20 years).
 
 ### Rotating a node's CA
 
@@ -369,6 +391,7 @@ given may be others:
 | Roles per call | `internal/api/authz.go`, `internal/rbac` |
 | Registration | `internal/selfregister`, `dashboard/backend/register.go` |
 | The Controller's fleet and certificates | `dashboard/backend/internal/fleet`, `dashboard/backend/cli.go` |
+| The Controller's identity | `dashboard/backend/internal/identity`, `dashboard/backend/identity.go` |
 | The Controller's pages' certificate | `dashboard/backend/internal/uitls` |
 | Sealing with the master key | `dashboard/backend/internal/secrets` |
 | janusctl's fleet | `cmd/janusctl/fleet.go`, `internal/fleetkit` |

@@ -362,7 +362,10 @@ shortest refresh any account may choose - the choices start there, an
 account that chose faster follows it) and the **HTTPS certificate**
 (`HTTPSCert.jsx`, folded): what the page is served with (self-signed,
 uploaded, or from `-tls-cert`), a bundle checked before it's served,
-and back to self-signed; and the **Usage report** (`Telemetry.jsx`,
+and back to self-signed - then the Controller's identity (`identity` of
+`/api/controller/tls`: its CA's SHA-256 and end, the certificate's end,
+**Download the identity CA**, and a dated notice while a Controller
+made before it kept a CA still serves its first certificate); and the **Usage report** (`Telemetry.jsx`,
 `/api/telemetry`, sessions only, docs/guide/telemetry.md): on or off -
 locked off by `JANUS_CONTROLLER_TELEMETRY=off` -, its ID with **New
 ID**, when it was last sent and goes next, **Exactly what is sent**
