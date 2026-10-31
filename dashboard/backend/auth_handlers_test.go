@@ -133,6 +133,8 @@ func TestRoutesNeedTheirRole(t *testing.T) {
 		{"POST", "/api/fleet/setup", auth.Admin},
 		{"GET", "/api/fleet/recovery-kit", auth.Admin},
 		{"POST", "/api/fleet/confirm", auth.Admin},
+		{"POST", "/api/fleet/renew", auth.Admin},
+		{"POST", "/api/fleet/rescue", auth.Admin},
 		{"GET", "/api/users", auth.Admin},
 		{"POST", "/api/users", auth.Admin},
 		{"PATCH", "/api/users/rita", auth.Admin},

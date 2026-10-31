@@ -51,7 +51,7 @@ sequenceDiagram
 | Single sign-on providers | `sso.json` | their client secrets sealed with the master key |
 | Sessions | memory | idle 30 minutes, 12 hours at most; ended by a password change; a provider's ID token, for signing out of it |
 | Single sign-ons under way | memory | ten minutes, each taken once |
-| The fleet's issuing CA | `<data-dir>`, sealed with the master key | the root's key leaves with the recovery kit |
+| The fleet's issuing CA | `<data-dir>/fleet`, sealed with the master key | the root's key leaves with the recovery kit; renewed with it (`issuing.crt` the CA janusctl's certificates come from, a renewal's waiting in `issuing-<ms>.crt`, the one before in `previous-<ms>.crt`) |
 | The identity CA | `<data-dir>/dashboard-identity-ca.crt`, its key sealed with the master key | signs the Controller's own certificate (`dashboard-identity.crt`), renewed 35 days before it ends |
 | Hypervisors (their labels too), machines | `<data-dir>/hypervisors`, `<data-dir>/machines` | ownership tags on every machine it created; a machine's node inherits its hypervisor's labels when they're read, never copied |
 | The audit log | `audit.jsonl` | every change made through the API |

@@ -1141,6 +1141,43 @@ relabel "$SCOPED_NODE" web
 curl -sk -b "$COOKIE_JAR" -o /dev/null -X DELETE "$API/api/nodes/$ELSEWHERE_ID"
 echo "janusctl scoped OK: an account without a role over everything got a certificate naming its nodes by their CA's key; the node applied haproxy.cfg with it, refused it a service restart itself, and refused one naming another node"
 
+# --- the fleet's issuing CA renewed with the recovery kit (#135): a
+# wrong passphrase changes nothing; the kit makes a new issuing CA and a
+# bundle listing it and the one before, the node takes it from the trust
+# loop - reached with a certificate it lets in -, janusctl's
+# certificates switch to the new CA, and the Controller keeps reaching
+# the node (then across the restart below) ---
+renew_body() { python3 -c 'import json,sys; print(json.dumps({"kit": open(sys.argv[1]).read(), "passphrase": sys.argv[2]}))' "$WORKDIR/recovery-kit.age" "$1" >"$WORKDIR/renew.json"; }
+renew_body "0000-0000-0000-0000-0000-0000"
+renew_code="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X POST "$API/api/fleet/renew" -H 'Content-Type: application/json' --data-binary @"$WORKDIR/renew.json")"
+[ "$renew_code" = 400 ] || { echo "Dashboard test FAILED: renewing with a wrong passphrase: $renew_code" >&2; exit 1; }
+if curl -sk -b "$COOKIE_JAR" "$API/api/fleet" | grep -q '"renewal"'; then echo "Dashboard test FAILED: a refused renewal changed the fleet" >&2; exit 1; fi
+renew_body "$PASSPHRASE"
+renew_code="$(curl -sk -b "$COOKIE_JAR" -o "$WORKDIR/renewed.json" -w '%{http_code}' -X POST "$API/api/fleet/renew" -H 'Content-Type: application/json' --data-binary @"$WORKDIR/renew.json")"
+[ "$renew_code" = 200 ] || { echo "Dashboard test FAILED: renewing the issuing CA with the kit: $renew_code $(cat "$WORKDIR/renewed.json")" >&2; exit 1; }
+RENEWED_VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["renewal"]["version"])' "$WORKDIR/renewed.json")"
+NEW_ISSUING="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["issuing_name"])' "$WORKDIR/renewed.json")"
+renewal_state() { curl -sk -b "$COOKIE_JAR" "$API/api/fleet" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["nodes"].get(sys.argv[1], {}).get("bundle_version", 0), "switched" if d.get("renewal", {}).get("switched") else "waiting")' "$FLEET_NODE_ID"; }
+deadline=$((SECONDS + 90))
+until [ "$(renewal_state)" = "$RENEWED_VERSION switched" ]; do
+  [ "$SECONDS" -lt "$deadline" ] || { echo "Dashboard test FAILED: the node never took the renewal's bundle, or janusctl's certificates never switched: $(renewal_state), want $RENEWED_VERSION switched" >&2; grep 'fleet' "$WORKDIR/dashboardd-restart.log" >&2; exit 1; }
+  sleep 1
+done
+"$WORKDIR/janusctl" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" access trust >"$WORKDIR/trust-renewed.txt" \
+  || { echo "Dashboard test FAILED: reading the node's fleet after the renewal" >&2; exit 1; }
+grep -q "version $RENEWED_VERSION" "$WORKDIR/trust-renewed.txt" || { echo "Dashboard test FAILED: the node doesn't have the renewal's bundle: $(cat "$WORKDIR/trust-renewed.txt")" >&2; exit 1; }
+[ "$(fleet_relay)" = "200" ] || { echo "Dashboard test FAILED: the Controller doesn't reach the node after the renewal" >&2; exit 1; }
+JANUS_TOKEN="$ADMIN_TOKEN" "$WORKDIR/janusctl" login -context admin >"$WORKDIR/janusctl-renewed-login.txt" 2>&1 \
+  || { echo "Dashboard test FAILED: janusctl login after the renewal: $(cat "$WORKDIR/janusctl-renewed-login.txt")" >&2; exit 1; }
+renewed_issuer="$(openssl x509 -in "$(dirname "$JANUSCONFIG")/admin/cert.pem" -noout -issuer)"
+case "$renewed_issuer" in *"$NEW_ISSUING"*) ;; *) echo "Dashboard test FAILED: janusctl's certificate after the switch isn't the new issuing CA's ($renewed_issuer, want $NEW_ISSUING)" >&2; exit 1 ;; esac
+"$WORKDIR/janusctl" -context admin -n test-node version >/dev/null || { echo "Dashboard test FAILED: janusctl with the new issuing CA's certificate can't reach the node" >&2; exit 1; }
+for f in issuing.crt issuing.key.sealed; do
+  [ -s "$WORKDIR/data/fleet/$f" ] || { echo "Dashboard test FAILED: $f gone after the switch" >&2; exit 1; }
+done
+openssl x509 -in "$WORKDIR/data/fleet/issuing.crt" -noout -subject | grep -q "$NEW_ISSUING" || { echo "Dashboard test FAILED: issuing.crt isn't the new CA after the switch (an older release would sign with the old one)" >&2; exit 1; }
+echo "Fleet renewal OK: a wrong passphrase refused; the kit renewed the issuing CA ($NEW_ISSUING), the node took bundle $RENEWED_VERSION, janusctl's certificates switched to the new CA and reach the node"
+
 # Restarted with an address more for its identity: the Controller renews
 # its certificate (internal/identity) - same CA; the janusctl context
 # that pinned the first one kept the CA at its sign-in and follows.

@@ -82,3 +82,34 @@ func TestLabels(t *testing.T) {
 		t.Error("LabelSet isn't a copy")
 	}
 }
+
+// TestFleetBundle: the bundle version a node was seen with, kept across
+// a restart and through the other changes to its metadata.
+func TestFleetBundle(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := &Node{Name: "lb1", Address: "192.0.2.10:9505", CACertPEM: []byte("CA"), Fleet: true, FleetBundle: 1}
+	if err := s.Add(n); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetFleetBundle(n.ID, 1761900000000); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetLabels(n.ID, map[string]string{"team": "web"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetAddress(n.ID, "192.0.2.11:9505"); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, _ := again.Get(n.ID)
+	if r.Bundle() != 1761900000000 || n.Bundle() != 1761900000000 {
+		t.Errorf("the bundle version: %d reloaded, %d in memory", r.Bundle(), n.Bundle())
+	}
+}

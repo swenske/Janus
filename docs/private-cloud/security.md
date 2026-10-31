@@ -45,7 +45,7 @@ vulnerability: [security policy](../../SECURITY.md).
 |---|---|---|
 | A node's admin certificate and key | Printed once on its console at first boot; on its STATE partition | The way in when nothing else works: keep it offline, or let it go - the fleet's certificates replace it day to day |
 | A node's certificate authority, server and Let's Encrypt keys, uploaded certificates | Its STATE partition - never served by its API | STATE isn't encrypted: whoever holds a node's disk holds them. Protect the disks and their backups like the node |
-| The fleet's root key | The recovery kit, encrypted with a passphrase - offline | A password manager. Needed only to renew the fleet's keys or recover a Controller |
+| The fleet's root key | The recovery kit, encrypted with a passphrase - offline | A password manager. Needed only to renew the Controller's issuing CA (every two years - its Fleet card asks 180 days ahead) or recover a Controller |
 | The fleet's issuing key | The Controller's data, sealed with its master key | Keep the master key outside the data volume (`JANUS_CONTROLLER_MASTER_KEY_FILE`): a copy of the data alone opens nothing |
 | The backups | An S3 bucket, encrypted to the backup kit's key | The kit and its passphrase in a password manager; a bucket with versioning or Object Lock, and a write-only key for the Controller |
 | Accounts | The Controller: bcrypt passwords, TOTP secrets sealed with the master key, passkeys | MFA - required for admins by default |

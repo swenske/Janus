@@ -44,13 +44,19 @@ type Node struct {
 	ServiceCertPEM []byte `json:"-"`
 	ServiceKeyPEM  []byte `json:"-"`
 	Fleet          bool   `json:"-"`
+	// FleetBundle is the version of the fleet's bundle the node was last
+	// seen with - what the Controller's certificate for it is chosen by
+	// after a renewal of the issuing CA. Set it only before the node is
+	// added; afterwards read it with Bundle, change it with
+	// Store.SetFleetBundle.
+	FleetBundle uint64 `json:"-"`
 	// Labels say what the node is (team=web, env=prod): scoped grants
 	// and tokens pick nodes by them. Set them only before the node is
 	// added; afterwards read them with LabelSet, change them with
 	// Store.SetLabels.
 	Labels map[string]string `json:"-"`
 
-	mu sync.Mutex // guards Address, the credentials, Fleet and Labels once the node is in a Store
+	mu sync.Mutex // guards Address, the credentials, Fleet, FleetBundle and Labels once the node is in a Store
 }
 
 // LabelSet is a copy of the node's labels.
@@ -62,7 +68,15 @@ func (n *Node) LabelSet() map[string]string {
 
 // metaLocked is the node's meta.json - n.mu held.
 func (n *Node) metaLocked() meta {
-	return meta{ID: n.ID, Name: n.Name, Address: n.Address, MachineID: n.MachineID, Fleet: n.Fleet, Labels: n.Labels}
+	return meta{ID: n.ID, Name: n.Name, Address: n.Address, MachineID: n.MachineID, Fleet: n.Fleet, FleetBundle: n.FleetBundle, Labels: n.Labels}
+}
+
+// Bundle is the version of the fleet's bundle the node was last seen
+// with - 0 when not known.
+func (n *Node) Bundle() uint64 {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.FleetBundle
 }
 
 // CA is the node's own CA (PEM), the pin for its server certificate.
@@ -106,8 +120,9 @@ type meta struct {
 	MachineID string `json:"machine_id,omitempty"`
 	// Fleet: the node trusts the Controller's fleet - no service
 	// credential is kept for it anymore.
-	Fleet  bool              `json:"fleet,omitempty"`
-	Labels map[string]string `json:"labels,omitempty"`
+	Fleet       bool              `json:"fleet,omitempty"`
+	FleetBundle uint64            `json:"fleet_bundle,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
 }
 
 type Store struct {
@@ -159,7 +174,7 @@ func loadNode(dir string) (*Node, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read ca.crt: %w", err)
 	}
-	n := &Node{ID: m.ID, Name: m.Name, Address: m.Address, MachineID: m.MachineID, CACertPEM: ca, Fleet: m.Fleet, Labels: m.Labels}
+	n := &Node{ID: m.ID, Name: m.Name, Address: m.Address, MachineID: m.MachineID, CACertPEM: ca, Fleet: m.Fleet, FleetBundle: m.FleetBundle, Labels: m.Labels}
 	if m.Fleet {
 		return n, nil
 	}
@@ -292,6 +307,27 @@ func (s *Store) SetFleet(id string) error {
 		}
 	}
 	n.Fleet, n.ServiceCertPEM, n.ServiceKeyPEM = true, nil, nil
+	return nil
+}
+
+// SetFleetBundle records the version of the fleet's bundle the node was
+// seen with - written only when it changed.
+func (s *Store) SetFleetBundle(id string, version uint64) error {
+	n, ok := s.Get(id)
+	if !ok {
+		return fmt.Errorf("no such node %q", id)
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.FleetBundle == version {
+		return nil
+	}
+	m := n.metaLocked()
+	m.FleetBundle = version
+	if err := s.write(id, "meta.json", mustJSON(m)); err != nil {
+		return err
+	}
+	n.FleetBundle = version
 	return nil
 }
 

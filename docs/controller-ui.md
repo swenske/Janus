@@ -149,8 +149,12 @@ give both back - `/api/fleet/*`, session only); pending approvals, then
 the nodes as cards - each with its last five minutes (CPU, HAProxy's
 requests, its traffic: `NodeSparklines`, see [Live data](#live-data))
 and its **Trust** once the fleet is ready
-(`fleet`, `needs an update`, an error) - then the **Fleet** card and
-provisioning. A node the Controller created on a hypervisor shows its
+(`fleet`, `needs an update`, `needs the recovery kit`, an error) - then
+the **Fleet** card (its root, its issuing CA, the renewal: a `KitForm`
+for **Renew the issuing CA** and **Reach them with the recovery kit**,
+`POST /api/fleet/renew|rescue`; `fleetAlert.js` - a notice from 180
+days before the issuing CA ends, danger in the last 30, and from 60 a
+badge in the header for admins, beside the backups') and provisioning. A node the Controller created on a hypervisor shows its
 virtual machine on its card (state, reset/force-off/start, console) and
 **Destroy** instead of Remove; a pending registration from a machine it
 created (an image too old to present its registration token) says so,

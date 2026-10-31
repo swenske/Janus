@@ -24,11 +24,13 @@ import (
 	"github.com/swenske/Janus/internal/rbac"
 )
 
-// FleetIdentity is the Controller's own client certificate once its
-// fleet is set up (dashboard/backend/internal/fleet) - set by dashboardd.
-// A node that trusts the fleet is reached with it; one that doesn't yet,
-// with the service credential the Controller got when it added it.
-var FleetIdentity func() (*tls.Certificate, error)
+// FleetIdentity is the Controller's own client certificate for a node
+// once its fleet is set up (dashboard/backend/internal/fleet) - set by
+// dashboardd: the one that node's bundle lets in, after a renewal of the
+// issuing CA. A node that trusts the fleet is reached with it; one that
+// doesn't yet, with the service credential the Controller got when it
+// added it.
+var FleetIdentity func(node *store.Node) (*tls.Certificate, error)
 
 // User is whom a call to a node is made for: a node lets a fleet
 // certificate act only for the user it names (internal/api/authz.go),
@@ -144,10 +146,10 @@ func actingFor(ctx context.Context, method string) (context.Context, error) {
 
 // nodeTLS is how the Controller authenticates to node, and checks it's
 // the node: its fleet certificate (fleet - once the node trusts the
-// fleet, or to check it does), else the node's service credential; the
-// node's server certificate checked against the node's own CA either
-// way.
-func nodeTLS(node *store.Node, fleet bool) (*tls.Config, error) {
+// fleet, or to check it does) - or cert, given -, else the node's
+// service credential; the node's server certificate checked against the
+// node's own CA either way.
+func nodeTLS(node *store.Node, fleet bool, cert *tls.Certificate) (*tls.Config, error) {
 	var cfg *tls.Config
 	if !fleet {
 		cert, key := node.ServiceCredential()
@@ -157,7 +159,7 @@ func nodeTLS(node *store.Node, fleet bool) (*tls.Config, error) {
 		}
 		cfg = c
 	} else {
-		if FleetIdentity == nil {
+		if FleetIdentity == nil && cert == nil {
 			return nil, errors.New("the node trusts the fleet, but this Controller has no fleet certificate")
 		}
 		pool := x509.NewCertPool()
@@ -168,7 +170,10 @@ func nodeTLS(node *store.Node, fleet bool) (*tls.Config, error) {
 			RootCAs:    pool,
 			MinVersion: tls.VersionTLS13,
 			GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
-				return FleetIdentity()
+				if cert != nil {
+					return cert, nil
+				}
+				return FleetIdentity(node)
 			},
 		}
 	}
@@ -209,11 +214,11 @@ func followCA(node *store.Node, chains [][]*x509.Certificate) {
 // node trusts the fleet or not, and the user each call is made for
 // (WithUser; Automation by default).
 func dialOptions(node *store.Node) ([]grpc.DialOption, error) {
-	return dialOptionsWith(node, node.TrustsFleet())
+	return dialOptionsWith(node, node.TrustsFleet(), nil)
 }
 
-func dialOptionsWith(node *store.Node, fleet bool) ([]grpc.DialOption, error) {
-	tlsConfig, err := nodeTLS(node, fleet)
+func dialOptionsWith(node *store.Node, fleet bool, cert *tls.Certificate) ([]grpc.DialOption, error) {
+	tlsConfig, err := nodeTLS(node, fleet, cert)
 	if err != nil {
 		return nil, fmt.Errorf("build TLS config: %w", err)
 	}
