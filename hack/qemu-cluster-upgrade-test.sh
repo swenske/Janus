@@ -233,12 +233,19 @@ protocol bgp router {
 }
 EOF
   out="$(alice cluster apply edge "$DIR" -manage haproxy,files,bgp -m BGP 2>&1)" || fail "apply version 2: $out"
+  # A member's reboot doesn't close its session (reboot(2) right after
+  # HAProxy's soft stop): lb-3 learns it from its hold timer, or from the
+  # reset its next keepalive gets from the member back up. BIRD's 240 s /
+  # 80 s left that to the keepalive's phase - inside the test's minute
+  # or not, which the kernel's boot time alone tipped (v2026.10.31's
+  # first build, #442's debian image). 9 s / 3 s, like a router with
+  # tight timers.
   cat > "$WORKDIR/router.conf" <<'EOF'
 router id 192.168.87.3;
 protocol device {}
 protocol kernel { ipv4 { export all; }; merge paths on; }
-protocol bgp m1 { local 192.168.87.3 as 65000; neighbor 192.168.87.1 as 65001; connect retry time 1; error wait time 1, 2; ipv4 { import all; export none; }; }
-protocol bgp m2 { local 192.168.87.3 as 65000; neighbor 192.168.87.2 as 65001; connect retry time 1; error wait time 1, 2; ipv4 { import all; export none; }; }
+protocol bgp m1 { local 192.168.87.3 as 65000; neighbor 192.168.87.1 as 65001; connect retry time 1; error wait time 1, 2; hold time 9; keepalive time 3; ipv4 { import all; export none; }; }
+protocol bgp m2 { local 192.168.87.3 as 65000; neighbor 192.168.87.2 as 65001; connect retry time 1; error wait time 1, 2; hold time 9; keepalive time 3; ipv4 { import all; export none; }; }
 EOF
   out="$(alice -n lb-3 network bgp apply "$WORKDIR/router.conf" 2>&1)" || fail "lb-3's bird.conf: $out"
 fi
