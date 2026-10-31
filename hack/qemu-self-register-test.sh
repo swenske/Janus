@@ -132,6 +132,24 @@ trap cleanup EXIT
 # baked into its TLS identity SAN list.
 # =========================================================================
 mkdir -p "$WORKDIR/dashboard-data"
+# SELF_REGISTER_LEGACY=1: the Controller was made before it kept its
+# identity's CA - its first certificate, signed by a CA thrown away, is
+# what it serves (200 days left). The node is provisioned with what it
+# gives now (controller-info's ca_cert_pem: the CA and that
+# certificate); the Controller restarted with an address more for its
+# certificate switches to one its CA signs - and the node registers.
+LEGACY="${SELF_REGISTER_LEGACY:-}"
+if [ -n "$LEGACY" ]; then
+  L="$WORKDIR/legacy"
+  mkdir -p "$L"
+  openssl ecparam -name prime256v1 -genkey -noout -out "$L/ca.key"
+  openssl req -x509 -new -key "$L/ca.key" -subj /CN=dashboard -days 3650 -out "$L/ca.crt"
+  openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out "$WORKDIR/dashboard-data/dashboard-identity.key"
+  openssl req -new -key "$WORKDIR/dashboard-data/dashboard-identity.key" -subj /CN=dashboard -out "$L/leaf.csr"
+  printf 'subjectAltName=DNS:localhost,IP:127.0.0.1,IP:%s\nextendedKeyUsage=serverAuth\n' "$QEMU_HOST_GATEWAY" > "$L/ext.cnf"
+  openssl x509 -req -in "$L/leaf.csr" -CA "$L/ca.crt" -CAkey "$L/ca.key" -CAcreateserial -days 200 -extfile "$L/ext.cnf" -out "$WORKDIR/dashboard-data/dashboard-identity.crt" 2>/dev/null
+  LEGACY_FP="$(openssl x509 -in "$WORKDIR/dashboard-data/dashboard-identity.crt" -noout -fingerprint -sha256)"
+fi
 "$DASHBOARDD" -addr ":${DASHBOARD_ADDR_PORT}" -register-addr ":${DASHBOARD_REGISTER_PORT}" \
   -data-dir "$WORKDIR/dashboard-data" -advertise-address "$QEMU_HOST_GATEWAY" \
   > "$WORKDIR/dashboardd.log" 2>&1 &
@@ -148,7 +166,18 @@ setup_code="$(curl -sk -c "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X POST "
 [ "$setup_code" = "204" ] || { echo "Self-register test FAILED: dashboard admin setup returned $setup_code, want 204" >&2; exit 1; }
 echo "Part 1 OK: dashboardd running natively, admin auth established"
 
-CONTROLLER_CA="$WORKDIR/dashboard-data/dashboard-identity.crt"
+# What the node checks the Controller with: its identity's CA alone -
+# the certificate it serves is renewed by itself. A legacy Controller:
+# what controller-info gives (the CA, and its first certificate).
+CONTROLLER_CA="$WORKDIR/dashboard-data/dashboard-identity-ca.crt"
+if [ -n "$LEGACY" ]; then
+  CONTROLLER_CA="$WORKDIR/controller-trust.pem"
+  curl -sk -b "$COOKIE_JAR" "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/controller-info" | python3 -c 'import json,sys; open(sys.argv[1], "w").write(json.load(sys.stdin)["ca_cert_pem"])' "$CONTROLLER_CA"
+  [ "$(grep -c 'BEGIN CERTIFICATE' "$CONTROLLER_CA")" = 2 ] || { echo "Self-register test FAILED: a legacy Controller's ca_cert_pem isn't its CA and its first certificate: $(cat "$CONTROLLER_CA")" >&2; exit 1; }
+  served="$(echo | openssl s_client -connect "127.0.0.1:${DASHBOARD_REGISTER_PORT}" 2>/dev/null | openssl x509 -noout -fingerprint -sha256)"
+  [ "$served" = "$LEGACY_FP" ] || { echo "Self-register test FAILED: a legacy Controller doesn't serve its first certificate any more ($served, want $LEGACY_FP)" >&2; exit 1; }
+  echo "Legacy Controller: serves its first certificate, gives its CA and that certificate"
+fi
 
 # SELF_REGISTER_FLEET=1: the Controller's fleet is set up before the node
 # boots - the node then announces itself with no key at all (protocol
@@ -235,9 +264,13 @@ kill_native_haproxy
 echo "Part 2 OK: Install wrote a Controller-provisioned image"
 
 # The Controller is down while the node boots: its first attempts fail.
+# A legacy Controller comes back with an address more for its
+# certificate: it switches to one its identity CA signs.
+ADVERTISE="$QEMU_HOST_GATEWAY"
+[ -z "$LEGACY" ] || ADVERTISE="$QEMU_HOST_GATEWAY,switch.example"
 start_dashboardd() {
   "$DASHBOARDD" -addr ":${DASHBOARD_ADDR_PORT}" -register-addr ":${DASHBOARD_REGISTER_PORT}" \
-    -data-dir "$WORKDIR/dashboard-data" -advertise-address "$QEMU_HOST_GATEWAY" \
+    -data-dir "$WORKDIR/dashboard-data" -advertise-address "$ADVERTISE" \
     >> "$WORKDIR/dashboardd.log" 2>&1 &
   DASHBOARD_PID=$!
 }
@@ -295,6 +328,13 @@ while [ "$SECONDS" -lt "$DEADLINE" ]; do
 done
 [ "$login_code" = "204" ] || { echo "Self-register test FAILED: login after restarting dashboardd returned $login_code" >&2; cat "$WORKDIR/dashboardd.log" >&2; exit 1; }
 echo "Part 3b OK: with the Controller down, the node logged its failed attempt and retries: $(grep -m1 'selfregister: registration failed' "$LOG" | tr -d '\r')"
+if [ -n "$LEGACY" ]; then
+  served="$(echo | openssl s_client -connect "127.0.0.1:${DASHBOARD_REGISTER_PORT}" -showcerts 2>/dev/null)"
+  issuer="$(openssl x509 -noout -issuer <<<"$served")"
+  case "$issuer" in *"Janus Controller identity CA"*) ;; *) echo "Self-register test FAILED: the legacy Controller didn't switch to a certificate its identity CA signs (issuer: $issuer)" >&2; cat "$WORKDIR/dashboardd.log" >&2; exit 1 ;; esac
+  grep -q "identity: the Controller's certificate renewed" "$WORKDIR/dashboardd.log" || { echo "Self-register test FAILED: the switch isn't logged" >&2; exit 1; }
+  echo "Legacy Controller switched: it serves a certificate its identity CA signs - the node was provisioned before, with its CA and its first certificate"
+fi
 
 if [ -n "$ENROLL" ]; then
   # Admitted at once on the token: a node, labelled, nothing pending.

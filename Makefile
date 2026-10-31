@@ -55,7 +55,7 @@ GEN_DIR := gen
 	disk-image qemu-ab-boot-test uki-image qemu-uefi-boot-test \
 	qemu-uefi-ab-boot-test qemu-lifecycle-rollback-test qemu-secureboot-test \
 	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test qemu-lifecycle-upgrade-variant-test qemu-lifecycle-upgrade-from-release-test release-bundle release-images release-image-files qemu-orchestrator-test \
-	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-probe-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-fleetctl-test qemu-cluster-test qemu-state-migrate-test qemu-controller-cluster-test qemu-clusterctl-test qemu-cluster-upgrade-test qemu-cluster-upgrade-bgp-test qemu-controller-cluster-upgrade-test qemu-self-register-fleet-test qemu-self-register-enroll-test qemu-network-config-test qemu-dhcp-test \
+	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-probe-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-fleetctl-test qemu-cluster-test qemu-state-migrate-test qemu-controller-cluster-test qemu-clusterctl-test qemu-cluster-upgrade-test qemu-cluster-upgrade-bgp-test qemu-controller-cluster-upgrade-test qemu-self-register-fleet-test qemu-self-register-enroll-test qemu-self-register-legacy-test qemu-network-config-test qemu-dhcp-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build dashboard-bin \
 	qemu-dashboard-test dashboard-image controller-self-update-test controller-libvirt-test controller-sso-test terraform-provider-build terraform-provider-dist terraform-provider-dist-test terraform-provider-test routeros-hook-test local-dev-image ca-certificates seed-controller-test \
@@ -1603,6 +1603,13 @@ qemu-self-register-fleet-test: build dashboard-bin rootfs-build
 # labelled, no approval.
 qemu-self-register-enroll-test: build dashboard-bin rootfs-build
 	SELF_REGISTER_ENROLL=1 ./hack/qemu-self-register-test.sh $(BUILD_DIR)/rootfs $(BUILD_DIR)/bzImage $(BUILD_DIR)/haproxy $(BUILD_DIR)/janusd $(BIN_DIR)/janusctl $(BIN_DIR)/dashboardd
+
+# The same with a Controller made before it kept its identity's CA: the
+# node is provisioned with what it gives meanwhile (the CA and its first
+# certificate), and registers once the Controller switched to a
+# certificate the CA signs (#134).
+qemu-self-register-legacy-test: build dashboard-bin rootfs-build
+	SELF_REGISTER_LEGACY=1 ./hack/qemu-self-register-test.sh $(BUILD_DIR)/rootfs $(BUILD_DIR)/bzImage $(BUILD_DIR)/haproxy $(BUILD_DIR)/janusd $(BIN_DIR)/janusctl $(BIN_DIR)/dashboardd
 
 # Scaling-provisioning follow-up: proves `janusctl image seed-controller`
 # (internal/diskseed) - writes controller_address/controller_ca_cert

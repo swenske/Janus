@@ -743,6 +743,11 @@ jobs:
       - name: janusd enrolls on a token, labelled, without approval
         run: make qemu-self-register-enroll-test
 
+      # A Controller made before it kept its identity's CA: a node
+      # provisioned meanwhile registers after it switched (#134).
+      - name: janusd registers across a legacy Controller's identity switch
+        run: make qemu-self-register-legacy-test
+
       # Phase 3 cont'd: LifecycleService.Install is real - unlike
       # Rollback/Upgrade, it has no existing partition table to build
       # on, so it can't get away with only ever moving pre-built bytes
