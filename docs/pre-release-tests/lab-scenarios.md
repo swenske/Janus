@@ -147,6 +147,12 @@ reboots each through their node pages, each timed to HAProxy answering
 again, their consoles timestamped through the Controller's console
 stream ("Restarting system" to the firmware's boot manager); and the
 new machines' libvirt definitions read on both hosts.
+Since v2026.10.31-4, after each reboot - firmware twice, kexec chained
+four times - the node's boot stages are read off its Janus exporter
+(`janus_boot_stage_seconds`: init, janusd, HAProxy and the API, in
+seconds after the kernel started), on node 02 and on the Controller's
+longterm machine through its node page, the release measured the same
+way first: what a kernel update changes in the boot itself.
 
 ### Rollback
 
@@ -910,7 +916,8 @@ ran:
 - `bench`, `rbench`: the throughput runs;
 - `failover`, `rfailover`: node loss and HAProxy stopped;
 - `reboot-time`: the reboots; `reboot-steps`: their timing lines in the
-  log server (v2026.10.23);
+  log server (v2026.10.23); `bstage`: the boot stages after each reboot,
+  a node's or a Controller machine's (v2026.10.31-4);
 - `new-machine` (`EXTENSIONS=`, `KERNEL=`), `update-machine`: a
   Controller machine made or updated through the API; `le-ca`: the
   private CA and its tunnel; `le`: the Let's Encrypt steps through the
