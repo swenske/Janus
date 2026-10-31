@@ -171,7 +171,7 @@ ROUTEROS_CHR_SHA256  := 6b981288350de2a2c7a3218bd820ab702633b8cd6cd339f2bb34dda1
 # versitygw, Versity's S3 gateway: the bucket hack/qemu-dashboard-test.sh
 # backs the Controller up to and restores it from - it checks S3's
 # signatures for real (go install'ed at this tag - never shipped).
-VERSITYGW_VERSION := v1.9.0
+VERSITYGW_VERSION := v1.10.0
 
 # The Consul agent (consul extension): HashiCorp's release zip, checked
 # against these (from consul_<version>_SHA256SUMS, whose signature by
