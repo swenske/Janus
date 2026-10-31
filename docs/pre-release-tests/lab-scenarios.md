@@ -437,6 +437,8 @@ through `janusctl` along the way, its counts compared with the requests
 | A member removed under load | the backup removed through the API, with a TLS frontend naming the ticket key ring on both and a session saved from the master before (since v2026.10.24-2) | time, requests lost; the rings' SHA-256 after - the departed node's own, the master's renewed; the session resumed nowhere; the departed node's drain, as it reports it |
 | Updated in place under load | `POST /api/clusters/{id}/upgrade` from the previous release to the pre-release, `wrk` and the probes running (since v2026.10.29, in place of the rolling update) | requests lost, each member's drained-to-back time, the journal's steps, the tables and slots after |
 | A drained member rebooted | the backup drained, rebooted through the firmware, the router's routes read every 0.75 s until undrained (since v2026.10.29) | the member's VRRP state and BGP protocols at boot, the router's routes, which node the probes reached |
+| Undrained the moment it answers | the backup drained through the Controller, rebooted (kexec three times, the firmware three times), undrained through the Controller as soon as its janusd answers - its port polled every 0.1 s, then `janusctl version` (which waits for a node instead of failing); on the previous release's Controller first (since v2026.10.31) | each first undrain's outcome and error, how long after the API answered it was sent |
+| Back on its old slot | the cluster updated in place to the other release; the first member's VM destroyed and started again the moment its janusd answers on the new slot (its one boot try taken, not yet confirmed), so init reverts it (since v2026.10.31) | init's revert line, when the Controller's journal says reverted, that the update stops before the next member, both members' slots after |
 | Deleted | | time; the nodes on their own - each with a ring of its own -, the lab's configuration put back |
 | The page | the Clusters list and the cluster's tabs with these data | both themes, axe, console errors, failed requests |
 
@@ -800,6 +802,33 @@ and dark:
 Console errors, failed requests and axe's serious and critical issues
 must all be zero.
 
+### Secure Boot
+
+Since v2026.10.31:
+
+- `hack/uki-verify.sh` with the release certificate on the published
+  qcow2s (every UKI signed), and on the previous release's (refused);
+- a throwaway machine on a lab hypervisor booted from the published
+  `janus.qcow2` with Secure Boot enforced: `OVMF_CODE_4M.secboot.fd`,
+  the flash locked to SMM, the release certificate as PK, KEK and db
+  (`image/secureboot/enroll-vars.sh`), credentials from its console;
+  `janusctl version` must say `Secure Boot: on`, the kernel `Secure boot
+  enabled`, HAProxy must answer; then a firmware reboot and a rollback,
+  still on, zero AVC denials. Never kexec it (OVMF 2025.02 with the
+  locked flash). The same machine from the previous release's image
+  must be refused by the firmware (`Access Denied`). Destroyed after;
+- `janusctl version` on the lab's nodes (`off`), `GET /api/machines`'s
+  `secure_boot` and the Hypervisors page's badges in headless Chromium
+  (light and dark, axe), before and after the Controller's machines are
+  updated: nothing from an older node, the crossed-out shield after.
+
+### The image factory's suspended targets
+
+Since v2026.10.31: the site's `/api/v1/platforms` (which targets are
+`suspended`), and an arm64 image asked for the pre-release (the lab's
+schematic, a schematic made for the test, the default one): no build
+may start.
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -947,3 +976,9 @@ ran:
   on the lab's profile and resumed, the line made meanwhile looked up in
   Elasticsearch. `acheck.mjs`: the audit page in headless Chromium
   (v2026.10.30).
+- `undrain-race MEMBER firmware|kexec`: a member drained, rebooted and
+  undrained the moment its API answers, the first undrain's outcome;
+  `revert-upgrade VERSION`: the cluster updated with its first member
+  made to revert; `sb-vm create|destroy`: the Secure Boot machine;
+  `u-check` (+ `.mjs`): `u-check56` counting the Secure Boot badges
+  (v2026.10.31).
