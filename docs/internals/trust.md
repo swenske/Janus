@@ -76,7 +76,7 @@ flowchart LR
 | [Service credential](#service-credentials) | the node CA | the Controller, until the node trusts the fleet | a year | the node |
 | [Cross-signed CA](#the-cross-signed-ca) | the node's previous CA | the new CA's | the new CA's | clients that pinned the previous CA |
 | [Fleet root](#the-fleet-root) | itself | offline, in the recovery kit | 20 years | nodes, which pin it once |
-| [Issuing CA](#issuing-cas) | the fleet root | sealed on the Controller, or a file of a janusctl machine | 2 years | nodes, while the newest bundle lists it |
+| [Issuing CA](#issuing-cas) | the fleet root | sealed on the Controller, or a file of a janusctl machine | 2 years; the Controller's renewed with the kit | nodes, while the newest bundle lists it |
 | [`janus:controller`](#the-controllers-certificate) | the Controller's issuing CA | the Controller's memory | a day | nodes |
 | [`controller.fleet.janus`](#the-controllers-registration-certificate) | the Controller's issuing CA | the Controller's memory | 30 days | nodes registering, against the fleet root |
 | [janusctl's](#janusctl-certificates) | an issuing CA - with the kit, the root | the operator's machine | 12 hours; an hour with an API token or the kit | nodes |
@@ -216,9 +216,10 @@ place of the previous CA. Only the last rotation's is kept.
   of the issuing CAs a node accepts.
 - **On the nodes**: `pki/fleet/bundle.json`. A node takes a newer
   version only; the same version with other contents is refused.
-- **Versions**: a Controller signs one bundle, version 1, at the fleet's
-  setup - its root key is gone afterwards. janusctl signs a new one, in
-  milliseconds, whenever a machine joins or leaves (with the kit).
+- **Versions**: a Controller signs version 1 at the fleet's setup, and
+  one more, in milliseconds, each time its issuing CA is renewed with
+  the kit - its root key is gone in between. janusctl signs a new one,
+  in milliseconds, whenever a machine joins or leaves (with the kit).
 
 ### Issuing CAs
 
@@ -226,8 +227,9 @@ place of the previous CA. Only the last rotation's is kept.
   (path length 0). A node accepts what one signs while the newest bundle
   lists it, within its limit.
 - **The Controller's**: made at the fleet's setup, its key sealed in
-  the data directory with the Controller's master key. The Fleet page
-  shows when it expires.
+  the data directory with the Controller's master key. The Fleet card
+  shows when it expires, and asks for its renewal from 180 days before
+  ([renewing it](#renewing-the-controllers-issuing-ca)).
 - **A janusctl machine's**, in a fleet without a Controller: its key a
   file of janusctl's configuration (`issuing.key`, 0600) - `janusctl
   fleet init` on the first machine, `issuer request`, `sign` (with the
@@ -337,9 +339,12 @@ Controller keeps none of yours.
   certificate and its registration certificate, the Controller's
   identity, janusctl's certificates (when it can sign in again on its
   own).
+- **Renewed with the kit**: the Controller's issuing CA (2 years), from
+  its Fleet card.
 - **Not renewed**: the node CA (10 years), the first-boot admin
-  certificate and the service credentials (a year), the issuing CAs (2
-  years), the fleet root and the Controller's identity CA (20 years).
+  certificate and the service credentials (a year), a janusctl
+  machine's issuing CA (2 years - a new one with `issuer sign`), the
+  fleet root and the Controller's identity CA (20 years).
 
 ### Rotating a node's CA
 
@@ -350,6 +355,33 @@ give, or printed on the console. It writes them aside first and swaps
 them in at once; a reboot halfway finishes or drops the rotation. The
 previous CA's key is gone: every certificate it signed stops letting in.
 The Controller follows the node's new CA by itself.
+
+### Renewing the Controller's issuing CA
+
+The Fleet card's **Renew the issuing CA**, with the kit and its
+passphrase: a new issuing CA (named for its month), and a bundle - a
+newer version than any node's - listing it and the current one, while
+that one lasts. The root's key is used for both, then forgotten, but
+for a certificate it signs for the Controller, kept an hour in memory.
+
+- **The nodes** get the bundle from the Controller's trust loop. Until
+  a node has it, the Controller reaches it with a certificate of the CA
+  before - it keeps the bundle version each node was last seen with -,
+  then with the new one.
+- **janusctl's certificates** come from the new CA once every node has
+  the bundle, or 30 days before the CA before ends. The registration
+  certificate (`controller.fleet.janus`) at once: nodes check it
+  against the root.
+- **A node no issuing CA reaches** - it missed a renewal, or the
+  issuing CA expired - is reached with the root-signed certificate a
+  renewal leaves, an hour; afterwards the card's **Reach them with the
+  recovery kit** opens the kit for another hour.
+- **The CA before** stays in the bundle; an expired one lets nobody in,
+  and the next renewal leaves it out.
+- **On disk**: `issuing.crt` is always the CA janusctl's certificates
+  come from (what an older release signs with, rolled back to); a new
+  CA waits in `issuing-<ms>.crt` until the switch, the CA before then
+  stays in `previous-<ms>.crt` - keys sealed for their file's name.
 
 ### Changing the issuing CAs
 

@@ -372,6 +372,32 @@ The issuing CA's key is sealed with the Controller's master key,
 directory, as the Compose setup below does - otherwise a copy of the
 data holds both, and the Controller says so on its page.
 
+#### Renewing the issuing CA
+
+The issuing CA lasts two years. From 180 days before its end the
+**Fleet** card says so (and its log, once a day; from 60 days a badge in
+the main page's header): **Renew the issuing CA**, with the kit and its
+passphrase, makes a new issuing CA and a bundle listing it and the
+current one. Nothing else to do:
+
+- The Controller brings every node to that bundle - reaching each with
+  a certificate it already lets in -, then signs janusctl's
+  certificates with the new CA once all have it (30 days before the old
+  one ends at the latest). The card says where it stands; the CA before
+  leaves the bundles at the next renewal.
+- A node switched off throughout comes back on its own while the CA
+  before lasts. One whose bundle lists no CA the Controller can still
+  sign with - it missed a renewal, or the issuing CA expired - says
+  **needs the recovery kit**: **Reach them with the recovery kit** has
+  the Controller reach it for an hour with a certificate the root signs
+  (a renewal does the same), and bring it to the bundle.
+- The root's key leaves the Controller again; back up the Controller
+  after a renewal ([Backups](#backups)): a backup from before it brings
+  the old CA back - it keeps working while that CA lasts, then renew
+  again.
+- A rollback to an older Controller release keeps signing with the CA
+  janusctl's certificates come from (`issuing.crt`).
+
 ### Creating nodes on a hypervisor
 
 Given a libvirt/KVM host (the **Hypervisors** tab), the Controller
