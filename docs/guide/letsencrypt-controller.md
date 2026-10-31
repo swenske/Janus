@@ -57,9 +57,9 @@ Encrypt** tab, **Relay for the nodes**.
   address in the Controller's identity - the certificate nodes register
   against. Left empty, the Controller takes the host it suggests for
   registration, with the relay's port. A name the identity doesn't hold
-  makes the node's check fail ("certificate is valid for ..."): the
-  identity's names come from `-advertise-address` when it was first
-  made.
+  makes the node's check fail ("certificate is valid for ..."): add it
+  to `-advertise-address` - the Controller renews its certificate with
+  it at its next start.
 - **Destinations allowed besides the built-in ones**: `host:port`, one
   a line. The built-in ones are listed under the form.
 
@@ -68,10 +68,14 @@ already taken) and nothing changes. The settings are kept in
 `<data>/acme-relay.json`, part of the Controller's backups.
 
 Then, on each node's page - **Apps › Let's Encrypt** - **Through this
-Controller**: the relay's address and the Controller's identity come
+Controller**: the relay's address and the Controller's identity CA come
 with the choice; **Test** fetches the CA's directory through the relay.
-With janusctl, the tab shows the command and offers the identity's
-file:
+The Controller renews its certificate by itself, signed by that CA: the
+nodes notice nothing. A node set up before the Controller kept a CA
+checks the relay with the Controller's certificate alone; the
+Controller gives it the CA by itself (every 12 hours, as
+`lets-encrypt`). With janusctl, the tab shows the command and offers
+the identity CA's file:
 
 ```sh
 janusctl haproxy acme path controller https://controller.example.net:8444 -ca controller-identity.pem

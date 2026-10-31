@@ -154,14 +154,15 @@ func TestParse(t *testing.T) {
 	}
 }
 
-func selfSigned(t *testing.T) tls.Certificate {
+// selfSigned is the identity's certificate as uitls asks for it.
+func selfSigned(t *testing.T) func() *tls.Certificate {
 	root := ca(t, "dashboard", nil)
 	l := server(t, root, func(c *x509.Certificate) { c.DNSNames = []string{"localhost"} }, nil)
 	cert, err := tls.X509KeyPair(l.pem, keyPEM(t, l.key))
 	if err != nil {
 		t.Fatal(err)
 	}
-	return cert
+	return func() *tls.Certificate { return &cert }
 }
 
 func TestUploaded(t *testing.T) {
@@ -172,7 +173,7 @@ func TestUploaded(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.now = func() time.Time { return t0 }
-	if c, src := s.Current(); src != SourceSelfSigned || !bytes.Equal(c.Certificate[0], self.Certificate[0]) {
+	if c, src := s.Current(); src != SourceSelfSigned || !bytes.Equal(c.Certificate[0], self().Certificate[0]) {
 		t.Fatalf("a fresh Controller serves %s", src)
 	}
 
@@ -312,5 +313,24 @@ func TestDescribe(t *testing.T) {
 	info = Describe(&cert, SourceUploaded, "192.0.2.10:8080", t0)
 	if len(info.Warnings) != 2 || !strings.Contains(info.Warnings[0], "doesn't name 192.0.2.10") {
 		t.Errorf("warnings for an address it doesn't name: %v", info.Warnings)
+	}
+}
+
+// TestSelfSignedRenewed: the identity renews its certificate by itself -
+// the page serves the new one from the next handshake, no restart.
+func TestSelfSignedRenewed(t *testing.T) {
+	first, second := selfSigned(t), selfSigned(t)
+	current := first
+	s, err := Open(t.TempDir(), prefixSealer{}, func() *tls.Certificate { return current() }, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetCertificate(nil); !bytes.Equal(got.Certificate[0], first().Certificate[0]) {
+		t.Fatal("not the identity's certificate")
+	}
+	current = second
+	got, _ := s.GetCertificate(nil)
+	if c, src := s.Current(); !bytes.Equal(got.Certificate[0], second().Certificate[0]) || !bytes.Equal(c.Certificate[0], second().Certificate[0]) || src != SourceSelfSigned {
+		t.Error("the renewed certificate isn't served")
 	}
 }

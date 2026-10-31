@@ -62,12 +62,17 @@ type cliContext struct {
 	// ControllerSystemTrust: a certificate this system trusts for the
 	// Controller's name (a public one, or the organization's CA
 	// installed) - renewed without janusctl noticing.
-	ControllerCA          string    `json:"controller_ca"`
-	ControllerSystemTrust bool      `json:"controller_system_trust,omitempty"`
-	User                  string    `json:"user,omitempty"`
-	Role                  string    `json:"role,omitempty"`
-	Expires               time.Time `json:"expires,omitzero"`
-	Nodes                 []ctxNode `json:"nodes,omitempty"`
+	ControllerCA          string `json:"controller_ca"`
+	ControllerSystemTrust bool   `json:"controller_system_trust,omitempty"`
+	// ControllerIdentityCA is the CA of the Controller's own identity
+	// (PEM), as the Controller gave it at a sign-in checked with
+	// ControllerCA: the certificates it signs - the identity renewed - are
+	// the Controller's, whatever name it was dialed by.
+	ControllerIdentityCA string    `json:"controller_identity_ca,omitempty"`
+	User                 string    `json:"user,omitempty"`
+	Role                 string    `json:"role,omitempty"`
+	Expires              time.Time `json:"expires,omitzero"`
+	Nodes                []ctxNode `json:"nodes,omitempty"`
 	// Prereleases are the Janus pre-releases the Controller knew of at the
 	// last sign-in or node list: janusctl tui marks the nodes running one.
 	Prereleases []string `json:"prereleases,omitempty"`
@@ -222,7 +227,7 @@ func runLogin(args []string) {
 		if err != nil {
 			log.Fatalf("janusctl login: %v", err)
 		}
-		log.Fatalf("janusctl login: the Controller at %s presents a certificate this system doesn't trust (%v), with SHA-256\n  %s\nCheck it (on the Controller's page: your account, SSH keys; or on its host: openssl x509 -in <data-dir>/dashboard-identity.crt -noout -fingerprint -sha256), then pass it as -controller-fingerprint, or give its CA as -controller-ca", ctx.Controller, sysErr, colonHex(certFingerprint(leaf)))
+		log.Fatalf("janusctl login: the Controller at %s presents a certificate this system doesn't trust (%v), with SHA-256\n  %s\nCheck it (on the Controller's page: your account, SSH keys; or on its host: openssl x509 -in <data-dir>/dashboard-identity.crt -noout -fingerprint -sha256), then pass it as -controller-fingerprint, or give its CA as -controller-ca (the Controller's own: <data-dir>/dashboard-identity-ca.crt, or controller-info's ca_cert_pem)", ctx.Controller, sysErr, colonHex(certFingerprint(leaf)))
 	}
 	switch {
 	case token != "":
@@ -333,8 +338,9 @@ func verifySystemTrust(addr string) error {
 }
 
 // controllerTLS checks the Controller: its certificate pinned exactly,
-// or a chain to the given CA for the name dialed - or, with
-// ControllerSystemTrust, to this system's trust store.
+// or a chain to the given CA for the name dialed, or one its identity CA
+// signed (whatever the name) - or, with ControllerSystemTrust, to this
+// system's trust store.
 func (c *cliContext) controllerTLS() (*tls.Config, error) {
 	host, _, _ := net.SplitHostPort(c.Controller)
 	if c.ControllerCA == "" && c.ControllerSystemTrust {
@@ -365,6 +371,7 @@ func (c *cliContext) controllerTLS() (*tls.Config, error) {
 	if len(pinned) == 0 {
 		return nil, errors.New("no Controller certificate to check it against: janusctl login -controller-fingerprint")
 	}
+	identityCA, _ := parsePEMCert([]byte(c.ControllerIdentityCA))
 	return &tls.Config{
 		MinVersion:         tls.VersionTLS12,
 		InsecureSkipVerify: true, //nolint:gosec // verified in VerifyConnection below
@@ -387,12 +394,39 @@ func (c *cliContext) controllerTLS() (*tls.Config, error) {
 				inter.AddCert(ic)
 			}
 			_, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: inter, DNSName: host})
+			if err != nil && identityCA != nil && signedByIdentity(leaf, identityCA) {
+				return nil
+			}
 			if err != nil {
 				return fmt.Errorf("the Controller's certificate isn't the one trusted (%w) - if it was changed on purpose, check its new SHA-256 %s and sign in again: janusctl login -controller-fingerprint SHA256, -controller-ca FILE, or neither for a certificate this system trusts", err, colonHex(c.seen))
 			}
 			return nil
 		},
 	}, nil
+}
+
+// signedByIdentity reports whether leaf is a server certificate valid
+// now that ca - the Controller's identity CA - signed itself. Its names
+// aren't checked: that CA signs nothing but the Controller's own.
+func signedByIdentity(leaf, ca *x509.Certificate) bool {
+	roots := x509.NewCertPool()
+	roots.AddCert(ca)
+	_, err := leaf.Verify(x509.VerifyOptions{Roots: roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}})
+	return err == nil
+}
+
+// learnIdentityCA keeps the Controller's identity CA, as it gave it on a
+// call checked with the context's pin: the Controller renews the
+// certificate it serves, and a context that pinned that certificate
+// would refuse the next one. Kept for a pinned context only - one
+// trusting the system's store checks the page's own certificate.
+func (c *cliContext) learnIdentityCA(caPEM string) {
+	if caPEM == "" || c.ControllerCA == "" {
+		return
+	}
+	if ca, err := parsePEMCert([]byte(caPEM)); err == nil && ca.IsCA {
+		c.ControllerIdentityCA = caPEM
+	}
 }
 
 // call is a request to the Controller's API with token, its JSON answer
@@ -463,6 +497,7 @@ func (c *cliContext) signIn(name, token string) error {
 		ExpiresAt      time.Time `json:"expires_at"`
 		User           string    `json:"user"`
 		Role           string    `json:"role"`
+		IdentityCAPEM  string    `json:"identity_ca_pem"`
 	}
 	if err := c.call("POST", "/api/cli/certificate", token, map[string]string{"csr_pem": string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER}))}, &cert); err != nil {
 		return err
@@ -486,6 +521,7 @@ func (c *cliContext) signIn(name, token string) error {
 		return err
 	}
 	c.User, c.Role, c.Expires, c.Nodes, c.Prereleases = cert.User, cert.Role, cert.ExpiresAt, inv.Nodes, inv.Prereleases
+	c.learnIdentityCA(cert.IdentityCAPEM)
 	return nil
 }
 
@@ -511,6 +547,7 @@ func (c *cliContext) sshSignIn(name string, key *sshKey) error {
 		Role           string    `json:"role"`
 		Nodes          []ctxNode `json:"nodes"`
 		Prereleases    []string  `json:"prereleases"`
+		IdentityCAPEM  string    `json:"identity_ca_pem"`
 	}
 	err = c.call("POST", "/api/cli/ssh-login", "", map[string]string{"user": c.User, "fingerprint": fp, "challenge": ch.Challenge, "signature": string(sig)}, &out)
 	if err != nil {
@@ -524,6 +561,7 @@ func (c *cliContext) sshSignIn(name string, key *sshKey) error {
 		return err
 	}
 	c.User, c.Role, c.Expires, c.Nodes, c.Prereleases, c.SSHKey = out.User, out.Role, out.ExpiresAt, out.Nodes, out.Prereleases, key.spec
+	c.learnIdentityCA(out.IdentityCAPEM)
 	return nil
 }
 
@@ -823,13 +861,15 @@ func runNodes(ctxFlag string) {
 	}
 	if token := os.Getenv(tokenEnv); token != "" && ctx.Fleet == nil {
 		var inv struct {
-			Nodes       []ctxNode `json:"nodes"`
-			Prereleases []string  `json:"prereleases"`
+			Nodes         []ctxNode `json:"nodes"`
+			Prereleases   []string  `json:"prereleases"`
+			IdentityCAPEM string    `json:"identity_ca_pem"`
 		}
 		if err := ctx.call("GET", "/api/cli/inventory", token, nil, &inv); err != nil {
 			log.Fatal(err)
 		}
 		ctx.Nodes, ctx.Prereleases = inv.Nodes, inv.Prereleases
+		ctx.learnIdentityCA(inv.IdentityCAPEM)
 		if err := cfg.save(); err != nil {
 			log.Fatal(err)
 		}

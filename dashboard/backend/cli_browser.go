@@ -216,7 +216,7 @@ func (a *app) issueForCSR(w http.ResponseWriter, csr *x509.CertificateRequest, p
 		cliCertificate
 		Nodes       []cliNode `json:"nodes"`
 		Prereleases []string  `json:"prereleases"`
-	}{cliCertificate{CertificatePEM: string(chain), ExpiresAt: notAfter, User: user, Role: id.Summary}, a.cliNodes(p), nonNil(nodeproxy.KnownPrereleases())})
+	}{cliCertificate{CertificatePEM: string(chain), ExpiresAt: notAfter, User: user, Role: id.Summary, IdentityCAPEM: a.identityCAPEM()}, a.cliNodes(p), nonNil(nodeproxy.KnownPrereleases())})
 }
 
 func (a *app) throttledCLI(w http.ResponseWriter, r *http.Request) bool {

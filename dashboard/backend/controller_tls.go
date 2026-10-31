@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
+	"github.com/swenske/Janus/dashboard/backend/internal/identity"
 	"github.com/swenske/Janus/dashboard/backend/internal/uitls"
 )
 
@@ -30,11 +31,19 @@ type controllerTLSView struct {
 	uitls.Info
 	// FromFiles: -tls-cert/-tls-key give it - changed by replacing them.
 	FromFiles bool `json:"from_files"`
+	// Identity is the Controller's own (internal/identity) - what nodes
+	// check it with on the registration port, whatever the page serves.
+	Identity *identity.Status `json:"identity,omitempty"`
 }
 
 func (a *app) controllerTLSView(r *http.Request) controllerTLSView {
 	cert, source := a.ui.Current()
-	return controllerTLSView{Info: uitls.Describe(cert, source, r.Host, time.Now()), FromFiles: a.ui.FromFiles()}
+	v := controllerTLSView{Info: uitls.Describe(cert, source, r.Host, time.Now()), FromFiles: a.ui.FromFiles()}
+	if a.identity != nil {
+		st := a.identity.Status()
+		v.Identity = &st
+	}
+	return v
 }
 
 func (a *app) handleControllerTLS(w http.ResponseWriter, r *http.Request) {

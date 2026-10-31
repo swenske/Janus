@@ -16,6 +16,7 @@ import (
 	"io/fs"
 	"net/http"
 	"sync"
+	"testing"
 	"time"
 
 	"google.golang.org/grpc"
@@ -275,6 +276,15 @@ func handleInfo(w http.ResponseWriter, r *http.Request, node *store.Node) {
 // Conn is node's shared gRPC connection, for the Controller's own reads
 // of it (its backups): Automation unless the context says who.
 func Conn(node *store.Node) (*grpc.ClientConn, error) { return dialNode(node) }
+
+// SetConnForTests makes conn nodeID's connection - a fake node, in
+// another package's test. Panics outside a test.
+func SetConnForTests(nodeID string, conn *grpc.ClientConn) {
+	if !testing.Testing() {
+		panic("nodeproxy: SetConnForTests outside a test")
+	}
+	conns.Store(nodeID, conn)
+}
 
 func nonNilStrings(s []string) []string {
 	if s == nil {

@@ -56,7 +56,8 @@ updates: [The Controller](https://janus.sw-servers.net/docs/dashboard/README.md)
 **Run the container with `--network host`.** It listens on two ports -
 `:8080`, the UI (HTTPS only) with every node's page under it, and
 `:8443`, where nodes register - and sees the host's own addresses for
-its TLS identity that way.
+its TLS identity that way (a certificate its own CA signs, renewed by
+itself).
 
 ```sh
 docker run -d \
@@ -179,8 +180,8 @@ Environment variables, all optional - handy in a Compose
 - `JANUS_CONTROLLER_ADDR` - the UI's port, e.g. `:443` (see above).
 - `JANUS_CONTROLLER_ADVERTISE_ADDRESS` - a hostname or address (or a
   comma-separated list) to add to the self-signed certificate, e.g. the
-  DNS name you'll reach the Controller by. Read when the identity is
-  first generated.
+  DNS name you'll reach the Controller by. A name added later gets a
+  new certificate at the next start, signed by the same identity CA.
 - `JANUS_CONTROLLER_MASTER_KEY_FILE` - the master key sealing the
   fleet's issuing key (default `/data/master.key`): keep it outside the
   data volume, as the Compose file above does.

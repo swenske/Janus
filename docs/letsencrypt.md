@@ -177,7 +177,7 @@ janusctl haproxy acme test-path
 ```
 
 In the configuration's JSON, `proxy_url` is the relay's address and
-`proxy_ca` the Controller's identity:
+`proxy_ca` the Controller's identity CA:
 
 ```json
 {

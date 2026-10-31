@@ -1,10 +1,11 @@
 package main
 
 import (
-	"crypto/x509"
 	"os"
-	"path/filepath"
 	"testing"
+
+	"github.com/swenske/Janus/dashboard/backend/internal/identity"
+	"github.com/swenske/Janus/dashboard/backend/internal/secrets"
 )
 
 func TestEnvOr(t *testing.T) {
@@ -29,52 +30,17 @@ func TestEnvOr(t *testing.T) {
 	}
 }
 
-func TestLoadOrCreateDashboardIdentityAdvertiseAddressSAN(t *testing.T) {
-	dir := t.TempDir()
-
-	cert, err := loadOrCreateDashboardIdentity(dir, "controller.example.com, 203.0.113.5")
+// testIdentity is a Controller identity in dir, its CA sealed with dir's
+// master key.
+func testIdentity(t *testing.T, dir string) *identity.Identity {
+	t.Helper()
+	key, err := secrets.LoadOrCreate("", dir)
 	if err != nil {
-		t.Fatalf("loadOrCreateDashboardIdentity: %v", err)
+		t.Fatal(err)
 	}
-	leaf, err := x509.ParseCertificate(cert.Certificate[0])
+	id, err := identity.Open(dir, key, "")
 	if err != nil {
-		t.Fatalf("parse generated certificate: %v", err)
+		t.Fatal(err)
 	}
-
-	if !slicesContain(leaf.DNSNames, "controller.example.com") {
-		t.Errorf("DNSNames = %v, want it to contain %q", leaf.DNSNames, "controller.example.com")
-	}
-	foundIP := false
-	for _, ip := range leaf.IPAddresses {
-		if ip.String() == "203.0.113.5" {
-			foundIP = true
-		}
-	}
-	if !foundIP {
-		t.Errorf("IPAddresses = %v, want it to contain 203.0.113.5", leaf.IPAddresses)
-	}
-	// Persisted: a second call against the same dir must load the
-	// identical cert back, not regenerate - see the function's own doc
-	// comment on why (a fresh identity every restart would mean a new
-	// browser trust warning every time for no reason).
-	certPath := filepath.Join(dir, "dashboard-identity.crt")
-	if _, err := os.Stat(certPath); err != nil {
-		t.Fatalf("expected %s to exist after first call: %v", certPath, err)
-	}
-	cert2, err := loadOrCreateDashboardIdentity(dir, "a-different-hostname-that-must-be-ignored.example")
-	if err != nil {
-		t.Fatalf("loadOrCreateDashboardIdentity (second call): %v", err)
-	}
-	if string(cert2.Certificate[0]) != string(cert.Certificate[0]) {
-		t.Error("second call against the same dir returned a different certificate - identity should be cached, not regenerated")
-	}
-}
-
-func slicesContain(haystack []string, needle string) bool {
-	for _, s := range haystack {
-		if s == needle {
-			return true
-		}
-	}
-	return false
+	return id
 }

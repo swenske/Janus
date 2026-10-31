@@ -27,6 +27,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/fleet"
 	"github.com/swenske/Janus/dashboard/backend/internal/nodeproxy"
+	"github.com/swenske/Janus/dashboard/backend/internal/uitls"
 )
 
 // janusctl's side of the Controller (/api/cli/*): a short certificate of
@@ -55,6 +56,23 @@ type cliCertificate struct {
 	User           string    `json:"user"`
 	// Role is what it carries: the node role, or what its scope gives.
 	Role string `json:"role"`
+	// IdentityCAPEM is the CA of the Controller's own identity, while the
+	// page serves it (identityCAPEM): janusctl keeps it, so a context
+	// that pinned the certificate takes the next one the CA signs.
+	IdentityCAPEM string `json:"identity_ca_pem,omitempty"`
+}
+
+// identityCAPEM is the identity's CA (PEM) when the main port serves the
+// identity - else empty: the page's own certificate has nothing to do
+// with it.
+func (a *app) identityCAPEM() string {
+	if a.identity == nil || a.ui == nil {
+		return ""
+	}
+	if _, source := a.ui.Current(); source != uitls.SourceSelfSigned {
+		return ""
+	}
+	return string(a.identity.CAPEM())
 }
 
 // handleCLICertificate signs the request's CSR (its key janusctl's own)
@@ -96,7 +114,7 @@ func (a *app) handleCLICertificate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("issued a janusctl certificate to %s (%s, %s) until %s", p.User, id.Summary, p.via(), notAfter.Format(time.RFC3339))
-	writeJSON(w, http.StatusOK, cliCertificate{CertificatePEM: string(chain), ExpiresAt: notAfter, User: p.User, Role: id.Summary})
+	writeJSON(w, http.StatusOK, cliCertificate{CertificatePEM: string(chain), ExpiresAt: notAfter, User: p.User, Role: id.Summary, IdentityCAPEM: a.identityCAPEM()})
 }
 
 // parseCSR reads a CSR, checks it's signed by its own key - the caller
@@ -145,9 +163,10 @@ func (a *app) handleCLIInventory(w http.ResponseWriter, r *http.Request) {
 	// Prereleases: the published pre-releases, so janusctl tui can mark
 	// the nodes running one - as far as this Controller knows right now.
 	writeJSON(w, http.StatusOK, struct {
-		Nodes       []cliNode `json:"nodes"`
-		Prereleases []string  `json:"prereleases"`
-	}{a.cliNodes(requestPrincipal(r)), nonNil(nodeproxy.KnownPrereleases())})
+		Nodes         []cliNode `json:"nodes"`
+		Prereleases   []string  `json:"prereleases"`
+		IdentityCAPEM string    `json:"identity_ca_pem,omitempty"`
+	}{a.cliNodes(requestPrincipal(r)), nonNil(nodeproxy.KnownPrereleases()), a.identityCAPEM()})
 }
 
 // cliNodes are the nodes p reaches.
@@ -160,6 +179,29 @@ func (a *app) cliNodes(p principal) []cliNode {
 }
 
 // --- SSH keys: what janusctl signs in with ---
+
+// sshLoginSigned reports whether req's signature is pub's, for this
+// server: the certificate the main port serves - or, a few minutes after
+// the identity renewed it, the one before (janusctl signs what it saw at
+// the challenge).
+func (a *app) sshLoginSigned(req sshLoginRequest, pub ssh.PublicKey) bool {
+	fps := []string{a.servedFingerprint()}
+	if _, source := a.ui.Current(); source == uitls.SourceSelfSigned && a.identity != nil {
+		if prev := a.identity.PreviousFingerprint(sshPreviousFingerprint); prev != "" {
+			fps = append(fps, prev)
+		}
+	}
+	for _, fp := range fps {
+		if sshsig.Verify([]byte(req.Signature), pub, SSHLoginNamespace, sshLoginMessage(fp, req.Challenge)) == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// sshPreviousFingerprint is how long a sign-in signed for the identity's
+// certificate before its renewal is still taken.
+const sshPreviousFingerprint = 10 * time.Minute
 
 // servedFingerprint is the SHA-256 (hex) of the certificate the main port
 // serves: what janusctl pins, and what an SSH sign-in's signature names -
@@ -342,7 +384,7 @@ func (a *app) handleCLISSHLogin(w http.ResponseWriter, r *http.Request) {
 		fail()
 		return
 	}
-	if err := sshsig.Verify([]byte(req.Signature), pub, SSHLoginNamespace, sshLoginMessage(a.servedFingerprint(), req.Challenge)); err != nil {
+	if !a.sshLoginSigned(req, pub) {
 		fail()
 		return
 	}
@@ -373,5 +415,5 @@ func (a *app) handleCLISSHLogin(w http.ResponseWriter, r *http.Request) {
 		cliCertificate
 		Nodes       []cliNode `json:"nodes"`
 		Prereleases []string  `json:"prereleases"`
-	}{cliCertificate{CertificatePEM: string(chain), ExpiresAt: notAfter, User: user, Role: id.Summary}, a.cliNodes(p), nonNil(nodeproxy.KnownPrereleases())})
+	}{cliCertificate{CertificatePEM: string(chain), ExpiresAt: notAfter, User: user, Role: id.Summary, IdentityCAPEM: a.identityCAPEM()}, a.cliNodes(p), nonNil(nodeproxy.KnownPrereleases())})
 }

@@ -111,7 +111,7 @@ func TestRelaySettings(t *testing.T) {
 	if err == nil {
 		got := conn.ConnectionState().PeerCertificates[0].Raw
 		conn.Close()
-		if string(got) != string(a.serverCert.Certificate[0]) {
+		if string(got) != string(a.identity.Certificate().Certificate[0]) {
 			t.Error("the relay doesn't serve the Controller's identity")
 		}
 	}

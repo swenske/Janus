@@ -11,7 +11,7 @@ Running it: [the Controller](../../dashboard/README.md).
 | Port | Serves | TLS |
 |---|---|---|
 | `:8080` (`-addr`) | The pages - the fleet's, and each node's under `/nodes/<id>/` - and the API, behind an account or an API token | HTTPS only: the Controller's self-signed identity, or a certificate of yours |
-| `:8443` (`-register-addr`) | Nodes registering | Always the Controller's own identity - what nodes are provisioned to check - never replaced |
+| `:8443` (`-register-addr`) | Nodes registering | Always the Controller's own identity: a certificate renewed by itself, signed by its identity CA - what nodes are provisioned to check, never replaced ([trust](trust.md#the-controllers-identity)) |
 
 ## A node's page
 
@@ -52,6 +52,7 @@ sequenceDiagram
 | Sessions | memory | idle 30 minutes, 12 hours at most; ended by a password change; a provider's ID token, for signing out of it |
 | Single sign-ons under way | memory | ten minutes, each taken once |
 | The fleet's issuing CA | `<data-dir>`, sealed with the master key | the root's key leaves with the recovery kit |
+| The identity CA | `<data-dir>/dashboard-identity-ca.crt`, its key sealed with the master key | signs the Controller's own certificate (`dashboard-identity.crt`), renewed 35 days before it ends |
 | Hypervisors (their labels too), machines | `<data-dir>/hypervisors`, `<data-dir>/machines` | ownership tags on every machine it created; a machine's node inherits its hypervisor's labels when they're read, never copied |
 | The audit log | `audit.jsonl` | every change made through the API |
 

@@ -493,7 +493,7 @@ scrape_configs:
     authorization:
       credentials_file: /etc/prometheus/janus-controller.token
     tls_config:
-      ca_file: /etc/prometheus/janus-controller-ca.pem # the certificate it serves, or its CA
+      ca_file: /etc/prometheus/janus-controller-ca.pem # its identity CA (controller-info's ca_cert_pem), or your page certificate's CA
     static_configs:
       - targets: ['controller.example.net:8080']
 ```

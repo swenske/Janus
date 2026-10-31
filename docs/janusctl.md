@@ -234,7 +234,10 @@ The first login asks for the Controller's certificate: `-controller-
 fingerprint` (the account dialog's command has it; on its host:
 `openssl x509 -in <data-dir>/dashboard-identity.crt -noout -fingerprint
 -sha256`) or `-controller-ca FILE` - or nothing, when the Controller's
-page has a certificate of its own that this machine trusts. The SSH key signs a challenge for
+page has a certificate of its own that this machine trusts. A context
+that pinned the Controller's self-signed certificate keeps the identity
+CA the Controller gives it at each sign-in, and takes the next
+certificate that CA signs: the Controller renews it by itself. The SSH key signs a challenge for
 the certificate janusctl saw: a signature relayed by another server is
 refused.
 Each node checks the role itself and logs who acted. The configuration

@@ -10,6 +10,7 @@ import (
 
 	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
+	"github.com/swenske/Janus/dashboard/backend/internal/identity"
 	"github.com/swenske/Janus/dashboard/backend/internal/secrets"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	"github.com/swenske/Janus/dashboard/backend/internal/uitls"
@@ -44,15 +45,15 @@ func newMFAApp(t *testing.T) *authApp {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cert, err := loadOrCreateDashboardIdentity(dir, "")
+	id, err := identity.Open(dir, key, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	ui, err := uitls.Open(dir, key, cert, "", "")
+	ui, err := uitls.Open(dir, key, id.Certificate, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := &app{auth: st, tokens: tokens, loginLimiter: auth.NewLoginLimiter(), audit: log, store: nodes, serverCert: cert, ui: ui}
+	a := &app{auth: st, tokens: tokens, loginLimiter: auth.NewLoginLimiter(), audit: log, store: nodes, identity: id, ui: ui}
 	return &authApp{app: a, h: a.audited(a.routes(http.NotFoundHandler()))}
 }
 

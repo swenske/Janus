@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -373,7 +372,7 @@ func (r *machineRunner) create(ctx context.Context, id string) error {
 	}
 	ci, err := cidata.Build(a.dataDir, cidata.UserData{
 		ControllerAddress:   ctlAddr,
-		ControllerCACert:    string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: a.serverCert.Certificate[0]})),
+		ControllerCACert:    string(a.identity.TrustPEM()),
 		RegistrationToken:   token,
 		ControllerFleetRoot: string(fleetRoot),
 		Network:             netcfg,

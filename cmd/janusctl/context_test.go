@@ -3,11 +3,13 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/swenske/Janus/internal/pki"
@@ -163,5 +165,86 @@ func TestNodeTLS(t *testing.T) {
 	}
 	if _, err := nodeTLS("home", &cliContext{}, ctxNode{Name: "edge-1"}); err == nil {
 		t.Error("a node without a CA")
+	}
+}
+
+// identityServer is a Controller serving a certificate its identity CA
+// signed - named other.example only, not the address janusctl dials -,
+// and answering a sign-in with that CA.
+func identityServer(t *testing.T, ca *pki.CA) (*httptest.Server, func()) {
+	t.Helper()
+	var cert atomic.Pointer[tls.Certificate]
+	issue := func() {
+		certPEM, keyPEM, err := ca.Issue(pki.IssueOptions{CommonName: "dashboard", DNSNames: []string{"other.example"}, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, err := tls.X509KeyPair(append(certPEM, ca.CertPEM...), keyPEM)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cert.Store(&c)
+	}
+	issue()
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/cli/certificate":
+			_ = json.NewEncoder(w).Encode(map[string]string{"certificate_pem": "x", "user": "root", "role": "os:admin", "identity_ca_pem": string(ca.CertPEM)})
+		case "/api/cli/inventory":
+			_, _ = w.Write([]byte(`{"nodes":[]}`))
+		default:
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		}
+	}))
+	// httptest's own certificate would be served to a client sending no
+	// name (an IP): a listener of ours.
+	srv.Listener = tls.NewListener(srv.Listener, &tls.Config{GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) { return cert.Load(), nil }})
+	srv.Start()
+	t.Cleanup(srv.Close)
+	return srv, issue
+}
+
+// TestControllerIdentityCA: a context that pinned the Controller's
+// certificate learns its identity CA at a sign-in, and takes the next
+// certificate the CA signs - whatever its names; without that CA, or
+// with only a -controller-ca of the user's, it doesn't.
+func TestControllerIdentityCA(t *testing.T) {
+	t.Setenv(configEnv, filepath.Join(t.TempDir(), "janusctl.json"))
+	ca, _ := pki.NewCA("Janus Controller identity CA")
+	srv, renew := identityServer(t, ca)
+	addr := srv.Listener.Addr().String()
+	leaf, err := fetchLeaf(addr)
+	if err != nil || leaf.CheckSignatureFrom(ca.Cert) != nil {
+		t.Fatalf("the certificate served: %v", err)
+	}
+	pinned := &cliContext{Controller: addr, ControllerCA: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw}))}
+	if err := pinned.signIn("test", "token"); err != nil {
+		t.Fatal(err)
+	}
+	if pinned.ControllerIdentityCA != string(ca.CertPEM) {
+		t.Fatal("the identity CA given at the sign-in isn't kept")
+	}
+	unaware := &cliContext{Controller: addr, ControllerCA: pinned.ControllerCA}
+	theirCA := &cliContext{Controller: addr, ControllerCA: string(ca.CertPEM)}
+
+	renew()
+	var out map[string]bool
+	if err := pinned.call("GET", "/", "t", nil, &out); err != nil || !out["ok"] {
+		t.Errorf("the renewed certificate, with the identity CA: %v", err)
+	}
+	if err := unaware.call("GET", "/", "t", nil, &out); err == nil {
+		t.Errorf("the renewed certificate taken by a context that pinned the old one alone (identity CA %v)", unaware.ControllerIdentityCA != "")
+	}
+	if err := theirCA.call("GET", "/", "t", nil, &out); err == nil {
+		t.Error("a -controller-ca took a certificate that doesn't name the address dialed")
+	}
+
+	// Not for a context trusting the system's store, nor what isn't a CA.
+	sys := &cliContext{Controller: addr, ControllerSystemTrust: true}
+	sys.learnIdentityCA(string(ca.CertPEM))
+	pinned2 := &cliContext{Controller: addr, ControllerCA: pinned.ControllerCA}
+	pinned2.learnIdentityCA(pinned.ControllerCA)
+	if sys.ControllerIdentityCA != "" || pinned2.ControllerIdentityCA != "" {
+		t.Errorf("kept where it shouldn't be: system %v, a leaf %v", sys.ControllerIdentityCA != "", pinned2.ControllerIdentityCA != "")
 	}
 }

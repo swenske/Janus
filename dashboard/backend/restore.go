@@ -28,6 +28,7 @@ import (
 
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/backup"
+	"github.com/swenske/Janus/dashboard/backend/internal/identity"
 	"github.com/swenske/Janus/dashboard/backend/internal/s3"
 )
 
@@ -41,7 +42,11 @@ import (
 
 // restoreFiles puts a decrypted archive's Controller back: its data
 // directory into dataDir, its master key at masterKeyPath. Only what a
-// backup holds, under those two places.
+// backup holds, under those two places - except the identity's CA
+// (internal/identity), which a Controller makes at its first start,
+// sealed with its own master key: a backup made before Controllers kept
+// it has none, and the one left behind would no longer open with the
+// master key put back. It goes; the Controller makes its own again.
 func restoreFiles(archive []byte, dataDir, masterKeyPath string) (int, error) {
 	gz, err := gzip.NewReader(bytes.NewReader(archive))
 	if err != nil {
@@ -49,9 +54,17 @@ func restoreFiles(archive []byte, dataDir, masterKeyPath string) (int, error) {
 	}
 	tr := tar.NewReader(gz)
 	n := 0
+	restoredCA := false
 	for {
 		h, err := tr.Next()
 		if errors.Is(err, io.EOF) {
+			if !restoredCA {
+				for _, f := range []string{identity.CAFile, identity.CAKeyFile} {
+					if err := os.Remove(filepath.Join(dataDir, f)); err != nil && !errors.Is(err, os.ErrNotExist) {
+						return n, err
+					}
+				}
+			}
 			return n, nil
 		}
 		if err != nil {
@@ -70,6 +83,7 @@ func restoreFiles(archive []byte, dataDir, masterKeyPath string) (int, error) {
 				return n, fmt.Errorf("the archive names %q: refused", h.Name)
 			}
 			dest = filepath.Join(dataDir, filepath.FromSlash(rel))
+			restoredCA = restoredCA || rel == identity.CAKeyFile
 		default:
 			continue // the nodes' configurations: for the operator, not restored
 		}

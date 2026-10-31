@@ -233,10 +233,7 @@ func newTestApp(t *testing.T) (*app, *fakeDriver) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cert, err := loadOrCreateDashboardIdentity(dir, "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	id := testIdentity(t, dir)
 	hvs, err := hypervisor.Open(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -246,7 +243,7 @@ func newTestApp(t *testing.T) (*app, *fakeDriver) {
 		t.Fatal(err)
 	}
 	a := &app{
-		store: st, pending: pend, serverCert: cert,
+		store: st, pending: pend, identity: id,
 		suggestedRegisterAddr: "192.0.2.1:8443", dataDir: dir, controllerID: "ctl-test",
 		hypervisors: hvs, machines: ms,
 	}

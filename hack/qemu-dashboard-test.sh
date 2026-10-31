@@ -1062,11 +1062,11 @@ python3 -c 'import json,sys; print(json.dumps({"pem": "".join(open(f).read() for
 issuer_on() { openssl s_client -connect "127.0.0.1:$1" </dev/null 2>/dev/null | openssl x509 -noout -issuer; }
 check_code="$(curl -sk -b "$COOKIE_JAR" -o "$UI_PKI/check.json" -w '%{http_code}' -X POST "$API/api/controller/tls/check" -H 'Content-Type: application/json' --data-binary @"$UI_PKI/bundle.json")"
 [ "$check_code" = 200 ] && grep -q '"issuer":"CN=Dashboard Test Org"' "$UI_PKI/check.json" || { echo "Dashboard test FAILED: checking the page's certificate: $check_code $(cat "$UI_PKI/check.json")" >&2; exit 1; }
-issuer_on "$DASHBOARD_ADDR_PORT" | grep -q 'CN *= *dashboard' || { echo "Dashboard test FAILED: a check served the certificate already: $(issuer_on "$DASHBOARD_ADDR_PORT")" >&2; exit 1; }
+issuer_on "$DASHBOARD_ADDR_PORT" | grep -q 'CN *= *Janus Controller identity CA' || { echo "Dashboard test FAILED: a check served the certificate already: $(issuer_on "$DASHBOARD_ADDR_PORT")" >&2; exit 1; }
 put_code="$(curl -sk -b "$COOKIE_JAR" -o "$UI_PKI/put.json" -w '%{http_code}' -X PUT "$API/api/controller/tls" -H 'Content-Type: application/json' --data-binary @"$UI_PKI/bundle.json")"
 [ "$put_code" = 200 ] && grep -q '"source":"uploaded"' "$UI_PKI/put.json" || { echo "Dashboard test FAILED: serving the page's certificate: $put_code $(cat "$UI_PKI/put.json")" >&2; exit 1; }
 issuer_on "$DASHBOARD_ADDR_PORT" | grep -q 'Dashboard Test Org' || { echo "Dashboard test FAILED: the main port doesn't serve the uploaded certificate: $(issuer_on "$DASHBOARD_ADDR_PORT")" >&2; exit 1; }
-issuer_on "$DASHBOARD_REGISTER_PORT" | grep -q 'CN *= *dashboard' || { echo "Dashboard test FAILED: the registration port no longer serves the self-signed identity: $(issuer_on "$DASHBOARD_REGISTER_PORT")" >&2; exit 1; }
+issuer_on "$DASHBOARD_REGISTER_PORT" | grep -q 'CN *= *Janus Controller identity CA' || { echo "Dashboard test FAILED: the registration port no longer serves the self-signed identity: $(issuer_on "$DASHBOARD_REGISTER_PORT")" >&2; exit 1; }
 if grep -q 'PRIVATE KEY' "$WORKDIR/data/ui-tls.json"; then echo "Dashboard test FAILED: the page certificate's key is stored in the clear" >&2; exit 1; fi
 pinned_out="$(JANUS_TOKEN="$ADMIN_TOKEN" "$WORKDIR/janusctl" -context admin nodes 2>&1 || true)"
 grep -q "isn't the one trusted" <<<"$pinned_out" || { echo "Dashboard test FAILED: a context that pinned the self-signed certificate wasn't told: $pinned_out" >&2; exit 1; }
@@ -1085,7 +1085,7 @@ ssh-add -q "$WORKDIR/id_ed25519"
   || { echo "Dashboard test FAILED: janusctl SSH login through the page's certificate (its signature names the certificate served): $(cat "$WORKDIR/janusctl-ssh-own.txt")" >&2; exit 1; }
 ssh-add -q -D
 del_code="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X DELETE "$API/api/controller/tls")"
-[ "$del_code" = 200 ] && issuer_on "$DASHBOARD_ADDR_PORT" | grep -q 'CN *= *dashboard' || { echo "Dashboard test FAILED: back to the self-signed certificate: $del_code $(issuer_on "$DASHBOARD_ADDR_PORT")" >&2; exit 1; }
+[ "$del_code" = 200 ] && issuer_on "$DASHBOARD_ADDR_PORT" | grep -q 'CN *= *Janus Controller identity CA' || { echo "Dashboard test FAILED: back to the self-signed certificate: $del_code $(issuer_on "$DASHBOARD_ADDR_PORT")" >&2; exit 1; }
 JANUS_TOKEN="$ADMIN_TOKEN" "$WORKDIR/janusctl" -context admin nodes >/dev/null || { echo "Dashboard test FAILED: the pinned context after going back" >&2; exit 1; }
 echo "Page certificate OK: an uploaded one served at once on the main port (key sealed), the registration port unchanged; janusctl through it with -controller-ca, the system's trust or an SSH key; pinned contexts told; back to self-signed"
 
@@ -1141,9 +1141,13 @@ relabel "$SCOPED_NODE" web
 curl -sk -b "$COOKIE_JAR" -o /dev/null -X DELETE "$API/api/nodes/$ELSEWHERE_ID"
 echo "janusctl scoped OK: an account without a role over everything got a certificate naming its nodes by their CA's key; the node applied haproxy.cfg with it, refused it a service restart itself, and refused one naming another node"
 
+# Restarted with an address more for its identity: the Controller renews
+# its certificate (internal/identity) - same CA; the janusctl context
+# that pinned the first one kept the CA at its sign-in and follows.
+grep -q '"controller_identity_ca"' "$JANUSCONFIG" || { echo "Dashboard test FAILED: the pinned janusctl context didn't keep the Controller's identity CA" >&2; exit 1; }
 kill "$DASHBOARD_PID"
 wait "$DASHBOARD_PID" 2>/dev/null || true
-"$DASHBOARDD" -addr ":${DASHBOARD_ADDR_PORT}" -register-addr ":${DASHBOARD_REGISTER_PORT}" -data-dir "$WORKDIR/data" > "$WORKDIR/dashboardd-restart2.log" 2>&1 &
+"$DASHBOARDD" -addr ":${DASHBOARD_ADDR_PORT}" -register-addr ":${DASHBOARD_REGISTER_PORT}" -data-dir "$WORKDIR/data" -advertise-address renewed.example > "$WORKDIR/dashboardd-restart2.log" 2>&1 &
 DASHBOARD_PID=$!
 deadline=$((SECONDS + 20))
 until signin 2>/dev/null; do
@@ -1155,6 +1159,13 @@ until [ "$(fleet_relay)" = "200" ]; do
   sleep 1
 done
 echo "Fleet restart OK: the issuing CA unsealed with the master key, the node reached again with a fresh fleet certificate"
+renewed_fp="$(openssl s_client -connect "127.0.0.1:${DASHBOARD_ADDR_PORT}" </dev/null 2>/dev/null | openssl x509 -noout -fingerprint -sha256 | cut -d= -f2)"
+[ -n "$renewed_fp" ] && [ "$renewed_fp" != "$CONTROLLER_FP" ] || { echo "Dashboard test FAILED: a new -advertise-address didn't renew the Controller's certificate ($renewed_fp)" >&2; exit 1; }
+grep -q "identity: the Controller's certificate renewed" "$WORKDIR/dashboardd-restart2.log" || { echo "Dashboard test FAILED: the renewal isn't logged" >&2; exit 1; }
+JANUS_TOKEN="$ADMIN_TOKEN" "$WORKDIR/janusctl" -context admin nodes >"$WORKDIR/janusctl-renewed.txt" 2>&1 \
+  || { echo "Dashboard test FAILED: the pinned janusctl context refuses the renewed certificate: $(cat "$WORKDIR/janusctl-renewed.txt")" >&2; exit 1; }
+echo "Identity renewal OK: a new -advertise-address renewed the Controller's certificate (same CA), the context that pinned the first one takes it"
+CONTROLLER_FP="$renewed_fp" # what a new sign-in checks from now on
 
 # --- the node replaces its own CA (janusctl access rotate-ca): the
 # Controller follows it - the new CA comes cross-signed by the one it
