@@ -233,19 +233,17 @@ protocol bgp router {
 }
 EOF
   out="$(alice cluster apply edge "$DIR" -manage haproxy,files,bgp -m BGP 2>&1)" || fail "apply version 2: $out"
-  # A member's reboot doesn't close its session (reboot(2) right after
-  # HAProxy's soft stop): lb-3 learns it from its hold timer, or from the
-  # reset its next keepalive gets from the member back up. BIRD's 240 s /
-  # 80 s left that to the keepalive's phase - inside the test's minute
-  # or not, which the kernel's boot time alone tipped (v2026.10.31's
-  # first build, #442's debian image). 9 s / 3 s, like a router with
-  # tight timers.
+  # BIRD's own timers (240 s hold, 80 s keepalive), like a router that
+  # trusts its peers to say goodbye: a member's reboot stops its BIRD
+  # before reboot(2), which closes the session (a Cease) - lb-3 sees it
+  # end before the member is even back (#446). Left running into the
+  # reboot, the session lived on until a keepalive met the member back up.
   cat > "$WORKDIR/router.conf" <<'EOF'
 router id 192.168.87.3;
 protocol device {}
 protocol kernel { ipv4 { export all; }; merge paths on; }
-protocol bgp m1 { local 192.168.87.3 as 65000; neighbor 192.168.87.1 as 65001; connect retry time 1; error wait time 1, 2; hold time 9; keepalive time 3; ipv4 { import all; export none; }; }
-protocol bgp m2 { local 192.168.87.3 as 65000; neighbor 192.168.87.2 as 65001; connect retry time 1; error wait time 1, 2; hold time 9; keepalive time 3; ipv4 { import all; export none; }; }
+protocol bgp m1 { local 192.168.87.3 as 65000; neighbor 192.168.87.1 as 65001; connect retry time 1; error wait time 1, 2; ipv4 { import all; export none; }; }
+protocol bgp m2 { local 192.168.87.3 as 65000; neighbor 192.168.87.2 as 65001; connect retry time 1; error wait time 1, 2; ipv4 { import all; export none; }; }
 EOF
   out="$(alice -n lb-3 network bgp apply "$WORKDIR/router.conf" 2>&1)" || fail "lb-3's bird.conf: $out"
 fi
@@ -302,7 +300,14 @@ if [ "$KIND" = bgp ]; then
   back_up() { awk '$2 == "0" { d = 1 } d && $2 == "1" { u = 1 } END { exit !u }' "$WORKDIR/m1.log"; }
   alice -n lb-1 system reboot >/dev/null || fail "reboot lb-1"
   wait_for "$TIMEOUT" "lb-1 back from its reboot" rebooted1
+  back_at="$(date +%s.%N)"
   wait_for 60 "lb-3's session with lb-1 never went down" went_down
+  # Down while lb-1 was away - its BIRD closed the session on its way
+  # out - not once its janusd listened again (#446).
+  down_at="$(awk '$2 == "0" { print $1; exit }' "$WORKDIR/m1.log")"
+  awk -v d="$down_at" -v b="$back_at" 'BEGIN { exit !(d < b) }' ||
+    fail "lb-3's session with lb-1 went down only once lb-1 was back (at $down_at, lb-1 listening by $back_at): its BIRD didn't close the session before the reboot"
+  echo "  ok: lb-3's session with lb-1 ended with its reboot, $(awk -v d="$down_at" -v b="$back_at" 'BEGIN { printf "%.1f", b - d }') s before lb-1 listened again"
   wait_for 90 "lb-3's session with lb-1 never came back: $(m1_view)" back_up
   sleep 10
   kill "$SAMPLE_PID" 2>/dev/null || true

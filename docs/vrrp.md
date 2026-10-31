@@ -59,7 +59,9 @@ vrrp_instance VI_1 {
   reboot that ends an update or a rollback all mark HAProxy unhealthy at
   once - the node gives its virtual IPs up - then keep its listeners open
   for `janusd -haproxy-drain` (2 seconds) before the soft stop: the
-  traffic has moved to another node before any connection is refused. A
+  traffic has moved to another node before any connection is refused.
+  keepalived is then stopped before the machine goes down - it sends
+  its priority 0, and no peer waits for adverts that won't come. A
   rolling update therefore needs no manual step to keep the service up.
   A janusd restart (the node page's **Restart janusd**, `janusctl system
   restart`) and a shutdown by the hypervisor through the guest agent

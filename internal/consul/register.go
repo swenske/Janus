@@ -471,12 +471,18 @@ func sameMeta(a, b map[string]string) bool {
 }
 
 // GoingDown puts the services in maintenance now, for good: the node is
-// about to stop (a shutdown hook) - why says so.
+// about to stop (a shutdown hook) - why says so. Once: the calls after
+// the first do nothing - the agent may be stopped since (a reboot stops
+// the extension services before the shutdown hooks run).
 func (r *Registrar) GoingDown(why string) {
 	if r == nil {
 		return
 	}
 	r.mu.Lock()
+	if r.down != "" {
+		r.mu.Unlock()
+		return
+	}
 	r.down = why
 	r.mu.Unlock()
 	managed, err := LoadManaged()

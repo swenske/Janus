@@ -53,7 +53,9 @@ protocol bgp upstream {
   rollback withdraw the `haproxy_*` routes at once, then keep HAProxy's
   listeners open for `janusd -haproxy-drain` (2 seconds) before the soft
   stop - the routers have moved the traffic before any connection is
-  refused.
+  refused. Then, before the machine goes down, BIRD is stopped: it
+  closes its sessions (a Cease), and each router drops every route it
+  had from the node at once - not after its hold time.
 - The anycast address must also be an address of the node, for HAProxy to
   receive its traffic: add it to an interface (as a `/32`, or a `/128` -
   added without duplicate address detection, so every node keeps it, and

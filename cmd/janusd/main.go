@@ -533,6 +533,17 @@ func main() {
 		}
 	}
 	extMgr.Start()
+	// What a reboot, a power-off, a reset or a failed boot's revert stops
+	// before reboot(2), after HAProxy's soft stop (internal/api/
+	// powerdown.go): Consul's services in maintenance while its agent
+	// runs, then the extension services, keepalived and BIRD last - their
+	// peers hear the node leave instead of waiting for a timer (#446).
+	if len(extMgr.ServiceIDs()) > 0 {
+		api.StopServices = func() {
+			consulReg.GoingDown("the node is going down")
+			extMgr.StopAll(vrrp.ServiceID, bgp.ServiceID)
+		}
+	}
 	if *manageHost && acmeMgr.Available() {
 		go acmeMgr.Run(nil)
 	}
@@ -920,6 +931,12 @@ func confirmBootHealth(marker *bootcommit.Marker, mgr *haproxy.Manager) {
 			// and its last flush is one of them - the next boot shows why
 			// the node is back on its previous slot.
 			events.Publish("bootcommit.reverted", map[string]string{"slot": marker.Slot, "revert_to": marker.RevertTo})
+			// HAProxy never came up healthy: BIRD's gate kept the routes
+			// down, but its sessions are up - closed now, not left to the
+			// peers' hold timers (#446).
+			if api.StopServices != nil {
+				api.StopServices()
+			}
 			shutdown.Run()
 			syscall.Sync()
 			log.Printf("bootcommit: rebooting to complete the revert to slot %s", marker.RevertTo)
