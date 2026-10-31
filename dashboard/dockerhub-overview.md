@@ -182,6 +182,8 @@ Environment variables, all optional - handy in a Compose
   comma-separated list) to add to the self-signed certificate, e.g. the
   DNS name you'll reach the Controller by. A name added later gets a
   new certificate at the next start, signed by the same identity CA.
+  The first entry is also the address nodes are told to register at:
+  add a name after it, not instead of it.
 - `JANUS_CONTROLLER_MASTER_KEY_FILE` - the master key sealing the
   fleet's issuing key (default `/data/master.key`): keep it outside the
   data volume, as the Compose file above does.
