@@ -1,4 +1,4 @@
-import { ChevronDown, Lock, RotateCcw, Upload } from 'lucide-react'
+import { ChevronDown, Download, Lock, RotateCcw, Upload } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { call, postJSON } from './call.js'
 import { Badge, Card, ErrorBox, useAction, useConfirm } from './shared/ui.jsx'
@@ -8,7 +8,8 @@ import { fmtDate } from './shared/units.js'
 // (dashboard/backend/controller_tls.go): its own self-signed identity by
 // default, or one of the organization's - uploaded here, or given as
 // files (-tls-cert/-tls-key). Nodes register against the self-signed
-// identity whatever the page uses.
+// identity whatever the page uses: its own CA (internal/identity), which
+// renews the certificate by itself.
 
 const SOURCE = {
   'self-signed': { label: 'self-signed', tone: undefined },
@@ -51,6 +52,48 @@ function Details({ info }) {
         </div>
       ))}
     </>
+  )
+}
+
+// Identity is the Controller's own identity: its CA, kept for good, and
+// the certificate it signs - or, until the switch, the first certificate
+// of a Controller made before it kept a CA.
+function Identity({ identity }) {
+  if (!identity) return null
+  const download = () => {
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([identity.ca_pem], { type: 'application/x-pem-file' }))
+    a.download = 'janus-controller-identity-ca.crt'
+    a.click()
+  }
+  return (
+    <div className="stack" style={{ gap: '0.5rem' }}>
+      <strong>The Controller&apos;s identity</strong>
+      <div className="muted small">
+        What nodes, janusctl and the Let&apos;s Encrypt relay check the Controller with: its own CA, which signs its certificate and renews it by itself 35 days before
+        it ends. Install the CA in a browser to trust the page without a certificate of its own.
+      </div>
+      <dl className="kv">
+        <dt>Identity CA</dt>
+        <dd className="mono small">{colonHex(identity.ca_fingerprint)}</dd>
+        <dt>CA valid until</dt>
+        <dd>{day(identity.ca_not_after)}</dd>
+        <dt>Certificate until</dt>
+        <dd>{day(identity.not_after)}</dd>
+      </dl>
+      {identity.legacy && (
+        <div className="notice warn small">
+          Until {day(identity.switch_at)} the Controller serves its first certificate, made before it kept a CA; then one its CA signs. Browsers ask once more; janusctl
+          contexts and the nodes&apos; relay settings follow by themselves. Terraform, Prometheus or scripts given that certificate need the CA instead, and a node
+          given that certificate alone that hasn&apos;t registered yet can&apos;t after.
+        </div>
+      )}
+      <div>
+        <button className="small" onClick={download}>
+          <Download size={14} /> Download the identity CA
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -192,8 +235,9 @@ export default function HTTPSCertificate() {
               )}
             </div>
           )}
+          <Identity identity={info.identity} />
           <div className="muted small">
-            Nodes register against the Controller&apos;s self-signed identity on its registration port whatever this page uses: a node provisioned with it keeps working.
+            Nodes register against the Controller&apos;s identity on its registration port whatever this page uses: a node provisioned with its CA keeps working.
           </div>
         </div>
       )}
