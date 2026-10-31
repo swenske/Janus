@@ -17,8 +17,8 @@
 # built with kernel/patches/ applied - its README says which and why.
 KERNEL_LONGTERM_VERSION := 6.18.60
 KERNEL_LONGTERM_SHA256  := 3c2f44ef6acc021a7ad444d9a2e6ec1ef488ff09368793d0004a6080f69d621e
-KERNEL_STABLE_VERSION   := 7.2.13
-KERNEL_STABLE_SHA256    := 08e7b0c4f2dd1971f972da274b5e589a98989390ac56acd7a1a5af922363ea6c
+KERNEL_STABLE_VERSION   := 7.2.14
+KERNEL_STABLE_SHA256    := bb1b871ef95a8de10b3f7b7baf0e0d754abbf620f804b6caf860f226aa97647d
 
 # HAProxy, one pin per LTS branch an image can be built with (variants.mk,
 # haproxy.org). HAProxy doesn't sign its tarballs: sha256 as published by
