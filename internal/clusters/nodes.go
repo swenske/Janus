@@ -102,7 +102,7 @@ func nodeError(err error) error {
 // deadline. An undrain sent as soon as a member answered again was lost
 // that way (#438). Only for the calls a second run can't harm: reads,
 // drain, undrain, ClusterSet - never an apply, an upload or anything a
-// node makes anew.
+// node makes anew, nor a call whose failure is the answer (BootTime).
 func onceMore[T any](call func(opts ...grpc.CallOption) (T, error)) (T, error) {
 	out, err := call()
 	if status.Code(err) != codes.Unavailable {
@@ -571,9 +571,12 @@ func (g GRPC) BootTime(ctx context.Context, m Member) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, err
 	}
-	st, err := onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.SystemStatResponse, error) {
-		return c.SystemStat(ctx, &emptypb.Empty{}, opts...)
-	})
+	// Never onceMore: an update's waitBack learns that the member went
+	// through a reboot from this call failing - tried again until the
+	// member is back, it answered after a quick reboot, and a member that
+	// reverted to the slot it left read as never rebooted (v2026.10.31's
+	// build, qemu-cluster-upgrade-test's failed update).
+	st, err := c.SystemStat(ctx, &emptypb.Empty{})
 	if err != nil {
 		return time.Time{}, nodeError(err)
 	}
