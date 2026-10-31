@@ -3,8 +3,9 @@
 // files (-tls-cert/-tls-key, read again when they change - a renewal by
 // certbot or the like needs no restart), else one uploaded on the page
 // (its key sealed with the master key), else the Controller's own
-// self-signed identity. Nodes register against that identity on the
-// registration port whatever this serves: a node provisioned with it
+// self-signed identity (internal/identity - renewed by itself, so it's
+// asked for at each handshake). Nodes register against that identity on
+// the registration port whatever this serves: a node provisioned with it
 // keeps trusting it when the page gets a certificate of its own.
 package uitls
 
@@ -57,7 +58,7 @@ const (
 var ErrFromFiles = errors.New("the certificate comes from -tls-cert/-tls-key: replace those files (read again within 30 s), or drop the flags to manage it here")
 
 type served struct {
-	cert   *tls.Certificate
+	cert   *tls.Certificate // nil: the self-signed identity's, as it is now
 	source string
 }
 
@@ -65,7 +66,7 @@ type served struct {
 type Store struct {
 	path       string
 	sealer     Sealer
-	selfSigned tls.Certificate
+	selfSigned func() *tls.Certificate
 	certFile   string
 	keyFile    string
 	now        func() time.Time
@@ -89,9 +90,10 @@ type stored struct {
 
 // Open picks the certificate to serve: the files when certFile/keyFile
 // are given (both or neither), else the one uploaded into dataDir, else
-// selfSigned. An uploaded one that no longer loads is logged and left
-// for the self-signed identity - the page must stay reachable to fix it.
-func Open(dataDir string, sealer Sealer, selfSigned tls.Certificate, certFile, keyFile string) (*Store, error) {
+// selfSigned - the identity's certificate now. An uploaded one that no
+// longer loads is logged and left for the self-signed identity - the
+// page must stay reachable to fix it.
+func Open(dataDir string, sealer Sealer, selfSigned func() *tls.Certificate, certFile, keyFile string) (*Store, error) {
 	if (certFile == "") != (keyFile == "") {
 		return nil, errors.New("-tls-cert and -tls-key must both be set together")
 	}
@@ -106,7 +108,7 @@ func Open(dataDir string, sealer Sealer, selfSigned tls.Certificate, certFile, k
 		s.cur.Store(&served{&cert, SourceFiles})
 		return s, nil
 	}
-	s.cur.Store(&served{&s.selfSigned, SourceSelfSigned})
+	s.cur.Store(&served{nil, SourceSelfSigned})
 	cert, err := s.loadUploaded()
 	switch {
 	case errors.Is(err, os.ErrNotExist):
@@ -139,10 +141,8 @@ func (s *Store) loadUploaded() (tls.Certificate, error) {
 
 // GetCertificate is the main port's tls.Config.GetCertificate.
 func (s *Store) GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error) {
-	if s.certFile != "" {
-		s.maybeReload()
-	}
-	return s.cur.Load().cert, nil
+	cert, _ := s.Current()
+	return cert, nil
 }
 
 // Current is the certificate served now and where it comes from.
@@ -151,6 +151,9 @@ func (s *Store) Current() (*tls.Certificate, string) {
 		s.maybeReload()
 	}
 	c := s.cur.Load()
+	if c.cert == nil {
+		return s.selfSigned(), c.source
+	}
 	return c.cert, c.source
 }
 
@@ -232,7 +235,7 @@ func (s *Store) Remove() error {
 	if err := os.Remove(s.path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	s.cur.Store(&served{&s.selfSigned, SourceSelfSigned})
+	s.cur.Store(&served{nil, SourceSelfSigned})
 	return nil
 }
 

@@ -15,6 +15,8 @@ import (
 
 	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
+	"github.com/swenske/Janus/dashboard/backend/internal/identity"
+	"github.com/swenske/Janus/dashboard/backend/internal/secrets"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 )
 
@@ -122,5 +124,84 @@ func TestRestoreFilesStaysInside(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "evil")); err == nil {
 		t.Error("written outside")
+	}
+}
+
+// tarGz is an archive of files (name -> content), as a backup's.
+func tarGz(t *testing.T, files map[string][]byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for name, data := range files {
+		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: int64(len(data)), Typeflag: tar.TypeReg}); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = tw.Write(data)
+	}
+	_ = tw.Close()
+	_ = gz.Close()
+	return buf.Bytes()
+}
+
+// TestRestoreIdentity: restored on a new Controller - which made its own
+// identity at its first start, sealed with its own master key -, a backup
+// made before Controllers kept the identity's CA starts with a CA of its
+// own; one that has it brings it back.
+func TestRestoreIdentity(t *testing.T) {
+	// The Controller backed up: its master key, its data directory.
+	src := t.TempDir()
+	srcKeyPath := filepath.Join(t.TempDir(), "master.key")
+	srcKey, err := secrets.LoadOrCreate(srcKeyPath, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srcID, err := identity.Open(src, srcKey, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func(dir, name string) []byte {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	masterKey := read(filepath.Dir(srcKeyPath), "master.key")
+
+	for _, withCA := range []bool{false, true} {
+		files := map[string][]byte{
+			"controller/master.key":                masterKey,
+			"controller/data/" + identity.CertFile: read(src, identity.CertFile),
+			"controller/data/" + identity.KeyFile:  read(src, identity.KeyFile),
+			"controller/data/users.json":           []byte(`{"users":[]}`),
+		}
+		if withCA {
+			files["controller/data/"+identity.CAFile] = read(src, identity.CAFile)
+			files["controller/data/"+identity.CAKeyFile] = read(src, identity.CAKeyFile)
+		}
+		// The new Controller, started once.
+		dst := t.TempDir()
+		dstKeyPath := filepath.Join(t.TempDir(), "master.key")
+		dstKey, _ := secrets.LoadOrCreate(dstKeyPath, dst)
+		dstID, err := identity.Open(dst, dstKey, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := restoreFiles(tarGz(t, files), dst, dstKeyPath); err != nil {
+			t.Fatal(err)
+		}
+		// Started again on what was restored.
+		key, err := secrets.LoadOrCreate(dstKeyPath, dst)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := identity.Open(dst, key, "")
+		if err != nil {
+			t.Fatalf("with the CA %v: the restored Controller doesn't start: %v", withCA, err)
+		}
+		if withCA != got.CA().Equal(srcID.CA()) || got.CA().Equal(dstID.CA()) {
+			t.Errorf("with the CA %v: the CA is the backed-up one: %v", withCA, got.CA().Equal(srcID.CA()))
+		}
 	}
 }

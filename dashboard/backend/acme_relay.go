@@ -1,9 +1,7 @@
 package main
 
 import (
-	"crypto/tls"
 	"crypto/x509"
-	"encoding/pem"
 	"log"
 	"net"
 	"net/http"
@@ -26,7 +24,7 @@ const acmeRelayFile = "acme-relay.json"
 
 func (a *app) startACMERelay() {
 	a.relay = &acmerelay.Server{
-		Identity: func() *tls.Certificate { return &a.serverCert },
+		Identity: a.identity.Certificate,
 		NodeOf:   a.relayNode,
 	}
 	cfg, err := acmerelay.Load(filepath.Join(a.dataDir, acmeRelayFile))
@@ -103,11 +101,9 @@ func (a *app) relayView() relayView {
 	return v
 }
 
-// identityPEM is the Controller's own identity, the certificate nodes
-// check it with.
-func (a *app) identityPEM() string {
-	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: a.serverCert.Certificate[0]}))
-}
+// identityPEM is what nodes check the Controller's own identity with:
+// its CA (identity.TrustPEM).
+func (a *app) identityPEM() string { return string(a.identity.TrustPEM()) }
 
 // relayInfo is what a node page needs to send its node through the
 // relay.

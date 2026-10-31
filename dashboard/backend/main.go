@@ -10,12 +10,10 @@
 // already holding a valid client cert for that node gets prompted to
 // select it the first time it connects to that node's own port.
 //
-// The Controller has one identity certificate of its own - see
-// loadOrCreateDashboardIdentity: self-signed, auto-generated on first
-// run and persisted to -data-dir (a fresh one every restart would mean
-// a new browser trust warning every time for no reason). Node
-// self-registration (-register-addr) always serves it: nodes are
-// provisioned with it. The main port (-addr: the page, janusctl,
+// The Controller has one identity of its own - internal/identity: a CA
+// kept in -data-dir (its key sealed with the master key) and a
+// certificate it signs, renewed by itself. Node self-registration
+// (-register-addr) always serves it: nodes are provisioned with its CA. The main port (-addr: the page, janusctl,
 // Terraform) serves it too, until the page is given a certificate of
 // its own - -tls-cert/-tls-key, or uploaded by an admin (internal/
 // uitls, controller_tls.go) -, e.g. a Let's Encrypt one or an internal
@@ -59,6 +57,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/enroll"
 	"github.com/swenske/Janus/dashboard/backend/internal/fleet"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
+	"github.com/swenske/Janus/dashboard/backend/internal/identity"
 	"github.com/swenske/Janus/dashboard/backend/internal/labels"
 	"github.com/swenske/Janus/dashboard/backend/internal/machines"
 	"github.com/swenske/Janus/dashboard/backend/internal/nodemetrics"
@@ -102,7 +101,7 @@ func main() {
 	addr := flag.String("addr", envOr("JANUS_CONTROLLER_ADDR", ":8080"), "main HTTPS address (node list, add/remove - never a credential) - e.g. \":443\" to run the UI on the standard HTTPS port; also settable via JANUS_CONTROLLER_ADDR (same \":port\"/\"host:port\" format - a flag takes precedence over the env var if both are given), for Docker Compose deployments where an environment: entry is more natural than overriding the container's command")
 	registerAddr := flag.String("register-addr", ":8443", "TLS address nodes self-register against (see internal/pending) - not the same port pool as approved nodes' own per-node listeners")
 	dataDir := flag.String("data-dir", "/data", "persistent data directory (Docker volume) - node registry + this dashboard's own TLS identity")
-	advertiseAddresses := flag.String("advertise-address", envOr("JANUS_CONTROLLER_ADVERTISE_ADDRESS", ""), "comma-separated extra IPs/hostnames to add to this dashboard's TLS identity certificate, alongside loopback and this host's own local IPs (see loadOrCreateDashboardIdentity) - needed whenever a node or browser reaches -addr/-register-addr/the per-node ports through an address this process can't see on its own network interfaces (Docker bridge networking's host-side published port, a NAT/port-forwarded address, ...); only used the first time the identity is generated (or ignored entirely if -tls-cert/-tls-key are set), since it's cached to -data-dir afterward - delete <data-dir>/dashboard-identity.{crt,key} to regenerate after changing this; also settable via JANUS_CONTROLLER_ADVERTISE_ADDRESS, same reasoning as JANUS_CONTROLLER_ADDR above")
+	advertiseAddresses := flag.String("advertise-address", envOr("JANUS_CONTROLLER_ADVERTISE_ADDRESS", ""), "comma-separated extra IPs/hostnames to add to this dashboard's TLS identity certificate, alongside loopback and this host's own local IPs (see internal/identity) - needed whenever a node or browser reaches -addr/-register-addr through an address this process can't see on its own network interfaces (Docker bridge networking's host-side published port, a NAT/port-forwarded address, ...); an address added here gets a new certificate at the next start, signed by the same identity CA (the -addr port serves -tls-cert/-tls-key instead when they're set); also settable via JANUS_CONTROLLER_ADVERTISE_ADDRESS, same reasoning as JANUS_CONTROLLER_ADDR above")
 	tlsCertFile := flag.String("tls-cert", envOr("JANUS_CONTROLLER_TLS_CERT", ""), "path to a PEM certificate (then its chain) the main HTTPS port (-addr) serves - the page, janusctl, Terraform - instead of the Controller's self-signed identity, read again when the file changes (a renewal needs no restart); with -tls-key, both or neither; nodes keep registering against the self-signed identity on -register-addr; also settable via JANUS_CONTROLLER_TLS_CERT; without it, an admin can upload one on the page")
 	masterKeyFile := flag.String("master-key-file", envOr("JANUS_CONTROLLER_MASTER_KEY_FILE", ""), "the master key sealing the fleet's issuing CA key (internal/secrets), made there the first time - keep it outside -data-dir so a copy of the data holds nothing usable; empty: <data-dir>/master.key, which the Controller warns about; also settable via JANUS_CONTROLLER_MASTER_KEY_FILE")
 	tlsKeyFile := flag.String("tls-key", envOr("JANUS_CONTROLLER_TLS_KEY", ""), "path to the PEM private key matching -tls-cert; also settable via JANUS_CONTROLLER_TLS_KEY")
@@ -151,11 +150,6 @@ func main() {
 		log.Fatalf("open the audit: %v", err)
 	}
 
-	serverCert, err := loadOrCreateDashboardIdentity(*dataDir, *advertiseAddresses)
-	if err != nil {
-		log.Fatalf("dashboard TLS identity: %v", err)
-	}
-
 	controllerID, err := loadOrCreateControllerID(*dataDir)
 	if err != nil {
 		log.Fatalf("controller ID: %v", err)
@@ -177,10 +171,14 @@ func main() {
 		log.Fatalf("master key: %v", err)
 	}
 	if masterKey.BesideData {
-		log.Printf("WARNING: the master key is %s, in the data directory: a copy of it holds the fleet's issuing CA key and the accounts' authenticator secrets - set JANUS_CONTROLLER_MASTER_KEY_FILE to a file outside it (dashboard/README.md)", masterKey.Path)
+		log.Printf("WARNING: the master key is %s, in the data directory: a copy of it holds the fleet's issuing CA key, the identity CA's and the accounts' authenticator secrets - set JANUS_CONTROLLER_MASTER_KEY_FILE to a file outside it (dashboard/README.md)", masterKey.Path)
+	}
+	controllerIdentity, err := identity.Open(*dataDir, masterKey, *advertiseAddresses)
+	if err != nil {
+		log.Fatalf("the Controller's TLS identity: %v", err)
 	}
 	authStore.SetSealer(masterKey)
-	uiCert, err := uitls.Open(*dataDir, masterKey, serverCert, *tlsCertFile, *tlsKeyFile)
+	uiCert, err := uitls.Open(*dataDir, masterKey, controllerIdentity.Certificate, *tlsCertFile, *tlsKeyFile)
 	if err != nil {
 		log.Fatalf("HTTPS certificate: %v", err)
 	}
@@ -220,7 +218,7 @@ func main() {
 		audit:                 auditLog,
 		backups:               backupStore,
 		masterKeyPath:         masterKey.Path,
-		serverCert:            serverCert,
+		identity:              controllerIdentity,
 		ui:                    uiCert,
 		suggestedRegisterAddr: suggestRegisterAddress(*advertiseAddresses, *registerAddr),
 		selfUpdate:            newSelfUpdate(*updaterSocket),
@@ -250,6 +248,7 @@ func main() {
 	go app.trustLoop(context.Background())
 	go app.clusters.loop(context.Background())
 	go app.backupLoop(context.Background())
+	go app.identityLoop(context.Background())
 	go app.telemetryLoop(context.Background())
 	if err := app.startLogForwarding(masterKey); err != nil {
 		log.Fatalf("log forwarding: %v", err)
@@ -395,11 +394,12 @@ type app struct {
 	// (acme_order.go); nil in tests that don't use them.
 	relay    *acmerelay.Server
 	ordering *acmeOrdering
-	// serverCert is the Controller's own identity: what nodes register
-	// against (-register-addr) and are provisioned with. ui is what the
-	// main port serves - that identity, or the page's own certificate.
-	serverCert tls.Certificate
-	ui         *uitls.Store
+	// identity is the Controller's own (internal/identity): what nodes
+	// register against (-register-addr) and are provisioned with - its
+	// CA. ui is what the main port serves - that identity, or the page's
+	// own certificate.
+	identity *identity.Identity
+	ui       *uitls.Store
 	// suggestedRegisterAddr is handleControllerInfo's best guess at the
 	// address a node should be given as -controller-address at
 	// provisioning time - see suggestRegisterAddress's own doc comment.
@@ -715,100 +715,10 @@ func (a *app) handleNodesStatus(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(out)
 }
 
-// loadOrCreateDashboardIdentity gives every TLS surface this process
-// serves (the main UI, node self-registration, and every per-node
-// listener) one stable server certificate across restarts (a fresh
-// self-signed identity every restart would mean a new browser trust-
-// warning every time, unrelated to whether anything actually changed).
-// This certificate's own trust has nothing to do with authenticating
-// *callers* - that's the per-node CA check in dashboard/backend/
-// internal/nodeproxy, and the admin password behind the main UI - it
-// only establishes the encrypted channel.
-//
-// tlsCertFile/tlsKeyFile (from -tls-cert/-tls-key) let an operator
-// supply a real certificate instead (a Let's Encrypt certificate, or
-// one from an internal CA) - checked first, before ever touching
-// dataDir; either both are set or neither is. Otherwise, a self-signed
-// one (reusing internal/pki's own CA+Issue machinery rather than
-// writing new crypto code here) is generated once and persisted to
-// dataDir.
-//
-// extraAdvertiseAddresses (comma-separated, from -advertise-address)
-// was added for Point 2 suite tranche 5: a self-registering node dials
-// -register-addr directly (no browser involved), and Go's net/http
-// client - unlike a browser - never lets an operator click through a
-// hostname/SAN mismatch, so any deployment where this process can't see
-// its own externally-reachable address on a local network interface
-// (Docker bridge networking's host-side published port most commonly,
-// but also a NAT/port-forwarded address) would otherwise refuse every
-// self-registration attempt outright, even a genuinely legitimate one -
-// found while building the node-side registration flow (internal/
-// selfregister), not yet a reported real deployment failure, but the
-// exact shape dashboard/README.md's own documented `docker run -p
-// 8443:8443 ...` example produces. Only meaningful for the
-// auto-generated identity - ignored entirely when a real certificate is
-// supplied via -tls-cert/-tls-key, since that certificate's own SANs
-// are the operator's responsibility.
-func loadOrCreateDashboardIdentity(dataDir, extraAdvertiseAddresses string) (tls.Certificate, error) {
-	certPath := dataDir + "/dashboard-identity.crt"
-	keyPath := dataDir + "/dashboard-identity.key"
-
-	if certPEM, err := os.ReadFile(certPath); err == nil {
-		keyPEM, err := os.ReadFile(keyPath)
-		if err == nil {
-			return tls.X509KeyPair(certPEM, keyPEM)
-		}
-	}
-
-	ca, err := pki.NewCA("dashboard")
-	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("generate dashboard identity: %w", err)
-	}
-	// App.jsx's openNode navigates to https://<window.location.hostname>:
-	// <port>/ - whatever host the browser used to load the main SPA in
-	// the first place (localhost most commonly, but not exclusively) -
-	// so the SAN list needs to cover that, not just this process's own
-	// view of itself. localhost/127.0.0.1/::1 are the guaranteed common
-	// case; pki.LocalIPs() covers a real LAN address too, for a
-	// --network host deployment or direct (non-Docker) local run - see
-	// dashboard/README.md. A previous version issued this certificate
-	// with zero SANs at all, which real modern TLS clients (browsers
-	// included) reject outright regardless of CommonName.
-	ips := append([]net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}, pki.LocalIPs()...)
-	dnsNames := []string{"localhost"}
-	for _, entry := range strings.Split(extraAdvertiseAddresses, ",") {
-		entry = strings.TrimSpace(entry)
-		if entry == "" {
-			continue
-		}
-		if ip := net.ParseIP(entry); ip != nil {
-			ips = append(ips, ip)
-		} else {
-			dnsNames = append(dnsNames, entry)
-		}
-	}
-	certPEM, keyPEM, err := ca.Issue(pki.IssueOptions{
-		CommonName:  "dashboard",
-		DNSNames:    dnsNames,
-		IPAddresses: ips,
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-	})
-	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("issue dashboard server certificate: %w", err)
-	}
-	if err := os.WriteFile(certPath, certPEM, 0o600); err != nil {
-		return tls.Certificate{}, fmt.Errorf("write %s: %w", certPath, err)
-	}
-	if err := os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
-		return tls.Certificate{}, fmt.Errorf("write %s: %w", keyPath, err)
-	}
-	return tls.X509KeyPair(certPEM, keyPEM)
-}
-
 // suggestRegisterAddress guesses the address a newly-provisioned node
 // should be given as -controller-address (see cmd/janusctl's own
 // lifecycle install flags) - the same host-selection logic
-// loadOrCreateDashboardIdentity's SAN list already applies (prefer an
+// internal/identity's SAN list already applies (prefer an
 // explicitly configured -advertise-address, since this process can't
 // reliably know its own externally-reachable address otherwise - see
 // that function's own doc comment for why), paired with -register-addr's
@@ -845,17 +755,18 @@ func suggestRegisterAddress(extraAdvertiseAddresses, registerAddr string) string
 // handleControllerInfo hands an operator everything needed to fill in
 // `janusctl lifecycle install`'s -controller-address/-controller-ca
 // flags for a new node - see docs/architecture.md's node self-
-// registration design. The CA cert here is this dashboard's own TLS
-// identity (the same one startRegistrationListener serves /register
-// behind), not a separate credential - it's what a provisioned node
-// verifies the Controller's identity against before ever sending it
-// anything, matching InstallRequest's own "no trust-on-first-use" rule.
+// registration design. The CA cert here is this Controller's own TLS
+// identity's (the one startRegistrationListener serves /register behind;
+// identity.TrustPEM: its CA - and while a Controller made before the CA
+// was kept still serves its first certificate, that one), not a
+// separate credential - it's what a provisioned node verifies the
+// Controller's identity against before ever sending it anything,
+// matching InstallRequest's own "no trust-on-first-use" rule.
 func (a *app) handleControllerInfo(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: a.serverCert.Certificate[0]})
 	_, source := a.ui.Current()
 	var fleetRoot []byte
 	if a.fleet != nil {
@@ -874,7 +785,11 @@ func (a *app) handleControllerInfo(w http.ResponseWriter, r *http.Request) {
 		// janusctl takes it when the machine trusts its CA.
 		Fingerprint string `json:"fingerprint"`
 		UISource    string `json:"ui_source"`
-	}{Address: a.suggestedRegisterAddr, CACertPEM: string(caPEM), FleetRootPEM: string(fleetRoot), Fingerprint: a.servedFingerprint(), UISource: source})
+		// IdentityCAFingerprint is the SHA-256 of the identity's CA - what
+		// CACertPEM holds first.
+		IdentityCAFingerprint string `json:"identity_ca_fingerprint"`
+	}{Address: a.suggestedRegisterAddr, CACertPEM: string(a.identity.TrustPEM()), FleetRootPEM: string(fleetRoot), Fingerprint: a.servedFingerprint(), UISource: source,
+		IdentityCAFingerprint: pki.Fingerprint(a.identity.CA().Raw)})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

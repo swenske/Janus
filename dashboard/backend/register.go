@@ -25,21 +25,19 @@ import (
 )
 
 // startRegistrationListener serves the node self-registration endpoint
-// on its own dedicated TLS port - deliberately separate from :8080
-// (plain HTTP, human-facing, now password-gated - see internal/auth)
-// and the per-node listener pool (9500-9599, mTLS-gated per *approved*
-// node): a self-announcing node doesn't have an approved identity yet,
-// so there's nothing to gate this behind except "is this really the
-// Controller", which the node itself checks via the same CA cert it
-// was given at provisioning time (see internal/pending's own doc
-// comment, and the node-side half of this design, not yet built).
-// tls.NoClientCert on purpose: the whole point of this endpoint is to
+// on its own dedicated TLS port - deliberately separate from the main
+// port (the page and its API, behind accounts - see internal/auth): a
+// self-announcing node doesn't have an approved identity yet, so there's
+// nothing to gate this behind except "is this really the Controller",
+// which the node itself checks with what it was given at provisioning
+// time - the fleet's root, or this Controller's identity CA
+// (internal/identity, internal/selfregister). tls.NoClientCert on purpose: the whole point of this endpoint is to
 // accept an announcement from a node the Controller has never seen
 // before, so there's no client certificate to require yet.
 func (a *app) startRegistrationListener(addr string) error {
 	// A node provisioned with the fleet's root asks for the fleet's name
 	// (SNI) and gets the fleet certificate; any other - provisioned with
-	// this Controller's own certificate - gets that one.
+	// this Controller's identity - gets the identity's certificate.
 	tlsConfig := &tls.Config{
 		ClientAuth: tls.NoClientCert,
 		MinVersion: tls.VersionTLS13,
@@ -49,7 +47,7 @@ func (a *app) startRegistrationListener(addr string) error {
 					return c, nil
 				}
 			}
-			return &a.serverCert, nil
+			return a.identity.Certificate(), nil
 		},
 	}
 

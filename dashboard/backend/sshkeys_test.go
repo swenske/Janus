@@ -165,3 +165,34 @@ func TestSSHLogin(t *testing.T) {
 		t.Errorf("the audit of SSH sign-ins: %+v", entries)
 	}
 }
+
+// TestSSHLoginAcrossRenewal: janusctl signs the certificate it saw at the
+// challenge - one the identity renewed in between still signs it in, a
+// few minutes; and it's given the identity's CA, to take the next one.
+func TestSSHLoginAcrossRenewal(t *testing.T) {
+	a := newMFAApp(t)
+	withReadyFleet(t, a.app)
+	root := mfaRoot(t, a)
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	signer, _ := ssh.NewSignerFromKey(priv)
+	if code, body := a.req(t, "POST", "/api/auth/ssh-keys", root, map[string]any{"name": "laptop", "public_key": string(ssh.MarshalAuthorizedKey(signer.PublicKey()))}); code != http.StatusCreated {
+		t.Fatalf("add: %d %s", code, body)
+	}
+	before := a.servedFingerprint()
+	if err := a.identity.RenewForTests(); err != nil {
+		t.Fatal(err)
+	}
+	if a.servedFingerprint() == before {
+		t.Fatal("the page doesn't serve the renewed certificate")
+	}
+	code, body := sshLogin(t, a, "root", signer, SSHLoginNamespace, before)
+	var out struct {
+		IdentityCAPEM string `json:"identity_ca_pem"`
+	}
+	if _ = json.Unmarshal([]byte(body), &out); code != http.StatusOK {
+		t.Fatalf("signed for the certificate before the renewal: %d %s", code, body)
+	}
+	if out.IdentityCAPEM != string(a.identity.CAPEM()) {
+		t.Errorf("the identity's CA isn't given: %q", out.IdentityCAPEM)
+	}
+}
