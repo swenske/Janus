@@ -92,7 +92,7 @@ func TestScopes(t *testing.T) {
 		t.Fatal(err)
 	}
 	prev := nodeproxy.FleetIdentity
-	nodeproxy.FleetIdentity = func() (*tls.Certificate, error) { return &fleetCert, nil }
+	nodeproxy.FleetIdentity = func(*store.Node) (*tls.Certificate, error) { return &fleetCert, nil }
 	t.Cleanup(func() { nodeproxy.FleetIdentity = prev })
 
 	names := func(cred string) []string {

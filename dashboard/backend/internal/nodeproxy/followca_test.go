@@ -53,7 +53,7 @@ func TestFollowCA(t *testing.T) {
 
 	dial := func(stage string) {
 		t.Helper()
-		cfg, err := nodeTLS(node, false)
+		cfg, err := nodeTLS(node, false, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

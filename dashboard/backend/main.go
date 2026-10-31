@@ -205,7 +205,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("open the clusters: %v", err)
 	}
-	nodeproxy.FleetIdentity = fleetStore.ClientCertificate
+	nodeproxy.FleetIdentity = func(n *store.Node) (*tls.Certificate, error) { return fleetStore.ClientCertificateFor(n.Bundle()) }
 	nodeproxy.NodeCA = func(n *store.Node, caPEM []byte) error { return st.SetCA(n.ID, caPEM) }
 
 	app := &app{

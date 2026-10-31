@@ -79,6 +79,8 @@ func TestCategory(t *testing.T) {
 		{"POST", "/api/hypervisors/preparation", CatMachines},
 		{"POST", "/api/fleet/setup", CatFleet},
 		{"GET", "/api/fleet/recovery-kit", CatFleet},
+		{"POST", "/api/fleet/renew", CatFleet},
+		{"POST", "/api/fleet/rescue", CatFleet},
 		{"DELETE", "/api/enroll-tokens/e1", CatFleet},
 		{"PUT", "/api/controller/tls", CatFleet},
 		{"POST", "/api/controller/update", CatSettings},
