@@ -711,5 +711,19 @@ func saveFile(name string, data []byte) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp, filepath.Join(Dir, name))
+	if err := os.Rename(tmp, filepath.Join(Dir, name)); err != nil {
+		return err
+	}
+	// The rename itself, on disk: a node powered off within the journal's
+	// commit interval after a confirm booted without its ruleset.
+	return syncDir(Dir)
+}
+
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
