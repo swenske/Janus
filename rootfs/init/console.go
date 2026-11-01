@@ -20,7 +20,7 @@ const screenQueue = 256
 // /dev/console on the serial port (the last console=), and a process's
 // output only reaches /dev/console - an operator in front of a server's
 // monitor would see the kernel boot, then nothing: not the motd, not the
-// first boot's credentials.
+// pairing code.
 //
 // os.Stdout and os.Stderr - what init prints with and hands janusd -
 // become a pipe that one goroutine copies, for init's whole life, to the

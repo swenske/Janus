@@ -414,7 +414,7 @@ export default function Builder() {
                     <button className={`choice ${consoleChoice === 'screen' ? 'selected' : ''}`} onClick={() => update({ console: 'screen' })}>
                       <span className="choice-title">Screen only</span>
                       <span className="muted small">
-                        No serial console: an emulated serial port costs CPU for every byte written to it. The first boot's credentials show on the screen alone - for a node you install by hand and watch
+                        No serial console: an emulated serial port costs CPU for every byte written to it. The pairing code shows on the screen alone - for a node you install by hand and watch
                         another way.
                       </span>
                       <span className="choice-meta">

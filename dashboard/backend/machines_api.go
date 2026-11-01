@@ -281,8 +281,9 @@ func (a *app) handleMachinePower(w http.ResponseWriter, r *http.Request) {
 // handleMachineConsole streams the machine's serial console as SSE: one
 // event per chunk, JSON-encoded (a console writes \r and escape
 // sequences, which SSE's line format can't carry raw). Private keys are
-// hidden - a node's first boot prints its root admin credential there,
-// which the Controller must never hold. The console is shared with every
+// hidden - a node from before the pairing code prints its root admin
+// credential there at its first boot, which the Controller must never
+// hold. The console is shared with every
 // other reader (consoleHub).
 func (a *app) handleMachineConsole(w http.ResponseWriter, r *http.Request) {
 	m, ok := a.getMachine(w, r)

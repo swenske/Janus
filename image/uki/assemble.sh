@@ -58,7 +58,7 @@
 # schematic's choice ("console": "screen", docs/image-factory.md): an
 # emulated serial port costs CPU for every byte written to it, and a
 # node nobody watches that way needn't pay it. Everything else is the
-# same: the first boot's credentials and janusd's log go to the screen.
+# same: the pairing code and janusd's log go to the screen.
 #
 # UKI_SELINUX_ENFORCING (env var, optional, default 1): whether
 # `enforcing=1` is appended - left off for the Single Board Computer

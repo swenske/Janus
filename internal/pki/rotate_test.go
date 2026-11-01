@@ -26,9 +26,38 @@ func parseCert(t *testing.T, p []byte) *x509.Certificate {
 	return c
 }
 
+// newAdminKey is a key a rotation's admin certificate is issued for.
+func newAdminKey(t *testing.T) *ecdsa.PrivateKey {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
+
+// TestBootstrapMakesNoAdmin: a first boot makes the node's CA and its
+// server certificate - no admin credential, none on disk.
+func TestBootstrapMakesNoAdmin(t *testing.T) {
+	dir := t.TempDir()
+	b, err := LoadOrBootstrap(dir, "node", nil)
+	if err != nil || !b.Generated {
+		t.Fatalf("first boot: %v (generated %v)", err, err == nil && b.Generated)
+	}
+	for _, f := range []string{adminCertFile, adminKeyFile} {
+		if _, err := os.Stat(filepath.Join(dir, f)); !os.IsNotExist(err) {
+			t.Errorf("%s made at the first boot: %v", f, err)
+		}
+	}
+	if again, err := LoadOrBootstrap(dir, "node", nil); err != nil || again.Generated || !again.CA.Cert.Equal(b.CA.Cert) {
+		t.Fatalf("second boot: %v", err)
+	}
+}
+
 // TestRotate: a node's new own CA replaces the old one on disk and in
 // memory, its admin certificate issued for a key the node never sees -
-// and only the new CA's certificates let in afterwards.
+// and only the new CA's certificates let in afterwards. Without a key,
+// nothing changes: the node makes none.
 func TestRotate(t *testing.T) {
 	dir := t.TempDir()
 	b, err := LoadOrBootstrap(dir, "node", nil)
@@ -42,36 +71,40 @@ func TestRotate(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := NodeTLSConfig(local.CA, sc, fleet, nil)
-	oldAdmin, err := tls.X509KeyPair(b.AdminCertPEM, b.AdminKeyPEM)
+	oldCert, oldKey, err := b.CA.Issue(IssueOptions{CommonName: "rescue:alice", Roles: []string{RoleAdmin}, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldAdmin, err := tls.X509KeyPair(oldCert, oldKey)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := sc.Rotate(local, "localhost", nil, nil); err == nil || local.CA() != b.CA {
+		t.Fatalf("a rotation without a key: %v, CA swapped %v", err, local.CA() != b.CA)
 	}
+
+	key := newAdminKey(t)
 	r, err := sc.Rotate(local, "localhost", nil, &key.PublicKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.AdminKeyPEM != nil || local.CA() != r.CA || r.CA.Cert.Equal(b.CA.Cert) {
-		t.Fatalf("rotation: key %v, local CA swapped %v", r.AdminKeyPEM != nil, local.CA() == r.CA)
+	if local.CA() != r.CA || r.CA.Cert.Equal(b.CA.Cert) {
+		t.Fatalf("rotation: local CA swapped %v", local.CA() == r.CA)
 	}
 	admin := parseCert(t, r.AdminCertPEM)
 	if admin.CheckSignatureFrom(r.CA.Cert) != nil || !admin.PublicKey.(*ecdsa.PublicKey).Equal(&key.PublicKey) {
 		t.Error("the admin certificate isn't the new CA's, for the given key")
 	}
-	if _, err := os.Stat(filepath.Join(dir, adminKeyFile)); !os.IsNotExist(err) {
-		t.Errorf("admin.key kept: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, rotationDir)); !os.IsNotExist(err) {
-		t.Errorf("rotation directory left: %v", err)
+	for _, f := range []string{adminCertFile, adminKeyFile, rotationDir} {
+		if _, err := os.Stat(filepath.Join(dir, f)); !os.IsNotExist(err) {
+			t.Errorf("%s on disk after the rotation: %v", f, err)
+		}
 	}
 
 	again, err := LoadOrBootstrap(dir, "node", nil)
-	if err != nil || !again.CA.Cert.Equal(r.CA.Cert) || again.AdminIssued {
-		t.Fatalf("reloaded: %v (admin issued %v)", err, again.AdminIssued)
+	if err != nil || !again.CA.Cert.Equal(r.CA.Cert) || again.Generated {
+		t.Fatalf("reloaded: %v (a new CA %v)", err, err == nil && again.Generated)
 	}
 
 	newAdmin, err := tls.X509KeyPair(r.AdminCertPEM, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: must(x509.MarshalPKCS8PrivateKey(key))}))
@@ -85,15 +118,34 @@ func TestRotate(t *testing.T) {
 	if err := handshake(t, cfg, oldAdmin, roots); err == nil {
 		t.Error("the old CA's admin certificate still lets in")
 	}
+}
 
-	// Without a public key, the node makes the key: kept like at first
-	// boot, to be shown once.
-	r2, err := sc.Rotate(local, "localhost", nil, nil)
+// TestRotateOlderNode: a node from before the pairing code keeps an
+// admin.crt - the new one, what it is known by (cmd/janusd's pairing
+// window) -, never the admin.key its first boot made.
+func TestRotateOlderNode(t *testing.T) {
+	dir := t.TempDir()
+	b, err := LoadOrBootstrap(dir, "node", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if onDisk, _ := os.ReadFile(filepath.Join(dir, adminKeyFile)); string(onDisk) != string(r2.AdminKeyPEM) || r2.AdminKeyPEM == nil {
-		t.Error("the node-made admin key isn't kept")
+	certPEM, keyPEM, err := b.CA.Issue(IssueOptions{CommonName: "admin", Roles: []string{RoleAdmin}, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFiles(dir, file{adminCertFile, certPEM, 0o600}, file{adminKeyFile, keyPEM, 0o600}); err != nil {
+		t.Fatal(err)
+	}
+	key := newAdminKey(t)
+	r, err := NewServerCert(b.CA, dir, b.ServerCert).Rotate(NewLocal(b.CA), "localhost", nil, &key.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if onDisk, _ := os.ReadFile(filepath.Join(dir, adminCertFile)); string(onDisk) != string(r.AdminCertPEM) {
+		t.Error("an older node's admin.crt isn't the new admin certificate")
+	}
+	if _, err := os.Stat(filepath.Join(dir, adminKeyFile)); !os.IsNotExist(err) {
+		t.Errorf("an older node's admin.key kept: %v", err)
 	}
 }
 
@@ -192,7 +244,7 @@ func TestRotationCrossSigned(t *testing.T) {
 		t.Fatal(err)
 	}
 	sc := NewServerCert(b.CA, dir, b.ServerCert)
-	r, err := sc.Rotate(NewLocal(b.CA), "localhost", nil, nil)
+	r, err := sc.Rotate(NewLocal(b.CA), "localhost", nil, &newAdminKey(t).PublicKey)
 	if err != nil {
 		t.Fatal(err)
 	}

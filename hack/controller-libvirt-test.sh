@@ -171,8 +171,9 @@ api -X POST "$API/api/machines" -H 'Content-Type: application/json' -d "{
   \"nics\": [{\"network\": \"janus-test\", \"name\": \"lan\", \"mode\": \"dhcp\"}]}" >"$WORKDIR/m.json"
 MID="$(json "d['id']" <"$WORKDIR/m.json")" || fail "create: $(cat "$WORKDIR/m.json")"
 
-# The console from the moment the machine exists: its first boot prints
-# the node's admin credential, whose key must never come through.
+# The console from the moment the machine exists: no private key ever
+# comes through it - a node makes none to print (one from before the
+# pairing code did: the Controller hides it).
 for _ in $(seq 1 120); do
   [ -n "$(api "$API/api/machines/$MID" | json "d.get('vm_uuid','')")" ] && break
   sleep 0.5
@@ -255,7 +256,8 @@ import json, re, sys
 out = "".join(json.loads(l[6:]) for l in open(sys.argv[1]) if l.startswith("data: "))
 assert "listening on :9505" in out, "no janusd boot in the console: %r" % out[-500:]
 assert not re.search(r"BEGIN [A-Z ]*PRIVATE KEY", out), "a private key came through the console"
-print("  first boot: %d bytes, %s" % (len(out), "the admin key hidden" if "[private key hidden" in out else "attached after the credential's print"))
+assert "[private key hidden" not in out, "a node printed a private key on its console"
+print("  first boot: %d bytes, no private key" % len(out))
 EOF
 boot_before="$(api "$API/api/nodes/status" | json "d['$NODE']['boot_time_unix']")"
 timeout 60 curl -skN -b "$JAR" "$API/api/machines/$MID/console" >"$WORKDIR/console2.sse" 2>/dev/null &

@@ -357,8 +357,10 @@ SHA-256 is kept (`enroll-tokens.json`).
 ### Securing the fleet
 
 Until it has a fleet, the Controller reaches each node with a service
-credential it got when the node was added, kept for good. The **Secure
-your fleet** card on the main page replaces them, in three steps:
+credential it got when the node registered - or, a node from before the
+pairing code, when it was added -, kept for good; adding a node by its
+pairing code needs the fleet. The **Secure your fleet** card on the main
+page replaces them, in three steps:
 
 1. **Create the fleet**: its root certificate authority, an issuing CA
    the Controller keeps, and a recovery kit - the root's key, encrypted

@@ -433,6 +433,12 @@ if __name__ == "__main__":
 - **A seeded image**: the registration settings or the fleet written
   onto an image's state partition before its first boot (`janusctl image
   seed-controller`, `seed-fleet`).
-- **A node already running**, provisioned with neither: its first-boot
-  admin credential, printed once on its console, calls `TrustSet` to
-  give it your fleet ([a fleet without a Controller](../fleet-without-controller.md)).
+- **A node already running**, provisioned with neither: it shows a
+  one-time pairing code on its console, and `PairingService/Pair` on its
+  port 9506 gives it your fleet - root and bundle - with that code; the
+  code's first part names the certificate the window presents, to check
+  before sending anything ([the pairing
+  window](../internals/trust.md#the-pairing-window),
+  [API](api-reference.md#pairingservice)). A node from before the
+  pairing code: the admin credential its first boot printed calls
+  `TrustSet` instead.

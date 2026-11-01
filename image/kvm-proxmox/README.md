@@ -14,5 +14,5 @@ How to run it - from the Controller, with Terraform, or by hand with
 guide](../../docs/private-cloud/platforms/proxmox.md): OVMF with
 `pre-enrolled-keys=0` (Secure Boot off - Proxmox's default vars enroll
 Microsoft's keys), a virtio disk, a serial console to read the
-first-boot credentials from, a NoCloud volume for the node's network
+node's CA fingerprint or pairing code from, a NoCloud volume for the node's network
 and Controller.

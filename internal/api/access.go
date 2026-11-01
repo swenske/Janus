@@ -11,10 +11,8 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"os"
-	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -36,10 +34,6 @@ type Access struct {
 	// both replaced by LocalCARotate.
 	Local      *pki.Local
 	ServerCert *pki.ServerCert
-	// Console gets what LocalCARotate prints when the node made the new
-	// admin key - janusd's stderr, the console: never its log ring,
-	// which Logs serves.
-	Console io.Writer
 }
 
 func (a *Access) state() *janusv1alpha1.TrustState {
@@ -93,13 +87,14 @@ func (a *Access) TrustReset(ctx context.Context, _ *emptypb.Empty) (*janusv1alph
 }
 
 func (a *Access) LocalCARotate(ctx context.Context, req *janusv1alpha1.LocalCARotateRequest) (*janusv1alpha1.LocalCARotateResponse, error) {
-	var pub crypto.PublicKey
-	if len(req.GetAdminPublicKey()) > 0 {
-		p, err := parseAdminPublicKey(req.GetAdminPublicKey())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "admin_public_key: %v", err)
-		}
-		pub = p
+	// The new admin certificate is for the caller's key: a node never
+	// makes one - nor prints one - any more.
+	if len(req.GetAdminPublicKey()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "admin_public_key: required - the new admin certificate is for a key you made (janusctl access rotate-ca makes one)")
+	}
+	pub, err := parseAdminPublicKey(req.GetAdminPublicKey())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "admin_public_key: %v", err)
 	}
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -112,15 +107,7 @@ func (a *Access) LocalCARotate(ctx context.Context, req *janusv1alpha1.LocalCARo
 	caller, _ := CallerFrom(ctx)
 	log.Printf("access: the node's own CA replaced (SHA-256 %s) - every certificate the old one issued stops working - by %s", pki.Fingerprint(r.CA.Cert.Raw), caller)
 	events.Publish("access.local_ca_rotated", map[string]any{"ca": pki.Fingerprint(r.CA.Cert.Raw), "by": caller.String()})
-	resp := &janusv1alpha1.LocalCARotateResponse{CaCert: r.CA.CertPEM}
-	if r.AdminKeyPEM == nil {
-		resp.AdminCert = r.AdminCertPEM
-		return resp, nil
-	}
-	now := time.Now().Format("2006/01/02 15:04:05")
-	fmt.Fprintf(a.Console, "%s pki: the node's own CA was replaced (by %s)\n%s pki: CA CERTIFICATE (needed for janusctl's -ca flag):\n%s%s pki: ADMIN CERTIFICATE (save this now, it will not be printed again):\n%s%s",
-		now, caller, now, r.CA.CertPEM, now, r.AdminCertPEM, r.AdminKeyPEM)
-	return resp, nil
+	return &janusv1alpha1.LocalCARotateResponse{CaCert: r.CA.CertPEM, AdminCert: r.AdminCertPEM}, nil
 }
 
 // parseAdminPublicKey reads a PKIX PEM public key a certificate may be

@@ -70,16 +70,14 @@ func registerAccessRoutes(mux *http.ServeMux, node *store.Node) {
 	})
 
 	// Replacing the node's own CA: every certificate it issued stops
-	// working - the first boot's admin credential, those issued on this
-	// page, and a credential the Controller holds from before the fleet:
-	// refused until the Controller reaches the node through the fleet.
-	// The new admin credential is for the key the browser made (its
-	// private half never leaves the browser), or printed on the node's
-	// console.
+	// working - an older node's first-boot admin credential, those issued
+	// on this page, and a credential the Controller holds from before the
+	// fleet: refused until the Controller reaches the node through the
+	// fleet. The new admin credential is for the key the browser made
+	// (its private half never leaves the browser).
 	mux.HandleFunc("POST /api/access/rotate-ca", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			AdminPublicKey string `json:"admin_public_key"`
-			Console        bool   `json:"console"`
 		}
 		if !decodeJSON(w, r, &req) {
 			return
@@ -88,8 +86,8 @@ func registerAccessRoutes(mux *http.ServeMux, node *store.Node) {
 			http.Error(w, "the Controller reaches this node with a credential its own CA issued: replacing the CA would cut it off - secure the fleet first", http.StatusConflict)
 			return
 		}
-		if req.Console == (strings.TrimSpace(req.AdminPublicKey) != "") {
-			http.Error(w, "either a public key for the new admin credential, or the node's console", http.StatusBadRequest)
+		if strings.TrimSpace(req.AdminPublicKey) == "" {
+			http.Error(w, "a public key for the new admin credential is required", http.StatusBadRequest)
 			return
 		}
 		unary(w, r, node, unaryTimeout, func(ctx context.Context, conn *grpc.ClientConn) (any, error) {

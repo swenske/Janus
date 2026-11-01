@@ -101,7 +101,7 @@ function Trust({ trust }) {
       </dl>
       <p className="muted small" style={{ marginBottom: 0 }}>
         The fleet&apos;s certificates - this Controller&apos;s, janusctl&apos;s after <code>janusctl login</code> - are short-lived and issued per account. The node&apos;s own CA
-        is the way in without the Controller: the first boot&apos;s admin credential and the certificates issued below.
+        is the way in without the Controller: the certificates issued below - and, on a node from before the pairing code, its first boot&apos;s admin credential.
       </p>
     </Card>
   )
@@ -114,9 +114,8 @@ function pemOf(type, buf) {
 
 // RotateCA replaces the node's own CA: every certificate it issued stops
 // working. The new admin credential's key is made in this browser and
-// never leaves it - or the node prints one on its console.
+// never leaves it.
 function RotateCA({ trust, node, onDone }) {
-  const [where, setWhere] = useState('browser')
   const [result, setResult] = useState(null)
   const [busy, run] = useAction()
   const confirm = useConfirm()
@@ -127,14 +126,10 @@ function RotateCA({ trust, node, onDone }) {
       body: (
         <>
           <p>
-            Every certificate it issued stops working at once: the first boot&apos;s admin credential, and every one issued on this page or with{' '}
-            <code>janusctl pki generate-client-config</code>. The fleet&apos;s - this Controller, janusctl after a login - keep working.
+            Every certificate it issued stops working at once: every one issued on this page or with <code>janusctl pki generate-client-config</code>, and an older
+            node&apos;s first-boot admin credential. The fleet&apos;s - this Controller, janusctl after a login - keep working.
           </p>
-          <p>
-            {where === 'browser'
-              ? 'The new admin credential is for a key made in this browser: save its three files as soon as they show.'
-              : "The new admin credential is printed on the node's console - its serial port and screen - once."}
-          </p>
+          <p>The new admin credential is for a key made in this browser: save its three files as soon as they show.</p>
         </>
       ),
       action: 'Replace the CA',
@@ -144,11 +139,6 @@ function RotateCA({ trust, node, onDone }) {
     if (!ok) return
     setResult(null)
     await run(async () => {
-      if (where === 'console') {
-        const r = await postJSON('/api/access/rotate-ca', { console: true })
-        setResult({ ...r, console: true })
-        return
-      }
       const kp = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])
       const pub = pemOf('PUBLIC KEY', await crypto.subtle.exportKey('spki', kp.publicKey))
       const key = pemOf('PRIVATE KEY', await crypto.subtle.exportKey('pkcs8', kp.privateKey))
@@ -170,13 +160,9 @@ function RotateCA({ trust, node, onDone }) {
           </div>
         ) : (
           <>
-            <label className="check">
-              <input type="radio" name="rotate-where" checked={where === 'browser'} onChange={() => setWhere('browser')} /> The new admin credential here - its key made in this
-              browser, never sent
-            </label>
-            <label className="check">
-              <input type="radio" name="rotate-where" checked={where === 'console'} onChange={() => setWhere('console')} /> Printed on the node&apos;s console
-            </label>
+            <p className="muted small" style={{ margin: 0 }}>
+              The new admin credential&apos;s key is made in this browser, never sent.
+            </p>
             <div>
               <button className="danger" disabled={busy || !trust.data} onClick={rotate}>
                 <RefreshCcw size={15} /> Replace the CA…
@@ -188,19 +174,14 @@ function RotateCA({ trust, node, onDone }) {
           <div className="stack">
             <div className="notice">
               New CA <span className="mono small">{short(result.ca?.fingerprint)}</span>. The Controller follows it by itself (the old CA signed the new one).
-              {result.console && ' The admin credential is on the node\'s console.'}
             </div>
             <PemBlock label="CA certificate" value={result.ca_cert} file="ca.crt" />
-            {!result.console && (
-              <>
-                <PemBlock label="Admin certificate" value={result.admin_cert} file="admin.crt" />
-                <PemBlock label="Admin private key" value={result.admin_key} file="admin.key" />
-                <div className="muted small">
-                  Use with: <code>janusctl -ca ca.crt -cert admin.crt -key admin.key -endpoint {node?.address || 'NODE:9505'} version</code> - keep the key like a password:
-                  it&apos;s nowhere else.
-                </div>
-              </>
-            )}
+            <PemBlock label="Admin certificate" value={result.admin_cert} file="admin.crt" />
+            <PemBlock label="Admin private key" value={result.admin_key} file="admin.key" />
+            <div className="muted small">
+              Use with: <code>janusctl -ca ca.crt -cert admin.crt -key admin.key -endpoint {node?.address || 'NODE:9505'} version</code> - keep the key like a password:
+              it&apos;s nowhere else.
+            </div>
           </div>
         )}
       </div>

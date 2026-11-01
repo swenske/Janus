@@ -49,7 +49,7 @@ image, no QEMU - for iterating on the API and HAProxy configurations:
 ```sh
 make local-dev-image
 docker run -d --name janus-local-dev --network host janus-local-dev
-docker logs janus-local-dev        # its CA and admin credential, printed once
+docker logs janus-local-dev        # its pairing code: janusctl fleet adopt -code, or Add node
 ```
 
 ## The Controller

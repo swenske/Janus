@@ -28,8 +28,8 @@ func TestRenderMOTD(t *testing.T) {
 	if strings.Contains(out, "\x1b[") {
 		t.Errorf("color=false output contains ANSI escapes:\n%q", out)
 	}
-	if strings.Contains(out, "First boot") || strings.Contains(out, "pairing") {
-		t.Errorf("a node that trusts a fleet: its MOTD mentions a first boot or a pairing:\n%s", out)
+	if strings.Contains(out, "pairing") {
+		t.Errorf("a node that trusts a fleet: its MOTD mentions a pairing:\n%s", out)
 	}
 	info.PairingCode = "9BC3-3016-3D39-2K7Q-M2XD"
 	if out := renderMOTD(info, false); !strings.Contains(out, "pairing   9BC3-3016-3D39-2K7Q-M2XD\n") || !strings.Contains(out, "janusctl fleet adopt -code, or Add node") {
@@ -41,12 +41,12 @@ func TestRenderMOTD(t *testing.T) {
 	}
 	info.PairingCode, info.RescueUntil = "", time.Time{}
 
-	info.ActiveSlot, info.HAProxyRunning, info.FirstBoot = "", false, true
+	info.ActiveSlot, info.HAProxyRunning = "", false
 	out = renderMOTD(info, true)
 	if strings.Contains(out, "boot slot") {
 		t.Errorf("MOTD without a slot still mentions one:\n%s", out)
 	}
-	for _, want := range []string{"not running", "First boot", ansiOrange} {
+	for _, want := range []string{"not running", ansiOrange} {
 		if !strings.Contains(out, want) {
 			t.Errorf("MOTD missing %q:\n%s", want, out)
 		}

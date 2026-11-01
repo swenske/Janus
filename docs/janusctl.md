@@ -252,9 +252,13 @@ sign-in take it, without the Controller being asked or anything
 changing on them
 ([when the Controller is down or lost](guide/recovery.md#the-controller-is-down)).
 
-A node's own certificate still works, and comes first: `janusctl
--endpoint NODE:9505 -ca ca.crt -cert admin.crt -key admin.key ...` - the
-first-boot admin certificate, the way in when nothing else does.
+A certificate of a node's own CA still works, and comes first:
+`janusctl -endpoint NODE:9505 -ca ca.crt -cert admin.crt -key admin.key
+...` - the hour's certificate of its [rescue
+volume](guide/recovery.md#neither) (`janusctl access rescue`), the way
+in when nothing else does, or the admin credential a node from before
+the pairing code printed on its first boot. `-cert` and `-key` have no
+default.
 
 Behind a proxy, janusctl reaches the Controller and the nodes through
 `HTTPS_PROXY` (a CONNECT tunnel), the hosts in `NO_PROXY` directly.
@@ -272,6 +276,7 @@ issuing CA of its own:
 janusctl -context lab fleet init -issuer alice-laptop janus-kit.age
 janusctl fleet export provision/        # for image seed-fleet, install, NoCloud
 janusctl fleet adopt edge-1 -endpoint 192.0.2.10 -ca-fingerprint 9bc3...   # its console's "ca sha256"
+janusctl fleet adopt edge-2 -endpoint 192.0.2.11 -code 9BC3-3016-...      # provisioned with nothing: its pairing code
 janusctl -all haproxy show-info
 ```
 

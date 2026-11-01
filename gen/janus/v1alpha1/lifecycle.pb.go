@@ -148,9 +148,8 @@ type InstallRequest struct {
 	// Optional: a fleet for the installed node to trust from its first
 	// boot - its root (PEM) and a bundle that root signed (pki.SignedBundle
 	// as JSON), both required together. The fleet's certificates then let
-	// in without anyone copying the first boot's admin credential
-	// (janusctl fleet adopt -ca-fingerprint). Checked before anything is
-	// written.
+	// in from the start, no pairing (janusctl fleet adopt
+	// -ca-fingerprint). Checked before anything is written.
 	FleetRootCert []byte `protobuf:"bytes,7,opt,name=fleet_root_cert,json=fleetRootCert,proto3" json:"fleet_root_cert,omitempty"`
 	FleetBundle   []byte `protobuf:"bytes,8,opt,name=fleet_bundle,json=fleetBundle,proto3" json:"fleet_bundle,omitempty"`
 	// Optional: the size of the LOGS partition - the node's logs kept

@@ -37,17 +37,19 @@ func TestAccessPage(t *testing.T) {
 	}
 
 	admin := User{Name: "root", Perms: []Perm{{Role: "os:admin"}}}
-	if code, body := do(admin, "POST", "/api/access/rotate-ca", `{"console":true}`); code != http.StatusConflict || !strings.Contains(body, "fleet") {
+	withKey := `{"admin_public_key":"-----BEGIN PUBLIC KEY-----\nMFkw\n-----END PUBLIC KEY-----\n"}`
+	if code, body := do(admin, "POST", "/api/access/rotate-ca", withKey); code != http.StatusConflict || !strings.Contains(body, "fleet") {
 		t.Errorf("not on the fleet: %d %s", code, body)
 	}
 	node.Fleet = true
-	for _, body := range []string{`{}`, `{"console":true,"admin_public_key":"-----BEGIN PUBLIC KEY-----"}`} {
+	// No key: the node makes none any more.
+	for _, body := range []string{`{}`, `{"console":true}`, `{"admin_public_key":"  "}`} {
 		if code, _ := do(admin, "POST", "/api/access/rotate-ca", body); code != http.StatusBadRequest {
 			t.Errorf("%s: %d", body, code)
 		}
 	}
 	// Then it goes to the node (here one that can't be dialed).
-	if code, _ := do(admin, "POST", "/api/access/rotate-ca", `{"console":true}`); slices.Contains([]int{http.StatusConflict, http.StatusBadRequest}, code) {
+	if code, _ := do(admin, "POST", "/api/access/rotate-ca", withKey); slices.Contains([]int{http.StatusConflict, http.StatusBadRequest}, code) {
 		t.Errorf("on the fleet: %d", code)
 	}
 }

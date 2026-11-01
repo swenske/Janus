@@ -71,7 +71,7 @@ janusctl -endpoint HOST:PORT -ca FILE -cert FILE -key FILE COMMAND ...
 - `janusctl system reboot [-powercycle] [-kexec]` - **critical** - soft-stop HAProxy, then reboot
 - `janusctl system shutdown` - **critical** - soft-stop HAProxy, then power off. Nothing powers it back on remotely
 - `janusctl system restart` - **changes** - restart janusd only - HAProxy keeps serving. Janusd only: HAProxy keeps serving
-- `janusctl system reset [-wipe-state] [-wipe-ephemeral]` - **critical** - wipe the STATE partition and reboot: a new CA on the console. Wipes the node's state: a new CA, configuration gone
+- `janusctl system reset [-wipe-state] [-wipe-ephemeral]` - **critical** - wipe the STATE partition and reboot: a new CA and a pairing code on the console. Wipes the node's state: a new CA, configuration gone
 
 ## HAProxy
 
@@ -151,7 +151,7 @@ janusctl -endpoint HOST:PORT -ca FILE -cert FILE -key FILE COMMAND ...
 - `janusctl access trust` - reads - the fleet the node trusts besides its own CA
 - `janusctl access trust-set [-root FILE] BUNDLE` - **critical** - pin the fleet's root and apply a bundle. Pins a fleet's root on the node
 - `janusctl access trust-reset` - **critical** - forget the fleet (the node's own CA only). The fleet - a Controller too - loses the node
-- `janusctl access rotate-ca [-console] DIR` - **critical** - replace the node's own CA
+- `janusctl access rotate-ca DIR` - **critical** - replace the node's own CA - a new admin certificate for a key made here
 - `janusctl access rescue [-endpoint HOST[:9505]] [-code CODE] [-pairing HOST:PORT] [-name NAME] DIR` - **critical** - an hour's admin certificate of the node's own CA, from the rescue code its console shows - a node started with a rescue volume (image rescue-volume). An admin certificate from a rescue window: closes it for this boot
 
 ## Cluster

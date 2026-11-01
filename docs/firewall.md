@@ -38,7 +38,10 @@ table inet filter {
 ```
 
 Keep the API port (9505) reachable from wherever you manage the node, and
-add what your HAProxy configuration listens on. For VRRP (the keepalived
+add what your HAProxy configuration listens on. The pairing window's port
+(9506) matters only to a [rescue volume](guide/recovery.md#neither): keep
+it reachable from the management network too, or make the volume with
+`-skip-firewall`. For VRRP (the keepalived
 extension) accept `ip protocol 112` - write protocols by number when nft
 can't name them (its C library knows the common ones only); service names
 (`ssh`, `https`...) work.

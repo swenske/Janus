@@ -228,6 +228,16 @@ HAProxy, and failing to start one isn't fatal.) Wait 2-3 s, then check
 that the line `janusd ... listening on 127.0.0.1:17500` shows up in the
 log.
 
+Its first boot made `native-pki/` - its CA, no admin certificate: sign
+one with that CA, which is a file on your host (this tree's
+`hack/fleetca`):
+
+```sh
+sudo chown -R "$USER" /tmp/provision/native-pki
+go run ./hack/fleetca sign /tmp/provision/native-pki/ca.crt /tmp/provision/native-pki/ca.key \
+  os:admin admin /tmp/provision/native-pki/admin
+```
+
 ### 5. Call `Install`
 
 ```sh
@@ -438,14 +448,20 @@ to the Controller, on its first boot - never the ISO.
   present the image as a removable disk ("removable disk", "USB key")
   work.
 
-The console - serial, and screen - shows this temporary instance's CA
-certificate, admin certificate and key once: copy them (`ca.crt`,
-`admin.crt`, `admin.key`). They're only used to drive the installation.
+The console - serial, and screen - shows this temporary instance's
+pairing code (`pairing: code ...`), a new one at each boot: the ISO
+keeps nothing. Add it to the Controller with it - **Add node**, named
+`installer` -, or to a fleet of janusctl's own
+([fleet-without-controller.md](fleet-without-controller.md)):
+
+```sh
+janusctl fleet adopt installer -endpoint <machine-IP> -code <CODE>
+```
 
 ### 2. Find the target disk
 
 ```sh
-CTL="janusctl -endpoint <machine-IP>:9505 -ca ca.crt -cert admin.crt -key admin.key"
+CTL="janusctl -n installer"
 $CTL system mounts | grep /etc/janus/release   # the ISO's disk (e.g. /dev/sdb1 -> /dev/sdb)
 $CTL system info                               # the disks the kernel sees
 ```
@@ -481,8 +497,10 @@ $CTL lifecycle install \
 ### 4. Boot the installed disk
 
 Power off, **remove the USB stick** (or detach the ISO), boot from the
-installed disk. On its first boot it creates its own PKI - shown once on
-the console, keep it - and announces itself to the Controller.
+installed disk. On its first boot it creates its own CA - its fingerprint
+on the console - and announces itself to the Controller. Remove the
+ISO's `installer` node from the Controller (or `janusctl fleet forget
+installer`).
 
 ### 5. Approve
 
@@ -514,15 +532,23 @@ waits for them (`dm-mod.waitfor`) - virtio (`/dev/vda`), SATA/SAS/USB
   that needs one (Intel ice, Broadcom bnx2x...) isn't supported.
 - **Processors**: every core (SMP, up to 512), x2APIC, NUMA.
 - **Console**: the screen (UEFI framebuffer) and the `ttyS0` serial
-  port - first-boot credentials included.
+  port - the pairing code included.
 - One Janus installation per machine: two Janus disks would carry the
   same labels.
 
 ## Getting a node's PKI credentials (every method)
 
-Useful for direct `janusctl`/browser access (per-node view) on top of
-the Controller. The credentials are on the STATE partition (partition 6
-of the disk, ext4) - extracted without mounting, with `debugfs`:
+A node has no admin credential of its own any more: the fleet's
+certificates reach it - the Controller's page for the node, `janusctl
+login` then `-n NODE`, or a fleet without a Controller
+([fleet-without-controller.md](fleet-without-controller.md)). A node
+whose fleet is lost is taken back with a [rescue
+volume](guide/recovery.md#neither): an hour's admin certificate of its
+own CA.
+
+A node from before the pairing code keeps on its STATE partition
+(partition 6 of the disk, ext4) the admin credential its first boot
+printed - extracted without mounting, with `debugfs`:
 
 ```sh
 ssh root@<PROXMOX_HOST> "sgdisk -i 6 /dev/pve/vm-<VMID>-disk-N" \

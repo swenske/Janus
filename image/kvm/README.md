@@ -12,6 +12,6 @@ separate artifact because the target is generic libvirt/KVM
 How to run it - from the Controller, with Terraform, or by hand with
 `virt-install --import --boot uefi` - is the [libvirt/KVM
 guide](../../docs/private-cloud/platforms/kvm-libvirt.md): UEFI without
-Secure Boot, a virtio disk, a serial console to read the first-boot
-credentials from, a NoCloud volume for the node's network and
+Secure Boot, a virtio disk, a serial console to read the node's CA
+fingerprint or pairing code from, a NoCloud volume for the node's network and
 Controller.
