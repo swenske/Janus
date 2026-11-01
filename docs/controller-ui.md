@@ -385,7 +385,17 @@ uploaded, or from `-tls-cert`), a bundle checked before it's served,
 and back to self-signed - then the Controller's identity (`identity` of
 `/api/controller/tls`: its CA's SHA-256 and end, the certificate's end,
 **Download the identity CA**, and a dated notice while a Controller
-made before it kept a CA still serves its first certificate); and the **Usage report** (`Telemetry.jsx`,
+made before it kept a CA still serves its first certificate); **High
+availability** (`HighAvailability.jsx`, `/api/ha`, refreshed every 30
+s, docs/guide/controller-standby.md): without a standby, **Add a
+standby** (`POST /api/ha/pairing`, a session's) shows the pairing token
+once with the `dashboardd standby` command and its end; with one, its
+name and address, when it was paired, its last copy (the time it took
+one, the version it runs - a warning past 5 minutes), the active's last
+look at it (its role and epoch, or why it didn't answer), the epoch,
+then **Switch over** (`POST /api/ha/switchover`, a session's, its name
+typed: the page then says the standby is taking over) and **Remove the
+standby** (`DELETE /api/ha/standby`); and the **Usage report** (`Telemetry.jsx`,
 `/api/telemetry`, sessions only, docs/guide/telemetry.md): on or off -
 locked off by `JANUS_CONTROLLER_TELEMETRY=off` -, its ID with **New
 ID**, when it was last sent and goes next, **Exactly what is sent**

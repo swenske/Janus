@@ -5,6 +5,10 @@ and how to get it back - a backup restored on the same host or another
 one, the fleet's recovery kit when there's no backup, a node's rescue
 volume when there's neither.
 
+A Controller with a [warm standby](controller-standby.md) is back in
+seconds: promote the standby - `dashboardd promote` on its host - and
+everything below is for a Controller without one, or both lost.
+
 ## What keeps working
 
 The Controller isn't in the traffic's path: every node keeps serving
@@ -51,6 +55,8 @@ Controller is back ([clusters](clusters.md)).
 
 ## Restore it
 
+With a standby, promoting it is the restore - its last copy is at most a
+minute old ([a warm standby](controller-standby.md#promoting-it)).
 Restoring a backup brings the same Controller back - its accounts,
 second factors, fleet, nodes and machines: the nodes keep trusting it,
 nothing is done to them ([backups](../../dashboard/README.md#backups)).

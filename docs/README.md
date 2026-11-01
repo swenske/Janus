@@ -64,6 +64,7 @@ Install, configure and operate Janus nodes and the Controller.
 - [Connectivity test](guide/connectivity-probe.md)
 - [Troubleshooting](guide/troubleshooting.md)
 - [Controller down or lost](guide/recovery.md)
+- [Controller standby](guide/controller-standby.md)
 - [Diagnostic bundle](guide/diagnostic-bundle.md)
 - [Security policy](../SECURITY.md)
 
