@@ -16,6 +16,8 @@
 #
 # Usage: hack/qemu-vrrp-ipv6-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
@@ -87,15 +89,7 @@ for n in a b c; do
 done
 sleep 2
 # Credentials from each node's console (each has its own PKI).
-python3 - "$WORKDIR" <<'PY'
-import re, sys
-w = sys.argv[1]
-for n in "abc":
-    log = open(f"{w}/{n}.log", errors="replace").read().replace("\r", "")
-    pems = re.findall(r"(-----BEGIN ([A-Z ]+)-----.*?-----END \2-----)", log, re.S)
-    for (pem, _), name in zip(pems, ["ca.crt", "admin.crt", "admin.key"]):
-        open(f"{w}/{n}-{name}", "w").write(pem + "\n")
-PY
+for n in a b c; do state_creds "$WORKDIR/$n.img" "$WORKDIR/$n" || fail "node $n's pki/ from STATE"; done
 ctl() { # ctl NODE args...
   local n=$1
   shift

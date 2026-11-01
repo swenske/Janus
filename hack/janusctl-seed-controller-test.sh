@@ -16,6 +16,8 @@
 #
 # Usage: hack/janusctl-seed-controller-test.sh <rootfs-dir> <bzImage> <haproxy-bin> <janusd-bin> <janusctl-bin> <dashboardd-bin>
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
@@ -105,14 +107,12 @@ sudo "$JANUSD_BIN" -addr ":$NATIVE_GRPC_PORT" -haproxy-binary "$HAPROXY_BIN" -pk
   > "$WORKDIR/native.log" 2>&1 &
 JANUSD_PID=$!
 
-DEADLINE=$((SECONDS + 20))
-while ! sudo test -s "$PKI_DIR/admin.crt" && [ "$SECONDS" -lt "$DEADLINE" ]; do sleep 1; done
-if ! sudo test -s "$PKI_DIR/admin.crt"; then
+if ! pki_admin "$PKI_DIR" "$WORKDIR/native-pki"; then
   echo "seed-controller test FAILED: janusd never bootstrapped PKI at $PKI_DIR within 20s" >&2
   cat "$WORKDIR/native.log" >&2
   exit 1
 fi
-NATIVE_CTL_ARGS=(-endpoint "127.0.0.1:${NATIVE_GRPC_PORT}" -ca "$PKI_DIR/ca.crt" -cert "$PKI_DIR/admin.crt" -key "$PKI_DIR/admin.key")
+NATIVE_CTL_ARGS=(-endpoint "127.0.0.1:${NATIVE_GRPC_PORT}" -ca "$WORKDIR/native-pki/ca.crt" -cert "$WORKDIR/native-pki/admin.crt" -key "$WORKDIR/native-pki/admin.key")
 
 DISK="$WORKDIR/generic-disk.img"
 truncate -s "${DISK_MB}M" "$DISK"

@@ -24,6 +24,8 @@
 #
 # Usage: hack/qemu-clusterctl-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 export PATH="$PATH:/usr/sbin:/sbin"
 
 SRC_DISK="${1:?usage: $0 <disk.img> <janusctl-bin>}"
@@ -92,15 +94,7 @@ for i in $NODES; do
   done
 done
 sleep 2
-python3 - "$WORKDIR" "$NODES" <<'PY'
-import re, sys
-w = sys.argv[1]
-for n in sys.argv[2].split():
-    log = open(f"{w}/{n}.log", errors="replace").read().replace("\r", "")
-    pems = re.findall(r"(-----BEGIN ([A-Z ]+)-----.*?-----END \2-----)", log, re.S)
-    for (pem, _), name in zip(pems, ["ca.crt", "admin.crt", "admin.key"]):
-        open(f"{w}/{n}-{name}", "w").write(pem + "\n")
-PY
+for n in $NODES; do state_creds "$WORKDIR/$n.img" "$WORKDIR/$n" || fail "node $n's pki/ from STATE"; done
 own() { # own INDEX args... - the node's own first-boot admin
   local i=$1
   shift

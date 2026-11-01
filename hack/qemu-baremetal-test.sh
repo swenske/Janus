@@ -29,6 +29,8 @@
 #   <rootfs-dir> holds disk.img (make disk-image) and the rootfs
 #   (rootfs.squashfs, rootfs.verity) the ISO and its bundle are built from.
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
@@ -105,7 +107,7 @@ wait_up() { # wait_up WHAT: HTTP 200 and janusd listening (after its PKI)
     sleep 1
   done
 }
-creds() { # creds PREFIX: the first boot's credentials, off the console
+creds() { # creds PREFIX: the first boot's credentials, off the console (the ISO: no STATE)
   python3 - "$LOG" "$1" <<'PY'
 import re, sys
 log = open(sys.argv[1], errors="replace").read().replace("\r", "")
@@ -138,7 +140,7 @@ wait_up "NVMe + e1000e"
 grep -aq "Kernel command line:.*PARTLABEL=BOOT-A-DATA" "$LOG" || fail "the UKI doesn't name its root by label"
 grep -aq "nvme0n1" "$LOG" || fail "no nvme0n1 on the console"
 grep -aq "e1000e" "$LOG" || fail "the e1000e driver didn't show up"
-creds "$WORKDIR/n-"
+state_creds "$WORKDIR/nvme.img" "$WORKDIR/n" || fail "NVMe: the pki/ off STATE"
 info="$(ctl "$WORKDIR/n-" system info)" || fail "system info"
 grep -q "^cpus: 4$" <<<"$info" || fail "the kernel doesn't use the 4 CPUs: $(grep cpus <<<"$info")"
 grep -qi "active slot: A" <<<"$info" || fail "the active slot isn't A: $info"

@@ -27,6 +27,8 @@
 #
 # Usage: hack/qemu-state-migrate-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 export PATH="$PATH:/usr/sbin:/sbin"
 
 SRC_DISK="${1:?usage: $0 <disk.img> <janusctl-bin>}"
@@ -100,15 +102,7 @@ node c
 listening() { [ "$(grep -ac "listening on .* (mTLS required)" "$WORKDIR/$1.log" 2>/dev/null)" -ge "$2" ]; }
 for n in a b c; do wait_for "$TIMEOUT" "node $n's janusd listening" listening "$n" 1; done
 sleep 2
-python3 - "$WORKDIR" <<'PY'
-import re, sys
-w = sys.argv[1]
-for n in "abc":
-    log = open(f"{w}/{n}.log", errors="replace").read().replace("\r", "")
-    pems = re.findall(r"(-----BEGIN ([A-Z ]+)-----.*?-----END \2-----)", log, re.S)
-    for (pem, _), name in zip(pems, ["ca.crt", "admin.crt", "admin.key"]):
-        open(f"{w}/{n}-{name}", "w").write(pem + "\n")
-PY
+for n in a b c; do state_creds "$WORKDIR/$n.img" "$WORKDIR/$n" || fail "node $n's pki/ from STATE"; done
 ctl() { # ctl ENDPOINT-NODE CREDENTIALS-NODE args...
   local i=$(idx "$1") c=$2
   shift 2
