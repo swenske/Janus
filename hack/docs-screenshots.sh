@@ -127,7 +127,7 @@ done
 # don't change from one run to the next.
 for i in 1 2 3; do
   docker run -d --name "$P-edge-par-$i" --hostname "edge-par-$i" --network "$P" --ip "$NET.2$i" \
-    --mac-address "52:54:00:4a:10:2$i" -v "$WORK/janusd:/usr/local/bin/janusd:ro" "$LOCAL_DEV_IMAGE" >/dev/null
+    --mac-address "52:54:00:4a:10:2$i" -v "$WORK/janusd:/usr/local/bin/janusd:ro" "$LOCAL_DEV_IMAGE" -pairing-addr :9506 >/dev/null
 done
 
 docker run -d --name "$P-controller" --hostname janus-controller --network "$P" --ip "$NET.5" \
@@ -136,7 +136,8 @@ docker run -d --name "$P-controller" --hostname janus-controller --network "$P" 
   -data-dir /data -master-key-file /secrets/master.key -image-factory "" -updater-socket "" \
   -releases-url "http://$NET.11:8081/releases" >/dev/null
 
-# Each node prints its CA and admin credential once, on its first start.
+# Each node shows its pairing code on its console (docker logs): the
+# Controller adds it by that code (shots.mjs), its fleet set up first.
 mkdir -p "$WORK/creds"
 for i in 1 2 3; do
   n="$P-edge-par-$i"
@@ -144,14 +145,9 @@ for i in 1 2 3; do
     docker logs "$n" 2>&1 | grep -q 'listening on' && break
     sleep 1
   done
-  docker logs "$n" 2>&1 | awk -v dir="$WORK/creds" -v n="edge-par-$i" '
-    /pki: CA CERTIFICATE/ {f = dir "/" n ".ca"; next}
-    /pki: ADMIN CERTIFICATE/ {f = dir "/" n ".admin"; next}
-    f && /^-----BEGIN/ {w = 1}
-    w {print > f}
-    /^-----END/ {w = 0; if (f ~ /\.ca$/) f = ""}'
-  [ -s "$WORK/creds/edge-par-$i.ca" ] && [ -s "$WORK/creds/edge-par-$i.admin" ] || {
-    echo "docs-screenshots: edge-par-$i printed no credential:" >&2
+  docker logs "$n" 2>&1 | grep -o 'pairing: code [0-9A-Z-]*' | tail -1 | awk '{print $3}' >"$WORK/creds/edge-par-$i.code"
+  [ -s "$WORK/creds/edge-par-$i.code" ] || {
+    echo "docs-screenshots: edge-par-$i shows no pairing code:" >&2
     docker logs "$n" 2>&1 | tail -20 >&2
     exit 1
   }

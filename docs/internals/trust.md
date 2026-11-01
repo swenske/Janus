@@ -350,6 +350,12 @@ by a CA, or through the system's trust store.
   checking the fingerprint against the node's console - takes the
   fleet's trust: the root, then the bundle. A node given the fleet's
   root refuses a fleet with another one.
+- **Added to a Controller**: Add node, with the code the node's console
+  shows - the Controller pairs it ([the pairing
+  window](#the-pairing-window)) with its own fleet, set up first, and
+  records the CA the window answered with; nothing secret changes hands.
+  A node from before the code is added with its first-boot credential,
+  used once for a service credential of the Controller's own.
 - **Without a Controller**: `janusctl fleet adopt NAME -endpoint ADDR
   -code CODE` pairs a node that trusts nothing yet, with the code its
   console shows ([the pairing window](#the-pairing-window)); or with its

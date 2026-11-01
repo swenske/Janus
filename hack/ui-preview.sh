@@ -119,7 +119,8 @@ fingerprint() {
   openssl s_client -connect "$CONNECT:$PORT" </dev/null 2>/dev/null | openssl x509 -outform der | sha256sum | cut -d' ' -f1
 }
 
-# Each node prints its CA and admin credential once, on its first start.
+# Each node shows its pairing code on its console (docker logs): the
+# Controller adds it by that code (setup.mjs), its fleet set up first.
 creds() {
   mkdir -p "$DIR/creds"
   for i in 1 2 3; do
@@ -128,14 +129,9 @@ creds() {
       docker logs "$n" 2>&1 | grep -q 'listening on' && break
       sleep 1
     done
-    docker logs "$n" 2>&1 | awk -v dir="$DIR/creds" -v n="edge-$i" '
-      /pki: CA CERTIFICATE/ {f = dir "/" n ".ca"; next}
-      /pki: ADMIN CERTIFICATE/ {f = dir "/" n ".admin"; next}
-      f && /^-----BEGIN/ {w = 1}
-      w {print > f}
-      /^-----END/ {w = 0; if (f ~ /\.ca$/) f = ""}'
-    [ -s "$DIR/creds/edge-$i.ca" ] && [ -s "$DIR/creds/edge-$i.admin" ] || {
-      echo "ui-preview: edge-$i printed no credential:" >&2
+    docker logs "$n" 2>&1 | grep -o 'pairing: code [0-9A-Z-]*' | tail -1 | awk '{print $3}' >"$DIR/creds/edge-$i.code"
+    [ -s "$DIR/creds/edge-$i.code" ] || {
+      echo "ui-preview: edge-$i shows no pairing code:" >&2
       docker logs "$n" 2>&1 | tail -20 >&2
       exit 1
     }
@@ -200,7 +196,7 @@ EOF
   # The nodes: edge-1 on both networks (eth0, eth1).
   for i in 1 2 3; do
     docker create --name "$P-edge-$i" --hostname "edge-$i" --network "$P" --ip "$NET.2$i" \
-      -v "$DIR/bin:/opt/janus:ro" --entrypoint /opt/janus/janusd "$LOCAL_DEV_IMAGE" >/dev/null
+      -v "$DIR/bin:/opt/janus:ro" --entrypoint /opt/janus/janusd "$LOCAL_DEV_IMAGE" -pairing-addr :9506 >/dev/null
   done
   docker network connect --ip "$LOGNET.21" "$P-logs" "$P-edge-1"
   for i in 1 2 3; do docker start "$P-edge-$i" >/dev/null; done

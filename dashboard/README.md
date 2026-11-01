@@ -312,15 +312,26 @@ which it checks first.
 ### Adding a node
 
 Open `https://<host>:8080/` (note **https** - the click-through warning
-on first visit is expected with the default self-signed certificate)
-and add a node: you'll need its display name, its gRPC address
-(`ip:9505` by default), its `ca.crt` (public, not sensitive), and a
-client credential that already has `os:admin` on that node - either the
-one `janusd` printed to its console on first boot, or one you generated
-yourself via `janusctl pki generate-client-config`. That credential is
-used exactly once, to call `GenerateClientConfiguration` and obtain a
-fresh service credential for the dashboard's own use - it is never
-written to disk itself (see the architecture note above).
+on first visit is expected with the default self-signed certificate),
+[secure the fleet](#securing-the-fleet) first, then **Add node**: its
+display name, its gRPC address (`ip:9505` by default) and the
+**pairing code** its console shows - `pairing   XXXX-XXXX-XXXX-XXXX-XXXX`
+in its banner, a new one each boot until it's paired. The Controller
+reaches the node's pairing window (the same host, port 9506 - another
+address if NAT or a firewall says so), checks the node's certificate
+against the code before sending anything, and gives the node the
+fleet's trust: the node is reached with the fleet's certificates from
+then on, and nothing secret changed hands. Five wrong codes close the
+window until the node restarts
+([the pairing window](../docs/internals/trust.md#the-pairing-window)).
+
+A node from before the pairing code (it shows none) is added with a
+client credential that already has `os:admin` on it - the one `janusd`
+printed to its console on first boot, as a `.pfx` with its `ca.crt`
+bundled, or as PEM: used exactly once, to call
+`GenerateClientConfiguration` and obtain a fresh service credential for
+the dashboard's own use - it is never written to disk itself (see the
+architecture note above).
 
 A node can also register itself with this Controller automatically at
 first boot instead, if it was provisioned with `janusctl lifecycle
