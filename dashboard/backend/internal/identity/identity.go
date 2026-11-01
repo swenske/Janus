@@ -58,6 +58,8 @@ var (
 	// RenewBefore is how long before its end the certificate is renewed -
 	// more than the 30 days under which the page warns of an expiry.
 	RenewBefore = 35 * 24 * time.Hour
+	// localIPs are this host's addresses: a var, the tests give their own.
+	localIPs = pki.LocalIPs
 )
 
 // Sealer seals the CA's key: the master key.
@@ -254,16 +256,23 @@ func (id *Identity) Status() Status {
 	}
 }
 
-// Refresh renews the certificate when it ends within RenewBefore, or
-// when -advertise-address names something it doesn't cover - true when
-// it did. The new one names everything the one before did, and this
-// host's addresses now.
+// Refresh renews the certificate when it ends within RenewBefore, when
+// -advertise-address names something it doesn't cover, or when this host
+// has an address it doesn't name (a Controller restored on another host,
+// a new address) - true when it did. The new one names everything the
+// one before did, and this host's addresses now. A legacy certificate
+// isn't replaced for this host's addresses: what pins it would stop
+// trusting the Controller before its time (SwitchAt).
 func (id *Identity) Refresh() (bool, error) {
 	id.mu.Lock()
 	defer id.mu.Unlock()
 	s := id.cur.Load()
-	if s.cert.Leaf.NotAfter.Sub(id.now()) > RenewBefore && len(id.missing(s.cert.Leaf)) == 0 {
+	missing := id.missing(s.cert.Leaf, !s.legacy)
+	if s.cert.Leaf.NotAfter.Sub(id.now()) > RenewBefore && len(missing) == 0 {
 		return false, nil
+	}
+	if len(missing) > 0 {
+		log.Printf("identity: the Controller's certificate doesn't name %s: renewed for it", strings.Join(missing, ", "))
 	}
 	if _, err := id.issueLocked(s.cert.Leaf); err != nil {
 		return false, err
@@ -283,9 +292,19 @@ func (id *Identity) RenewForTests() error {
 	return err
 }
 
-// missing are the -advertise-address entries leaf doesn't cover.
-func (id *Identity) missing(leaf *x509.Certificate) []string {
+// missing are the -advertise-address entries leaf doesn't cover - and,
+// with local, this host's global addresses it doesn't name (link-local
+// ones aside: every veth a container runtime makes has its own, nothing
+// reaches the Controller there).
+func (id *Identity) missing(leaf *x509.Certificate, local bool) []string {
 	var out []string
+	if local {
+		for _, ip := range localIPs() {
+			if ip.IsGlobalUnicast() && !slices.ContainsFunc(leaf.IPAddresses, ip.Equal) {
+				out = append(out, ip.String())
+			}
+		}
+	}
 	for _, e := range id.advertise {
 		if ip := net.ParseIP(e); ip != nil {
 			if !slices.ContainsFunc(leaf.IPAddresses, ip.Equal) {
@@ -309,7 +328,7 @@ func (id *Identity) issue(prev *x509.Certificate) (*tls.Certificate, error) {
 // (key first, each file replaced whole) and serves it.
 func (id *Identity) issueLocked(prev *x509.Certificate) (*tls.Certificate, error) {
 	dnsNames := []string{"localhost"}
-	ips := append([]net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}, pki.LocalIPs()...)
+	ips := append([]net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}, localIPs()...)
 	if prev != nil {
 		dnsNames = append(dnsNames, prev.DNSNames...)
 		ips = append(ips, prev.IPAddresses...)

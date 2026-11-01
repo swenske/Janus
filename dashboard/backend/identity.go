@@ -57,17 +57,18 @@ func (a *app) refreshIdentity(said *time.Time) {
 	}
 }
 
-// syncRelayTrust gives the identity's CA to the nodes reaching Let's
-// Encrypt through the Controller's relay that check it with something
-// else - the Controller's certificate alone, as it gave them before it
-// kept its CA: that certificate is renewed.
+// syncRelayTrust keeps the settings of the nodes reaching Let's Encrypt
+// through the Controller's relay right: the identity's CA for those that
+// check it with something else - the Controller's certificate alone, as
+// it gave them before it kept its CA: that certificate is renewed -, and
+// the relay's URL now for those still set to one it gave before.
 func (a *app) syncRelayTrust(ctx context.Context) {
 	for _, n := range a.store.List() {
 		if ctx.Err() != nil {
 			return
 		}
 		if err := a.syncNodeRelayTrust(ctx, n); err != nil {
-			log.Printf("identity: node %s (%s): give its Let's Encrypt relay settings the identity CA: %v", n.Name, n.ID, err)
+			log.Printf("identity: node %s (%s): update its Let's Encrypt relay settings (the identity CA, the relay's URL): %v", n.Name, n.ID, err)
 		}
 	}
 }
@@ -98,11 +99,27 @@ func (a *app) syncNodeRelayTrust(ctx context.Context, n *store.Node) error {
 		return status.Convert(err).Err()
 	}
 	cfg := got.GetConfig()
-	if cfg.GetPath().GetMode() != janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_RELAY || a.identity.HoldsCA([]byte(cfg.GetPath().GetProxyCa())) {
+	if cfg.GetPath().GetMode() != janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_RELAY {
+		return nil
+	}
+	// The CA: what the node was given before the Controller kept one.
+	// The URL: one this Controller gave, no longer the one it gives - the
+	// relay's address changed, or the Controller was restored on another
+	// host.
+	fixCA := !a.identity.HoldsCA([]byte(cfg.GetPath().GetProxyCa()))
+	url := a.relayURL()
+	fixURL := url != "" && cfg.GetPath().GetProxyUrl() != url && a.relayGiven != nil && a.relayGiven.Has(cfg.GetPath().GetProxyUrl())
+	if !fixCA && !fixURL {
 		return nil
 	}
 	// The secrets come back empty: applied empty, the node keeps its own.
-	cfg.Path.ProxyCa = string(a.identity.TrustPEM())
+	was := cfg.Path.ProxyUrl
+	if fixCA {
+		cfg.Path.ProxyCa = string(a.identity.TrustPEM())
+	}
+	if fixURL {
+		cfg.Path.ProxyUrl = url
+	}
 	cctx, cancel = call()
 	resp, err := c.ACMEApplyConfig(cctx, &janusv1alpha1.ACMEApplyConfigRequest{Config: cfg})
 	cancel()
@@ -112,6 +129,11 @@ func (a *app) syncNodeRelayTrust(ctx context.Context, n *store.Node) error {
 	if !resp.GetAccepted() {
 		return fmt.Errorf("refused: %s", strings.Join(resp.GetErrors(), "; "))
 	}
-	log.Printf("identity: node %s (%s): its Let's Encrypt relay settings now check the Controller with its identity CA", n.Name, n.ID)
+	if fixCA {
+		log.Printf("identity: node %s (%s): its Let's Encrypt relay settings now check the Controller with its identity CA", n.Name, n.ID)
+	}
+	if fixURL {
+		log.Printf("acme relay: node %s (%s): reaches the relay at %s now (was %s)", n.Name, n.ID, url, was)
+	}
 	return nil
 }

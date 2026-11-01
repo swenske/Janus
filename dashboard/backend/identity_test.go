@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/pem"
 	"net"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/types/known/emptypb"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/acmerelay"
 	"github.com/swenske/Janus/dashboard/backend/internal/nodeproxy"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
@@ -100,5 +102,56 @@ func TestRelayTrust(t *testing.T) {
 	}
 	if err := a.syncNodeRelayTrust(ctx, acmeNode(t, "direct-node", direct)); err != nil || len(direct.applied) != 0 {
 		t.Errorf("a node reaching the CA itself: %d, %v", len(direct.applied), err)
+	}
+}
+
+// TestRelayURLFollows: a node still set to a relay URL this Controller
+// gave - before its relay's address changed, or before it was restored on
+// another host - is given the one now, the rest of its settings kept; a
+// node set to an address an admin typed on it is left alone.
+func TestRelayURLFollows(t *testing.T) {
+	a, _ := newTestApp(t)
+	a.relay = &acmerelay.Server{Identity: a.identity.Certificate}
+	a.relay.Boot(acmerelay.Config{Address: "198.51.100.9:8444"})
+	t.Cleanup(a.relay.Close)
+	givenFile := filepath.Join(t.TempDir(), relayGivenFile)
+	given, err := acmerelay.LoadGiven(givenFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.relayGiven = given
+	const old, now, typed = "https://192.0.2.1:8444", "https://198.51.100.9:8444", "https://203.0.113.5:8444"
+	if err := given.Note(old); err != nil { // what it gave on its old host
+		t.Fatal(err)
+	}
+	trust := string(a.identity.TrustPEM())
+	path := func(url string) *janusv1alpha1.ACMEPath {
+		return &janusv1alpha1.ACMEPath{Mode: janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_RELAY, ProxyUrl: url, ProxyCa: trust}
+	}
+	ours := &fakeACMENode{cfg: &janusv1alpha1.ACMEConfig{Account: &janusv1alpha1.ACMEAccount{Email: "ops@example.com"}, Path: path(old)}}
+	own := &fakeACMENode{cfg: &janusv1alpha1.ACMEConfig{Path: path(typed)}}
+	ctx := context.Background()
+
+	if err := a.syncNodeRelayTrust(ctx, acmeNode(t, "ours", ours)); err != nil {
+		t.Fatal(err)
+	}
+	if len(ours.applied) != 1 {
+		t.Fatalf("applied %d times", len(ours.applied))
+	}
+	got := ours.applied[0]
+	if got.GetPath().GetProxyUrl() != now || got.GetPath().GetProxyCa() != trust || got.GetAccount().GetEmail() != "ops@example.com" {
+		t.Errorf("settings applied: %v", got)
+	}
+	if err := a.syncNodeRelayTrust(ctx, acmeNode(t, "ours-again", ours)); err != nil || len(ours.applied) != 1 {
+		t.Errorf("applied again: %d, %v", len(ours.applied), err)
+	}
+	if err := a.syncNodeRelayTrust(ctx, acmeNode(t, "own", own)); err != nil || len(own.applied) != 0 {
+		t.Errorf("an address typed on the node was replaced: %d, %v", len(own.applied), err)
+	}
+
+	// The URLs given are kept: a restored data directory brings them.
+	again, err := acmerelay.LoadGiven(givenFile)
+	if err != nil || !again.Has(old) || !again.Has(now) || again.Has(typed) {
+		t.Errorf("kept: old %v, now %v, typed %v (%v)", again.Has(old), again.Has(now), again.Has(typed), err)
 	}
 }

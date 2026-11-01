@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -12,9 +13,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
+	"github.com/swenske/Janus/dashboard/backend/internal/backup"
 	"github.com/swenske/Janus/dashboard/backend/internal/identity"
 	"github.com/swenske/Janus/dashboard/backend/internal/secrets"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
@@ -203,5 +206,33 @@ func TestRestoreIdentity(t *testing.T) {
 		if withCA != got.CA().Equal(srcID.CA()) || got.CA().Equal(dstID.CA()) {
 			t.Errorf("with the CA %v: the CA is the backed-up one: %v", withCA, got.CA().Equal(srcID.CA()))
 		}
+	}
+}
+
+// TestSayRestored: the first start on a restored data directory says
+// what to check on another host, once.
+func TestSayRestored(t *testing.T) {
+	dir := t.TempDir()
+	m := &backup.Manifest{Controller: "ctl-old", Version: "v2026.11.01", Created: time.Date(2026, 11, 1, 3, 0, 0, 0, time.UTC)}
+	if err := noteRestored(dir, m); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	log.SetOutput(&out)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	sayRestored(dir, "198.51.100.20:8443")
+	said := out.String()
+	for _, want := range []string{"first start on the backup of 2026-11-01T03:00:00Z (Controller ctl-old, version v2026.11.01)", "docs/guide/recovery.md", "nodes register at 198.51.100.20:8443 now", "janusctl login again"} {
+		if !strings.Contains(said, want) {
+			t.Errorf("said %q, want %q", said, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, restoredFile)); !os.IsNotExist(err) {
+		t.Errorf("the mark stays: %v", err)
+	}
+	out.Reset()
+	sayRestored(dir, "198.51.100.20:8443")
+	if out.Len() != 0 {
+		t.Errorf("said again: %q", out.String())
 	}
 }

@@ -101,6 +101,51 @@ func restoreFiles(archive []byte, dataDir, masterKeyPath string) (int, error) {
 	}
 }
 
+// restoredFile marks a data directory restored and not started on yet:
+// the next start says what to check (sayRestored).
+const restoredFile = "restored.json"
+
+type restoredNote struct {
+	At         time.Time `json:"at"`
+	Created    time.Time `json:"backup_created"`
+	Controller string    `json:"controller"`
+	Version    string    `json:"version"`
+}
+
+func noteRestored(dataDir string, m *backup.Manifest) error {
+	data, err := json.Marshal(restoredNote{At: time.Now().UTC(), Created: m.Created, Controller: m.Controller, Version: m.Version})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dataDir, restoredFile), data, 0o600)
+}
+
+// sayRestored is the first start on a restored data directory: what a
+// Controller restored on another host must check - the addresses that
+// name the old one. Said once.
+func sayRestored(dataDir, registerAddr string) {
+	path := filepath.Join(dataDir, restoredFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var n restoredNote
+	_ = json.Unmarshal(data, &n)
+	log.Printf("restore: first start on the backup of %s (Controller %s, version %s), restored %s", n.Created.Format(time.RFC3339), n.Controller, n.Version, n.At.Format(time.RFC3339))
+	for _, line := range []string{
+		"restore: on another host than the one backed up, check what still names the old one (docs/guide/recovery.md):",
+		"restore:  - nodes waiting to register, and hypervisors' Controller address, name the address they were given - keep it (a DNS name, a VIP) or change them; nodes register at " + registerAddr + " now",
+		"restore:  - the Let's Encrypt relay's address, if one is set on its tab; nodes given the relay's URL follow it within a minute",
+		"restore:  - janusctl contexts name the Controller's host:port: janusctl login again if it changed; passkeys work on the page's same host name only",
+		"restore:  - sessions don't survive a restore: everyone signs in again",
+	} {
+		log.Print(line)
+	}
+	if err := os.Remove(path); err != nil {
+		log.Printf("restore: %v", err)
+	}
+}
+
 // openBackup checks and decrypts a backup file.
 func openBackup(file []byte, signer ed25519.PublicKey, ids ...age.Identity) (*backup.Manifest, []byte, error) {
 	m, enc, err := backup.Open(file, signer)
@@ -259,6 +304,9 @@ func (a *app) handleRestore(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "restoring: "+err.Error()+" - the data directory may be half restored: empty it before trying again")
 		return
 	}
+	if err := noteRestored(a.dataDir, m); err != nil {
+		log.Printf("restore: %v", err)
+	}
 	noteAudit(r, "", "restore")
 	log.Printf("restored the backup of %s (Controller %s, %s, version %s): %d files - starting again", m.Created.Format(time.RFC3339), m.Controller, m.Created.Format("2006-01-02"), m.Version, n)
 	// Until it starts again, this process still holds the stores it read
@@ -383,6 +431,9 @@ func restoreCommand(args []string) {
 	}
 	n, err := restoreFiles(archive, *dataDir, keyPath)
 	if err != nil {
+		fail(err)
+	}
+	if err := noteRestored(*dataDir, m); err != nil {
 		fail(err)
 	}
 	fmt.Printf("Restored the backup of %s (Controller %s, version %s): %d files in %s, the master key at %s. Start the Controller.\n", m.Created.Format(time.RFC3339), m.Controller, m.Version, n, *dataDir, keyPath)

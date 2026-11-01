@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"crypto/x509"
 	"log"
 	"net"
 	"net/http"
 	"path/filepath"
+	"time"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/acmerelay"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
@@ -20,7 +22,11 @@ import (
 // what the nodes register against - and knows a node by a certificate
 // of the node's CA, the one the Controller pins.
 
-const acmeRelayFile = "acme-relay.json"
+const (
+	acmeRelayFile = "acme-relay.json"
+	// relayGivenFile keeps the URLs nodes were given (acmerelay.Given).
+	relayGivenFile = "acme-relay-given.json"
+)
 
 func (a *app) startACMERelay() {
 	a.relay = &acmerelay.Server{
@@ -32,7 +38,29 @@ func (a *app) startACMERelay() {
 		log.Printf("acme relay: %v", err)
 	}
 	a.relay.Boot(cfg)
+	given, err := acmerelay.LoadGiven(filepath.Join(a.dataDir, relayGivenFile))
+	if err != nil {
+		log.Printf("acme relay: %v", err)
+	}
+	a.relayGiven = given
+	a.relayURL() // the URL now, even if no node page asks for it
 	nodeproxy.ACMERelay = a.relayInfo
+}
+
+// relayURL is the URL nodes are given to reach the relay now, noted
+// among the ones given: a node still set to one given before follows it
+// (syncNodeRelayTrust). Empty without a relay.
+func (a *app) relayURL() string {
+	if a.relay == nil {
+		return ""
+	}
+	u := a.relayView().URL
+	if a.relayGiven != nil {
+		if err := a.relayGiven.Note(u); err != nil {
+			log.Printf("acme relay: note the URL given: %v", err)
+		}
+	}
+	return u
 }
 
 // relayNode is the approved node whose CA issued chain[0], a client
@@ -108,6 +136,7 @@ func (a *app) identityPEM() string { return string(a.identity.TrustPEM()) }
 // relayInfo is what a node page needs to send its node through the
 // relay.
 func (a *app) relayInfo() nodeproxy.RelayInfo {
+	a.relayURL()
 	v := a.relayView()
 	return nodeproxy.RelayInfo{
 		Enabled: v.Config.Enabled, Listening: v.Listening != "", URL: v.URL, CACertPEM: v.CACertPEM,
@@ -140,6 +169,7 @@ func (a *app) handleACMERelaySet(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &cfg) {
 		return
 	}
+	before := a.relayURL()
 	if err := a.relay.Apply(cfg); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -147,6 +177,15 @@ func (a *app) handleACMERelaySet(w http.ResponseWriter, r *http.Request) {
 	if err := acmerelay.Save(filepath.Join(a.dataDir, acmeRelayFile), cfg); err != nil {
 		writeError(w, http.StatusInternalServerError, "save: "+err.Error())
 		return
+	}
+	// A new address: the nodes given the one before follow it now, not
+	// at the next round of the identity's loop.
+	if a.relayURL() != before {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			a.syncRelayTrust(ctx)
+		}()
 	}
 	writeJSON(w, http.StatusOK, a.relayView())
 }
