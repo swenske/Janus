@@ -53,8 +53,8 @@ func TestServerCertRefresh(t *testing.T) {
 		t.Errorf("reissued certificate doesn't chain to the node CA: %v", err)
 	}
 	reloaded, err := LoadOrBootstrap(dir, "node1", nil)
-	if err != nil || reloaded.AdminIssued {
-		t.Fatalf("reload: %v (admin reissued: %v)", err, reloaded.AdminIssued)
+	if err != nil || reloaded.Generated {
+		t.Fatalf("reload: %v (a new CA: %v)", err, reloaded.Generated)
 	}
 	if rl, _ := x509.ParseCertificate(reloaded.ServerCert.Certificate[0]); rl.VerifyHostname("192.0.2.10") != nil {
 		t.Error("the reissued certificate wasn't persisted")

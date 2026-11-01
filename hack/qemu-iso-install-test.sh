@@ -10,13 +10,14 @@
 #      shape hack/qemu-iso-boot-test.sh already proves boots at all -
 #      with a SECOND, blank virtio-blk drive attached as the Install
 #      target (vdb).
-#   3. extracts the CA/admin creds straight from the console (no STATE
-#      partition to debugfs into here at all - this medium is
-#      ephemeral by design, see image/iso/assemble.sh's own header -
-#      so cmd/janusd's own first-boot console printout is the only
-#      place these ever exist).
+#   3. pairs it with a fleet of janusctl's own (fleet init, then fleet
+#      adopt -code with the pairing code its console shows: this medium
+#      is ephemeral by design - see image/iso/assemble.sh's own header -
+#      so it trusts nothing at each boot and opens its pairing window).
 #   4. calls `janusctl lifecycle install /dev/vdb /etc/janus/release`
-#      over real mTLS against the running ISO instance - BUNDLE_DIR is
+#      over real mTLS - the fleet's certificate - against the running
+#      ISO instance, the fleet given to the installed disk (-fleet-root,
+#      -fleet-bundle) - BUNDLE_DIR is
 #      a path on the *server's* (the booted ISO's) own filesystem, not
 #      the host running janusctl, which is exactly the point: nothing
 #      but what's already on this medium is needed. -sha256 is passed
@@ -45,6 +46,7 @@ TARGET_DISK_MB="${ISO_INSTALL_TEST_DISK_MB:-512}"
 HTTP_TIMEOUT_SECS="${ISO_INSTALL_TEST_HTTP_TIMEOUT:-40}"
 HOST_PORT="${ISO_INSTALL_TEST_PORT:-$((18103 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 HOST_GRPC_PORT="${ISO_INSTALL_TEST_GRPC_PORT:-$((18104 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+HOST_PAIR_PORT="${ISO_INSTALL_TEST_PAIR_PORT:-$((18105 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
 OVMF_VARS_TEMPLATE="${OVMF_VARS_TEMPLATE:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
@@ -81,7 +83,7 @@ qemu-system-x86_64 -accel kvm -accel tcg \
   -drive file="$ISO",format=raw,if=virtio \
   -drive file="$TARGET_DISK",format=raw,if=virtio \
   -nographic -no-reboot -display none -m 512M \
-  -netdev "user,id=net0,hostfwd=tcp::${HOST_PORT}-:8080,hostfwd=tcp::${HOST_GRPC_PORT}-:9505" \
+  -netdev "user,id=net0,hostfwd=tcp::${HOST_PORT}-:8080,hostfwd=tcp::${HOST_GRPC_PORT}-:9505,hostfwd=tcp::${HOST_PAIR_PORT}-:9506" \
   -device virtio-net-pci,netdev=net0 \
   -serial file:"$LOG" \
   &
@@ -100,35 +102,33 @@ if [ "$code" != "200" ]; then
   exit 1
 fi
 
-# --- extract PKI creds straight from the console - no STATE partition
-# to debugfs into on this ephemeral medium, see this script's own
-# header comment. janusd starts HAProxy before its PKI: wait for its
-# API to listen, which comes after the credentials are printed.
-until grep -aq "listening on :" "$LOG"; do
+# --- pair it: a node that trusts nothing shows a pairing code on its
+# console - the only way in, nothing secret printed (no STATE here: a
+# new CA and a new code at every boot). janusd starts HAProxy before its
+# PKI: wait for its banner, printed once its API listens.
+until grep -aq "No shell, no SSH" "$LOG"; do
   [ "$SECONDS" -lt "$deadline" ] || { echo "ISO install test FAILED: janusd never listened" >&2; cat "$LOG" >&2; exit 1; }
   sleep 1
 done
-awk -v ca="$WORKDIR/ca.crt" -v acrt="$WORKDIR/admin.crt" -v akey="$WORKDIR/admin.key" '
-  /pki: CA CERTIFICATE/ { section="ca"; next }
-  /pki: ADMIN CERTIFICATE/ { section="admin"; next }
-  /-----BEGIN CERTIFICATE-----/ {
-    if (section=="ca") { out=ca; incrt=1 }
-    else if (section=="admin") { out=acrt; incrt=1 }
-  }
-  /-----BEGIN PRIVATE KEY-----/ { if (section=="admin") { out=akey; incrt=1 } }
-  incrt { print > out }
-  /-----END CERTIFICATE-----/ { incrt=0 }
-  /-----END PRIVATE KEY-----/ { incrt=0 }
-' "$LOG"
-for f in ca.crt admin.crt admin.key; do
-  [ -s "$WORKDIR/$f" ] || { echo "ISO install test FAILED: couldn't extract $f from the console log" >&2; cat "$LOG" >&2; exit 1; }
-done
+if grep -aq "PRIVATE KEY" "$LOG"; then
+  echo "ISO install test FAILED: a private key on the console" >&2
+  exit 1
+fi
+CODE="$({ grep -ao 'pairing: code [0-9A-Z-]*' "$LOG" || true; } | tail -1 | awk '{print $3}')"
+[ -n "$CODE" ] || { echo "ISO install test FAILED: no pairing code on the console" >&2; cat "$LOG" >&2; exit 1; }
+ctl() { JANUSCONFIG="$WORKDIR/janusctl.json" "$CTL" "$@"; }
+ctl -context iso fleet init -name iso -issuer iso-test -user tester -yes "$WORKDIR/kit.age" >/dev/null 2>&1 \
+  || { echo "ISO install test FAILED: fleet init" >&2; exit 1; }
+ctl fleet adopt iso-node -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -pairing "127.0.0.1:${HOST_PAIR_PORT}" -code "$CODE" \
+  || { echo "ISO install test FAILED: fleet adopt -code" >&2; exit 1; }
+ctl fleet export "$WORKDIR/export" >/dev/null || { echo "ISO install test FAILED: fleet export" >&2; exit 1; }
 
-CTL_ARGS=(-endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key")
+CTL_ARGS=(-n iso-node)
 
 # --- the actual point of this test: Install using only what's already
 # on the booted ISO, no bundle reachable from the host at all.
-INSTALL_OUT="$("$CTL" "${CTL_ARGS[@]}" lifecycle install -insecure-skip-signature-check -sha256 "$SHA256" /dev/vdb /etc/janus/release 2>&1)" || {
+INSTALL_OUT="$(ctl "${CTL_ARGS[@]}" lifecycle install -insecure-skip-signature-check -sha256 "$SHA256" \
+  -fleet-root "$WORKDIR/export/root.crt" -fleet-bundle "$WORKDIR/export/bundle.json" /dev/vdb /etc/janus/release 2>&1)" || {
   echo "ISO install test FAILED: janusctl lifecycle install failed:" >&2
   echo "$INSTALL_OUT" >&2
   exit 1
@@ -143,4 +143,41 @@ kill "$QEMU_PID" 2>/dev/null || true
 wait "$QEMU_PID" 2>/dev/null || true
 QEMU_PID=""
 
-echo "ISO install test OK: a node booted from the embedded-bundle ISO installed a real disk using only /etc/janus/release, no bundle reachable from the host at all"
+# --- the installed disk boots trusting the fleet: no pairing window, a
+# new CA of its own - adopted by the fingerprint its console shows.
+cp "$OVMF_VARS_TEMPLATE" "$OVMF_VARS"
+LOG="$WORKDIR/installed.log"
+qemu-system-x86_64 -accel kvm -accel tcg \
+  -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
+  -drive if=pflash,format=raw,file="$OVMF_VARS" \
+  -drive file="$TARGET_DISK",format=raw,if=virtio \
+  -nographic -no-reboot -display none -m 512M \
+  -netdev "user,id=net0,hostfwd=tcp::${HOST_PORT}-:8080,hostfwd=tcp::${HOST_GRPC_PORT}-:9505,hostfwd=tcp::${HOST_PAIR_PORT}-:9506" \
+  -device virtio-net-pci,netdev=net0 \
+  -serial file:"$LOG" \
+  </dev/null &
+QEMU_PID=$!
+deadline=$((SECONDS + HTTP_TIMEOUT_SECS + 60))
+until grep -aq "No shell, no SSH" "$LOG" 2>/dev/null; do
+  [ "$SECONDS" -lt "$deadline" ] || { echo "ISO install test FAILED: the installed disk's janusd never listened" >&2; cat "$LOG" >&2; exit 1; }
+  sleep 1
+done
+grep -aq "pki: trusts the fleet of root" "$LOG" || { echo "ISO install test FAILED: the installed disk doesn't trust the fleet Install gave it" >&2; cat "$LOG" >&2; exit 1; }
+if grep -aq "pairing: code" "$LOG"; then
+  echo "ISO install test FAILED: the installed disk, trusting a fleet, shows a pairing code" >&2
+  exit 1
+fi
+FP="$({ grep -ao "pki: this node's CA: SHA-256 [0-9a-f]*" "$LOG" || true; } | tail -1 | awk '{print $NF}')"
+[ "${#FP}" = 64 ] || { echo "ISO install test FAILED: no CA fingerprint on the installed disk's console" >&2; exit 1; }
+ctl fleet adopt installed -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca-fingerprint "$FP" \
+  || { echo "ISO install test FAILED: fleet adopt -ca-fingerprint the installed disk" >&2; exit 1; }
+ctl -n installed version >/dev/null || { echo "ISO install test FAILED: the fleet's certificate doesn't reach the installed disk" >&2; exit 1; }
+if grep -a "avc:.*denied" "$WORKDIR/iso-install.log" "$LOG"; then
+  echo "ISO install test FAILED: AVC denials" >&2
+  exit 1
+fi
+kill "$QEMU_PID" 2>/dev/null || true
+wait "$QEMU_PID" 2>/dev/null || true
+QEMU_PID=""
+
+echo "ISO install test OK: a node booted from the embedded-bundle ISO - paired by its code, nothing secret on its console - installed a real disk using only /etc/janus/release, no bundle reachable from the host at all; the installed disk trusts the fleet from its first boot"

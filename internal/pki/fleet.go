@@ -17,8 +17,9 @@ import (
 	"time"
 )
 
-// A node trusts its own CA - its first-boot admin certificate, the
-// break-glass way in - and, once it joined one, its fleet: the client
+// A node trusts its own CA - the break-glass way in: a rescue
+// certificate (internal/pairing), an older node's first-boot admin
+// certificate - and, once it joined one, its fleet: the client
 // certificates the fleet's issuing CAs sign (the Controller's, its
 // users'), with the roles they carry.
 //

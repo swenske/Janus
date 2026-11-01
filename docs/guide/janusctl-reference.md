@@ -610,7 +610,7 @@ janusctl system restart
 
 #### janusctl system reset
 
-Wipe the STATE partition and reboot: a new CA on the console.
+Wipe the STATE partition and reboot: a new CA and a pairing code on the console.
 
 ```text
 janusctl system reset [-wipe-state] [-wipe-ephemeral]
@@ -1326,15 +1326,11 @@ janusctl access trust-reset
 
 #### janusctl access rotate-ca
 
-Replace the node's own CA.
+Replace the node's own CA - a new admin certificate for a key made here.
 
 ```text
-janusctl access rotate-ca [-console] DIR
+janusctl access rotate-ca DIR
 ```
-
-| Flag | |
-|---|---|
-| `-console` | the node prints the admin key on its console |
 
 #### janusctl access rescue
 
@@ -1733,7 +1729,7 @@ janusctl fleet adopt [-endpoint HOST:PORT] [-ca FILE] [-cert FILE] [-key FILE] [
 | Flag | |
 |---|---|
 | `-endpoint HOST:PORT` | the node's API |
-| `-ca FILE` | its first boot's CA (ca.crt) |
+| `-ca FILE` | with the node's own credential (access rescue's, an older node's first boot): its CA (ca.crt) |
 | `-cert FILE` | admin.crt |
 | `-key FILE` | admin.key |
 | `-ca-fingerprint SHA256` | a node already in the fleet: its CA's SHA-256 |

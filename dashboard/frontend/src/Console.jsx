@@ -72,7 +72,7 @@ export default function MachineConsole({ machine, onClose }) {
         </pre>
         {failure && <div className="error-box small">{failure}</div>}
         <p className="muted small" style={{ margin: 0 }}>
-          The serial console, read-only. Private keys are hidden: a node prints its admin credential on its first boot, and the Controller never keeps it.
+          The serial console, read-only. Private keys are hidden: a node from before the pairing code prints its admin credential on its first boot, and the Controller never keeps it.
         </p>
       </div>
     </div>

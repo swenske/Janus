@@ -106,51 +106,40 @@ func printTrust(st *janusv1alpha1.TrustState) {
 }
 
 // rotateCA replaces the node's own CA; the new admin certificate's key is
-// made here and never leaves this machine - unless -console.
+// made here and never leaves this machine.
 func rotateCA(c context.Context, client janusv1alpha1.AccessServiceClient, args []string) {
 	fs := flag.NewFlagSet("access rotate-ca", flag.ExitOnError)
-	console := fs.Bool("console", false, "have the node make the admin key and print it on its console, like at first boot")
 	_ = fs.Parse(args)
 	if fs.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "usage: janusctl access rotate-ca [-console] DIR")
+		fmt.Fprintln(os.Stderr, "usage: janusctl access rotate-ca DIR")
 		os.Exit(2)
 	}
 	dir := fs.Arg(0)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		log.Fatal(err)
 	}
-	req := &janusv1alpha1.LocalCARotateRequest{}
-	var keyPEM []byte
-	if !*console {
-		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		if err != nil {
-			log.Fatal(err)
-		}
-		pub, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
-		if err != nil {
-			log.Fatal(err)
-		}
-		der, err := x509.MarshalPKCS8PrivateKey(key)
-		if err != nil {
-			log.Fatal(err)
-		}
-		req.AdminPublicKey = pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pub})
-		keyPEM = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		log.Fatal(err)
 	}
-	resp, err := client.LocalCARotate(c, req)
+	pub, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		log.Fatal(err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		log.Fatal(err)
+	}
+	resp, err := client.LocalCARotate(c, &janusv1alpha1.LocalCARotateRequest{AdminPublicKey: pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pub})})
 	check("LocalCARotate", err)
-	files := map[string][]byte{"ca.crt": resp.GetCaCert()}
-	if !*console {
-		files["admin.crt"], files["admin.key"] = resp.GetAdminCert(), keyPEM
-	}
-	for name, data := range files {
+	for name, data := range map[string][]byte{
+		"ca.crt":    resp.GetCaCert(),
+		"admin.crt": resp.GetAdminCert(),
+		"admin.key": pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}),
+	} {
 		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
 			log.Fatalf("write %s: %v", name, err)
 		}
-	}
-	if *console {
-		fmt.Printf("The node's own CA is replaced: its new CA certificate is in %s/ca.crt; the new admin certificate and key are on its console.\n", dir)
-		return
 	}
 	fmt.Printf("The node's own CA is replaced: wrote %s/{ca.crt,admin.crt,admin.key}. Every certificate the old CA issued no longer works.\n", dir)
 }

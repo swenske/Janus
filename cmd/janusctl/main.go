@@ -8,6 +8,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -42,15 +43,15 @@ var actingFor metadata.MD
 func main() {
 	applyNoProxy()
 	endpoint := flag.String("endpoint", "127.0.0.1:9505", "janusd gRPC endpoint")
-	// Defaults match janusd's own default -pki-dir - convenient when
+	// -ca defaults to janusd's own default -pki-dir - convenient when
 	// janusctl runs on the same filesystem as the daemon (local/dev
-	// use); a real remote operator passes their own issued certificate
-	// (see "haproxy show-info" etc. needing a cert from
-	// GenerateClientConfiguration first, or the admin cert janusd
-	// printed on its first boot).
+	// use). No client certificate has a default: a node makes none for
+	// itself - a context (login, fleet init) gives one, or -cert/-key a
+	// certificate the node trusts (a fleet's, GenerateClientConfiguration's,
+	// access rescue's, an older node's first-boot admin.crt).
 	caFile := flag.String("ca", "/etc/janus/pki/ca.crt", "path to the CA certificate")
-	certFile := flag.String("cert", "/etc/janus/pki/admin.crt", "path to the client certificate")
-	keyFile := flag.String("key", "/etc/janus/pki/admin.key", "path to the client private key")
+	certFile := flag.String("cert", "", "path to the client certificate")
+	keyFile := flag.String("key", "", "path to the client private key")
 	asUser := flag.String("as-user", "", "with a Controller certificate (role janus:controller): the user the calls are made for")
 	asRoles := flag.String("as-roles", "", "with -as-user: that user's roles, comma-separated (os:admin, os:operator, os:reader)")
 	ctxFlag := flag.String("context", "", "the context to use (janusctl login; default: the current one)")
@@ -295,6 +296,9 @@ func main() {
 }
 
 func dial(endpoint, caFile, certFile, keyFile string) (*grpc.ClientConn, error) {
+	if certFile == "" || keyFile == "" {
+		return nil, errors.New("no client certificate: use a context (janusctl login, or janusctl fleet init and fleet adopt), or give -cert and -key")
+	}
 	caPEM, err := os.ReadFile(caFile)
 	if err != nil {
 		return nil, fmt.Errorf("read CA certificate %s: %w", caFile, err)

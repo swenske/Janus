@@ -123,7 +123,7 @@ grep -q PermissionDenied <<<"$out" || fail "Read(/dev/vda) didn't answer Permiss
 echo "  ok: Read refuses devices"
 # The node's secrets are never served, however they're asked for: an
 # admin certificate must not carry the CA's key away.
-for p in /etc/janus/pki/ca.key /etc/.state/pki/admin.key /proc/self/root/etc/janus/pki/server.key; do
+for p in /etc/janus/pki/ca.key /etc/.state/pki/server.key /proc/self/root/etc/janus/pki/ca.key; do
   if out="$(ctl system cat "$p" 2>&1)"; then fail "Read($p) was allowed"; fi
   grep -q PermissionDenied <<<"$out" || fail "Read($p) didn't answer PermissionDenied: $out"
 done

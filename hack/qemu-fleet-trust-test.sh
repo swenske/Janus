@@ -155,31 +155,17 @@ fi
 lets_in "the fleet's certificates, untouched by the rotation" admin system hostname
 echo "  ok: rotate-ca - the new admin certificate's key made by janusctl, the old CA's certificates refused, the fleet's kept, the node still verified by the old CA's pin"
 
-out="$(as local access rotate-ca -console "$WORKDIR/rot2")" || fail "rotate-ca -console: $out"
-deadline=$((SECONDS + 10))
-until python3 - "$LOG" "$WORKDIR" <<'PY'
-import re, sys
-log = open(sys.argv[1], errors="replace").read()
-i = log.rfind("pki: the node's own CA was replaced")
-if i < 0:
-    sys.exit(1)
-blocks = [m.group(0) for m in re.finditer(r"-----BEGIN ([A-Z ]+)-----.*?-----END \1-----", log[i:], re.S)]
-if len(blocks) < 3:
-    sys.exit(1)
-for name, b in zip(["ca.crt", "admin.crt", "admin.key"], blocks):
-    open(sys.argv[2] + "/" + name, "w").write(b.replace("\r", "") + "\n")
-PY
-do
-  [ "$SECONDS" -lt "$deadline" ] || fail "rotate-ca -console: nothing printed on the console"
-  sleep 1
-done
-cmp -s "$WORKDIR/ca.crt" "$WORKDIR/rot2/ca.crt" || fail "the console's CA isn't the one rotate-ca -console returned"
-lets_in "the admin certificate printed on the console" local system hostname
+# A fleet's admin rotates it too - its own admin certificate for a key
+# janusctl made -; the previous one stops working. Nothing goes to the
+# console: a node never makes an admin key.
+out="$(as admin access rotate-ca "$WORKDIR/rot2")" || fail "rotate-ca by the fleet's admin: $out"
+cp "$WORKDIR/rot2/ca.crt" "$WORKDIR/rot2/admin.crt" "$WORKDIR/rot2/admin.key" "$WORKDIR/"
+lets_in "the second rotation's admin certificate" local system hostname
 if "$CTL_BIN" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/rot/admin.crt" -key "$WORKDIR/rot/admin.key" system hostname >/dev/null 2>&1; then
   fail "the previous admin certificate still works after the second rotation"
 fi
-if grep -q 'PRIVATE KEY' <<<"$(as local system logs janusd)"; then fail "the printed admin key is in janusd's log, which Logs serves"; fi
-echo "  ok: rotate-ca -console - the node's key printed on the console only, like at first boot"
+if grep -aq 'PRIVATE KEY' "$LOG"; then fail "a private key on the console"; fi
+echo "  ok: rotate-ca by the fleet's admin - the previous CA's certificates refused, no key on the console"
 
 # --- the trust survives a reboot ---
 as local system reboot >/dev/null || fail "Reboot failed"

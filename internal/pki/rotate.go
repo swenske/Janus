@@ -27,14 +27,11 @@ func NewLocal(ca *CA) *Local {
 // CA is the node's own CA, now.
 func (l *Local) CA() *CA { return l.ca.Load() }
 
-// Rotation is a node's new own CA and what it issued in place of the old
-// one's certificates.
+// Rotation is a node's new own CA and the admin certificate it issued in
+// place of the old one's, for the caller's key.
 type Rotation struct {
 	CA           *CA
 	AdminCertPEM []byte
-	// AdminKeyPEM is set when the node made the admin certificate's key
-	// itself - to be shown once, like at first boot.
-	AdminKeyPEM []byte
 }
 
 // rotationDir holds a rotation's files until they're all written: a
@@ -49,12 +46,16 @@ const (
 // CA - cross-signed by the old one, served after the server certificate
 // so whoever pinned the old CA still verifies the node and can learn the
 // new one -, a server certificate for hostname and ips, and an admin
-// certificate - for adminPub when given, its key never seen by the node,
-// else for a key made here and returned. Every certificate the old CA
-// issued stops working with the next connection. Serialized with
-// Refresh, the other writer of the directory; written so that a power
-// cut leaves the old CA or the new one, whole.
+// certificate for adminPub, its key never seen by the node. Every
+// certificate the old CA issued stops working with the next connection.
+// Serialized with Refresh, the other writer of the directory; written so
+// that a power cut leaves the old CA or the new one, whole. A node from
+// before the pairing code keeps an admin.crt - the new one - so it stays
+// what it was (cmd/janusd's pairing window); its admin.key goes.
 func (s *ServerCert) Rotate(local *Local, hostname string, ips []net.IP, adminPub crypto.PublicKey) (*Rotation, error) {
+	if adminPub == nil {
+		return nil, errors.New("no public key for the new admin certificate")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -81,12 +82,7 @@ func (s *ServerCert) Rotate(local *Local, hostname string, ips []net.IP, adminPu
 	}
 	admin := IssueOptions{CommonName: "admin", Roles: []string{RoleAdmin}, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
 	r := &Rotation{CA: ca}
-	if adminPub != nil {
-		r.AdminCertPEM, err = ca.IssueFor(adminPub, admin)
-	} else {
-		r.AdminCertPEM, r.AdminKeyPEM, err = ca.Issue(admin)
-	}
-	if err != nil {
+	if r.AdminCertPEM, err = ca.IssueFor(adminPub, admin); err != nil {
 		return nil, fmt.Errorf("issue admin certificate: %w", err)
 	}
 
@@ -95,15 +91,12 @@ func (s *ServerCert) Rotate(local *Local, hostname string, ips []net.IP, adminPu
 		{caKeyFile, caKeyPEM, 0o600},
 		{serverCertFile, serverPEM, 0o644},
 		{serverKeyFile, serverKeyPEM, 0o600},
-		{adminCertFile, r.AdminCertPEM, 0o600},
 		{crossFile, crossPEM, 0o644},
 	}
-	var remove []string
-	if r.AdminKeyPEM != nil {
-		files = append(files, file{adminKeyFile, r.AdminKeyPEM, 0o600})
-	} else {
-		remove = append(remove, adminKeyFile) // not the node's to keep
+	if _, err := os.Stat(filepath.Join(s.dir, adminCertFile)); err == nil {
+		files = append(files, file{adminCertFile, r.AdminCertPEM, 0o600})
 	}
+	remove := []string{adminKeyFile} // never the node's to keep
 	if err := writeRotation(s.dir, files, remove); err != nil {
 		return nil, err
 	}

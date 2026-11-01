@@ -69,7 +69,7 @@ func (x *LocalCARotateRequest) GetAdminPublicKey() []byte {
 type LocalCARotateResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	CaCert        []byte                 `protobuf:"bytes,1,opt,name=ca_cert,json=caCert,proto3" json:"ca_cert,omitempty"`          // PEM
-	AdminCert     []byte                 `protobuf:"bytes,2,opt,name=admin_cert,json=adminCert,proto3" json:"admin_cert,omitempty"` // PEM; empty when printed on the console
+	AdminCert     []byte                 `protobuf:"bytes,2,opt,name=admin_cert,json=adminCert,proto3" json:"admin_cert,omitempty"` // PEM
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

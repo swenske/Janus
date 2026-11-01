@@ -100,8 +100,8 @@ func (s *System) leave() {
 }
 
 // Reset returns the node to its just-installed state: wipe_state empties
-// the persistent STATE partition - PKI (a new CA and admin certificate
-// are generated and printed on the console at the next boot), applied
+// the persistent STATE partition - PKI (a new CA is generated at the
+// next boot, and a pairing window opened - no fleet any more), applied
 // HAProxy config, Controller registration, pending boot confirmations -
 // and forgets the logs of the LOGS partition, then reboots. The A/B slots and the ESP aren't touched.
 // wipe_ephemeral alone just reboots: everything ephemeral is tmpfs.
