@@ -22,6 +22,10 @@ roles, the Controller's fleet - is in the
   the Controller when the node registered or was added, janusctl from
   the Controller's inventory or from the fingerprint the node's console
   prints.
+- **A node that trusts nothing yet** - no fleet, no Controller - opens a
+  [pairing window](#the-pairing-window) on port 9506 and shows its code
+  on the console: the one way in without a certificate, to give it a
+  fleet, closed once it trusts one.
 - **Outside the node's API**: the Controller has a TLS identity of its
   own, for its registration port and its pages; a release is checked
   against Janus's signing certificate, not a TLS chain.
@@ -72,6 +76,7 @@ flowchart LR
 |---|---|---|---|---|
 | [Node CA](#the-node-ca) | itself | the node's STATE | 10 years | the Controller and janusctl, which pin it |
 | [Server certificate](#the-server-certificate) | the node CA | the node's STATE | a year; renewed 30 days before, and whenever an address or the hostname changes | callers, against the node CA |
+| [Pairing window](#the-pairing-window) | the node CA | the node's memory | until the window closes | janusctl and the Controller, against the code on the console |
 | [First-boot admin](#the-first-boot-admin-certificate) | the node CA | printed on the console once, kept on STATE | a year | the node |
 | [Service credential](#service-credentials) | the node CA | the Controller, until the node trusts the fleet | a year | the node |
 | [Cross-signed CA](#the-cross-signed-ca) | the node's previous CA | the new CA's | the new CA's | clients that pinned the previous CA |
@@ -157,6 +162,32 @@ can't be read through the API, by anyone.
   before it expires, or as soon as an address or the hostname changes.
 - **Shown** on port 9505, followed by the [cross-signed
   CA](#the-cross-signed-ca) after a rotation.
+
+### The pairing window
+
+- **Opened** at a boot when the node trusts nothing - no fleet, no
+  Controller provisioned (registering or registered) -, by janusd, on
+  port 9506 (`-pairing-addr`; never the API's port): TLS with a
+  certificate made for the window - a key of its own, in memory, signed
+  by the node CA - and no client certificate asked. One call,
+  `PairingService/Pair`, which gives the node a fleet.
+- **Its code**, on the console only (the banner, and a `pairing: code`
+  line - never janusd's log, LOGS or log forwarding): 20 symbols,
+  `9BC3-3016-3D39-2K7Q-M2XD` (Crockford base32 - any case, O for 0, I
+  and L for 1). Its first 59 bits are the window certificate's SHA-256:
+  janusctl and the Controller check the certificate the node presents
+  against them, and its CA, before they send anything - another
+  certificate with the same 59 bits takes 2^59 tries. The next 36 are a
+  secret, the proof the caller read the console; the last 5, a check
+  that catches a mistyped code before it costs a try.
+- **Closes** when it pairs - the node trusts the fleet it was given,
+  the port closes 30 seconds later, time enough for an answer lost on
+  the way -, when the node is given a fleet otherwise (TrustSet, its
+  Controller), or after 5 wrong secrets, until the node restarts. A new
+  code at each boot, kept in memory only, good once: it's not a key,
+  there's nothing to keep.
+- **Every call is audited** (`janusctl system audit`): `pairing code`,
+  the caller's address, how it ended.
 
 ### The first-boot admin certificate
 
@@ -319,10 +350,12 @@ by a CA, or through the system's trust store.
   checking the fingerprint against the node's console - takes the
   fleet's trust: the root, then the bundle. A node given the fleet's
   root refuses a fleet with another one.
-- **Without a Controller**: `janusctl fleet adopt` sets the fleet on a
-  node with its first-boot credential. A node that already lets the
-  machine in - its fleet from the first boot, or with the kit - can be
-  adopted with the CA fingerprint its console printed instead
+- **Without a Controller**: `janusctl fleet adopt NAME -endpoint ADDR
+  -code CODE` pairs a node that trusts nothing yet, with the code its
+  console shows ([the pairing window](#the-pairing-window)); or with its
+  first-boot credential. A node that already lets the machine in - its
+  fleet from the first boot, or with the kit - can be adopted with the
+  CA fingerprint its console printed instead
   ([a fleet without a Controller](../fleet-without-controller.md)).
 - **From the first boot**: the fleet's root and bundle given to the
   installer, a seeded image or NoCloud.
@@ -419,6 +452,7 @@ given may be others:
 |---|---|
 | The node's CA, certificates, rotation | `internal/pki` (`bootstrap.go`, `servercert.go`, `rotate.go`) |
 | The fleet: pinning, bundles, chains | `internal/pki/fleet.go`, `internal/api/access.go` |
+| The pairing window | `internal/pairing`, `internal/api/pairing.go`, `cmd/janusd/pairing.go` |
 | Scoped certificates | `internal/pki/scope.go` |
 | Roles per call | `internal/api/authz.go`, `internal/rbac` |
 | Registration | `internal/selfregister`, `dashboard/backend/register.go` |

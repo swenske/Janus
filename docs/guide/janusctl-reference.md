@@ -1712,7 +1712,7 @@ janusctl fleet recover [-kit KIT] [-name FLEET] [-issuer NAME] [-user NAME] [-ro
 A node into the fleet.
 
 ```text
-janusctl fleet adopt [-endpoint HOST:PORT] [-ca FILE] [-cert FILE] [-key FILE] [-ca-fingerprint SHA256] [-kit KIT] NAME
+janusctl fleet adopt [-endpoint HOST:PORT] [-ca FILE] [-cert FILE] [-key FILE] [-ca-fingerprint SHA256] [-kit KIT] [-code CODE] [-pairing HOST:PORT] NAME
 ```
 
 | Flag | |
@@ -1723,6 +1723,8 @@ janusctl fleet adopt [-endpoint HOST:PORT] [-ca FILE] [-cert FILE] [-key FILE] [
 | `-key FILE` | admin.key |
 | `-ca-fingerprint SHA256` | a node already in the fleet: its CA's SHA-256 |
 | `-kit KIT` | the fleet's recovery kit |
+| `-code CODE` | a node that trusts nothing yet: the pairing code on its console |
+| `-pairing HOST:PORT` | with -code: its pairing window (the endpoint's host, port 9506) |
 
 #### janusctl fleet sync
 

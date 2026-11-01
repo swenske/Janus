@@ -60,6 +60,7 @@ import (
 	"github.com/swenske/Janus/internal/netmgr"
 	"github.com/swenske/Janus/internal/nodeexporter"
 	"github.com/swenske/Janus/internal/oomadj"
+	"github.com/swenske/Janus/internal/pairing"
 	"github.com/swenske/Janus/internal/pki"
 	"github.com/swenske/Janus/internal/ring"
 	"github.com/swenske/Janus/internal/schematic"
@@ -82,6 +83,7 @@ const serviceLogLines = 5000
 func main() {
 	showVersion := flag.Bool("version", false, "print the daemon version and exit")
 	addr := flag.String("addr", ":9505", "gRPC listen address")
+	pairingAddr := flag.String("pairing-addr", "auto", "the pairing window's address (internal/pairing): open while the node trusts no fleet and no Controller, its code on the console - \"auto\": :"+pairing.DefaultPort+" with -manage-host, none without; empty: none")
 	pkiDir := flag.String("pki-dir", "/etc/janus/pki", "directory holding the node's CA/server/admin certificates (generated here on first boot)")
 	haproxyBin := flag.String("haproxy-binary", "/usr/local/sbin/haproxy", "path to the haproxy binary")
 	haproxyCfg := flag.String("haproxy-config", "/etc/haproxy/haproxy.cfg", "path to haproxy's active config file")
@@ -608,6 +610,7 @@ func main() {
 	// The fleet it trusts besides its own CA (AccessService): what can't
 	// be read back leaves it trusting none - its own CA still lets in.
 	fleet, err := pki.OpenFleet(*pkiDir)
+	fleetErr := err
 	if err != nil {
 		log.Printf("pki: fleet trust: %v - the node trusts no fleet this boot", err)
 	} else if root := fleet.Root(); root != nil {
@@ -754,7 +757,8 @@ func main() {
 	// node, like the configuration itself.
 	haproxyHistory := &haproxy.History{Dir: filepath.Join(filepath.Dir(*haproxyCfg), "history")}
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr, ACME: acmeMgr, History: haproxyHistory})
-	janusv1alpha1.RegisterAccessServiceServer(srv, &api.Access{Fleet: fleet, Local: local, ServerCert: serverCert, Console: os.Stderr})
+	access := &api.Access{Fleet: fleet, Local: local, ServerCert: serverCert, Console: os.Stderr}
+	janusv1alpha1.RegisterAccessServiceServer(srv, access)
 	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc, Firewall: fwMgr, VRRP: vrrpMgr, HAProxyHealthy: gateHealthy, BGP: bgpMgr, Consul: consulMgr, ConsulRegistrar: consulReg, Services: extMgr})
 	clusterAPI := &api.Cluster{Store: clusterStore, PeersFile: peersFile, HAProxy: haproxyMgr, LocalIPs: pki.LocalIPs, VRRP: vrrpMgr, BGP: bgpMgr, ACME: acmeMgr, ACMECertDir: acme.CertDir}
 	if *manageHost {
@@ -763,11 +767,26 @@ func main() {
 	}
 	janusv1alpha1.RegisterClusterServiceServer(srv, clusterAPI)
 
+	// A node that trusts nothing yet: its pairing window, the one way in
+	// without a certificate (internal/pairing).
+	var pw *pairingWindow
+	if pkiBootstrap.AdminIssued {
+		markPairing(*pkiDir)
+	}
+	if a := pairingListen(*pairingAddr, *manageHost); a != "" && pairingWanted(fleet, fleetErr, *pkiDir) {
+		pw = openPairing(a, local, access, fleet, hostname)
+	}
+
 	log.Printf("janusd %s listening on %s (mTLS required)", version, *addr)
 	if *manageHost {
 		metrics.boot = measureBoot(haproxyServingAt)
 	}
 	kernelTrack, haproxyVersion := logImage(haproxyMgr)
+	pairingCode := ""
+	if pw != nil {
+		pw.sayCode()
+		pairingCode = pw.code.String()
+	}
 	printMOTD(motdInfo{
 		Version:        version,
 		KernelVersion:  api.KernelVersion(),
@@ -778,6 +797,7 @@ func main() {
 		HAProxyRunning: haproxyRunning,
 		FirstBoot:      pkiBootstrap.AdminIssued,
 		CAFingerprint:  pki.Fingerprint(local.CA().Cert.Raw),
+		PairingCode:    pairingCode,
 	})
 	if err := srv.Serve(clients.Listener(lis)); err != nil {
 		fmt.Fprintln(os.Stderr, "serve:", err)

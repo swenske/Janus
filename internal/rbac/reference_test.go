@@ -47,6 +47,7 @@ var referenceServices = []struct{ name, file string }{
 	{"LifecycleService", "lifecycle.proto"},
 	{"AccessService", "access.proto"},
 	{"ClusterService", "cluster.proto"},
+	{"PairingService", "pairing.proto"},
 }
 
 type protoCall struct {

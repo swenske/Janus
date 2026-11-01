@@ -183,7 +183,7 @@ janusctl -endpoint HOST:PORT -ca FILE -cert FILE -key FILE COMMAND ...
 - `janusctl pki generate-client-config [-role ROLE] [-name NAME] [-ttl DURATION] DIR` - **critical** - issue a client certificate into DIR. Issues a credential
 - `janusctl fleet init [-name FLEET] [-issuer NAME] [-user NAME] [-role ROLE] [-yes] KIT` - **critical** - a new fleet: its root's key in KIT. A new fleet: its recovery kit goes offline, kept by the user
 - `janusctl fleet recover [-kit KIT] [-name FLEET] [-issuer NAME] [-user NAME] [-role ROLE]` - **critical** - a fleet from its kit
-- `janusctl fleet adopt [-endpoint HOST:PORT] [-ca FILE] [-cert FILE] [-key FILE] [-ca-fingerprint SHA256] [-kit KIT] NAME` - **critical** - a node into the fleet. Pins the fleet's root on the node
+- `janusctl fleet adopt [-endpoint HOST:PORT] [-ca FILE] [-cert FILE] [-key FILE] [-ca-fingerprint SHA256] [-kit KIT] [-code CODE] [-pairing HOST:PORT] NAME` - **critical** - a node into the fleet. Pins the fleet's root on the node
 - `janusctl fleet sync [-kit KIT]` - **changes** - the newest bundle everywhere
 - `janusctl fleet status` - reads - each node's bundle, this machine's certificate
 - `janusctl fleet export DIR` - **changes** - root.crt, bundle.json, user-data.json. Writes files on this machine

@@ -30,6 +30,9 @@ type motdInfo struct {
 	// CAFingerprint is the SHA-256 of the node's own CA (hex): what
 	// janusctl fleet adopt -ca-fingerprint checks the node against.
 	CAFingerprint string
+	// PairingCode is the open pairing window's code (internal/pairing):
+	// empty when there's none.
+	PairingCode string
 }
 
 // renderMOTD builds the console banner janusd prints once it's
@@ -77,6 +80,9 @@ func renderMOTD(info motdInfo, color bool) string {
 	if fp := info.CAFingerprint; len(fp) == 64 {
 		group := func(s string) string { return s[0:8] + " " + s[8:16] + " " + s[16:24] + " " + s[24:32] }
 		text = append(text, "ca sha256 "+group(fp[:32]), "          "+group(fp[32:]))
+	}
+	if info.PairingCode != "" {
+		text = append(text, "pairing   "+paint(ansiBold, info.PairingCode), "          "+paint(ansiDim, "janusctl fleet adopt -code, or Add node"))
 	}
 	text = append(text,
 		"",
