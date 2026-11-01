@@ -124,8 +124,12 @@ func TestClusterUpgradeRefusals(t *testing.T) {
 				return nil
 			})
 		}, "created from an image URL"},
-		"no bundle": {map[string]any{"version": upgradeTo}, func() { u.resolveErr = errors.New("no such release") }, "no update to Janus " + upgradeTo},
-		"unhealthy": {map[string]any{"version": upgradeTo}, func() { f.nodes["lb-2"].drained = true }, "the cluster isn't healthy: lb-2 is drained"},
+		"no bundle":          {map[string]any{"version": upgradeTo}, func() { u.resolveErr = errors.New("no such release") }, "no update to Janus " + upgradeTo},
+		"unhealthy":          {map[string]any{"version": upgradeTo}, func() { f.nodes["lb-2"].drained = true }, "the cluster isn't healthy: lb-2 is drained"},
+		"no balancer to ask": {map[string]any{"version": upgradeTo, "wait_balancer": true}, nil, "wait_balancer: the cluster has no balancer hook to ask"},
+		"an hour's pause":    {map[string]any{"version": upgradeTo, "settle_seconds": 3600}, nil, "settle_seconds: 0 to 1800"},
+		"no shared address":  {map[string]any{"version": upgradeTo, "handoff": map[string]any{}}, nil, "handoff: the members share no address"},
+		"a grace of 2 hours": {map[string]any{"version": upgradeTo, "handoff": map[string]any{"grace_seconds": 7200}}, nil, "handoff.grace_seconds: 1 to 3600"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if tc.spoil != nil {

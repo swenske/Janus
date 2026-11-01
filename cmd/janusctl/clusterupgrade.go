@@ -47,6 +47,11 @@ func runClusterUpgrade(globalCtx string, args []string) {
 	sum := fs.String("sha256", "", "rootfs.squashfs's SHA-256 (default: the bundle's rootfs.squashfs.sha256)")
 	release := fs.String("version", "", "the release the bundle holds, as the nodes report it (default: read from the bundle's own image)")
 	timeout := fs.Duration("timeout", clusters.UpgradeTimeout, "how long each member has to come back on the new release")
+	waitBalancer := fs.Bool("wait-balancer", false, "ask the balancer hook too: a member goes once it has the others in service, the next once it has that one back")
+	settle := fs.Duration("settle", 0, "a pause once a member is back, before the next one goes")
+	handoff := fs.Bool("handoff", false, "hand each member's connections over: the others copy them to it while it is out, it copies theirs once back (an anycast cluster with the nftables extension)")
+	grace := fs.Duration("handoff-grace", clusters.DefaultHandoffGrace, "with -handoff: how long a drained member serves its connections at most before its update")
+	keep := fs.Duration("handoff-keep", clusters.DefaultHandoffKeep, "with -handoff: how long a member back copies the others' connections to them")
 	parseAnywhere(fs, args[1:])
 	if fs.NArg() != 2 {
 		clusterCtlUsage("upgrade")
@@ -91,9 +96,13 @@ func runClusterUpgrade(globalCtx string, args []string) {
 	src := &janusv1alpha1.ImageSource{Reference: base, Sha256: *sum, InsecureSkipSignatureCheck: *insecure, AllowSchematicChange: *allowSchematic}
 	opts := clusters.UpgradeOptions{
 		Release: target, Schematic: schematicID, Members: order, BackTimeout: *timeout,
+		WaitBalancer: *waitBalancer, Settle: *settle,
 		Update: func(ctx context.Context, m clusters.Member) (string, error) {
 			return o.upgradeNode(ctx, m, src, mode)
 		},
+	}
+	if *handoff {
+		opts.Handoff = &clusters.HandoffOptions{Grace: *grace, Keep: *keep}
 	}
 	defer o.exclusive(c.ID)()
 	since := time.Now()

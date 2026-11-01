@@ -932,6 +932,13 @@ jobs:
       - name: A BGP cluster updated in place, one member at a time
         run: make qemu-cluster-upgrade-bgp-test
 
+      # The same cluster (bird + nftables) updated with its connections
+      # handed over: long-lived TCP connections through the anycast
+      # address - a plain drain breaks them, the update with -handoff
+      # none. See hack/qemu-cluster-handoff-test.sh.
+      - name: A BGP cluster updated with its connections handed over
+        run: make qemu-cluster-handoff-test
+
       # The same with keepalived members and their virtual IP, then to a
       # release whose HAProxy can't start: the first member reverts by
       # itself, the update stops there, the other member untouched.

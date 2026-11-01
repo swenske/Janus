@@ -192,14 +192,19 @@ change it - the secret write-only, "unchanged" its placeholder -, call
 it now or remove it; readers see it only once set). Its **Kind**
 selects a webhook or a RouterOS router (ECMP routes): the router's
 user, service prefixes, distance, routing table and check-gateway, its
-password in the secret's field.
+password in the secret's field; a webhook's *It answers check calls*
+(`confirm`) lets an update wait for it.
 `#/clusters/<id>` is one cluster: its problems in a notice, the Janus
 releases its members run (a newer release's badge when there is one -
 the cluster's card on the list says it too: `behindLatest` against
 `/api/catalog`'s newest), **Check now**, **Update** (`UpdateCluster`:
 the release - the newest suggested -, the members with each one's
 release, those on it greyed and skipped, kexec, another image from the
-catalog, a confirmation naming the release, then `POST
+catalog, `UpdateTraffic`'s choices from `GET
+/api/clusters/{id}/upgrade-options` - wait for the balancer, the
+connections handed over (and their grace), a pause between members,
+each greyed out with the server's why when the cluster can't have it -,
+a confirmation naming the release, then `POST
 /api/clusters/{id}/upgrade`; each member's stage shows in the Members
 tab while it runs), **Delete** (type the name; a box to destroy the members' virtual
 machines too, when some are the Controller's), and four tabs - **Members** (version

@@ -29,6 +29,8 @@ const (
 	ClusterService_ClusterUndrain_FullMethodName      = "/janus.v1alpha1.ClusterService/ClusterUndrain"
 	ClusterService_ClusterPull_FullMethodName         = "/janus.v1alpha1.ClusterService/ClusterPull"
 	ClusterService_ClusterExport_FullMethodName       = "/janus.v1alpha1.ClusterService/ClusterExport"
+	ClusterService_ClusterFlows_FullMethodName        = "/janus.v1alpha1.ClusterService/ClusterFlows"
+	ClusterService_ClusterHandoff_FullMethodName      = "/janus.v1alpha1.ClusterService/ClusterHandoff"
 	ClusterService_TLSTicketKeysRotate_FullMethodName = "/janus.v1alpha1.ClusterService/TLSTicketKeysRotate"
 )
 
@@ -99,6 +101,24 @@ type ClusterServiceClient interface {
 	// a member certificate of this node's own cluster opens it - no user
 	// role does.
 	ClusterExport(ctx context.Context, in *ClusterExportRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error)
+	// ClusterFlows streams this member's open TCP connections whose local
+	// address is one of those asked for - the addresses every member holds,
+	// an anycast cluster's -, and the addresses its peers copy their packets
+	// to. It serves ClusterHandoff: only a member certificate of this
+	// node's own cluster opens it - no user role does.
+	ClusterFlows(ctx context.Context, in *ClusterFlowsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ClusterFlowsChunk], error)
+	// ClusterHandoff makes this member copy the packets of another member's
+	// open connections to it (docs/guide/clusters.md "Handing connections
+	// over"): it reads them from that member (ClusterFlows, over mTLS with
+	// its member certificate), and nftables copies each packet of one of
+	// them that reaches it to that member, dropping its own copy - instead
+	// of resetting a connection it never had. That member keeps serving
+	// its connections once its routes are withdrawn (drained), and this
+	// one's once it is back (the router spreads the traffic again). The
+	// list is read again every few seconds until it expires; asking again
+	// reads it at once and moves the end. Needs the nftables extension and
+	// a kernel with nft's dup statement (ClusterInfo.handoff_unavailable).
+	ClusterHandoff(ctx context.Context, in *ClusterHandoffRequest, opts ...grpc.CallOption) (*ClusterHandoffResponse, error)
 	// TLSTicketKeysRotate adds a key to the node's TLS ticket key ring - or,
 	// with renew, replaces all of them - and hands it to HAProxy without a
 	// reload. The other members pull the ring afterwards (ClusterPull), so
@@ -231,6 +251,35 @@ func (c *clusterServiceClient) ClusterExport(ctx context.Context, in *ClusterExp
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ClusterService_ClusterExportClient = grpc.ServerStreamingClient[Data]
 
+func (c *clusterServiceClient) ClusterFlows(ctx context.Context, in *ClusterFlowsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ClusterFlowsChunk], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &ClusterService_ServiceDesc.Streams[3], ClusterService_ClusterFlows_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ClusterFlowsRequest, ClusterFlowsChunk]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ClusterService_ClusterFlowsClient = grpc.ServerStreamingClient[ClusterFlowsChunk]
+
+func (c *clusterServiceClient) ClusterHandoff(ctx context.Context, in *ClusterHandoffRequest, opts ...grpc.CallOption) (*ClusterHandoffResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ClusterHandoffResponse)
+	err := c.cc.Invoke(ctx, ClusterService_ClusterHandoff_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *clusterServiceClient) TLSTicketKeysRotate(ctx context.Context, in *TLSTicketKeysRotateRequest, opts ...grpc.CallOption) (*TLSTicketKeysState, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(TLSTicketKeysState)
@@ -308,6 +357,24 @@ type ClusterServiceServer interface {
 	// a member certificate of this node's own cluster opens it - no user
 	// role does.
 	ClusterExport(*ClusterExportRequest, grpc.ServerStreamingServer[Data]) error
+	// ClusterFlows streams this member's open TCP connections whose local
+	// address is one of those asked for - the addresses every member holds,
+	// an anycast cluster's -, and the addresses its peers copy their packets
+	// to. It serves ClusterHandoff: only a member certificate of this
+	// node's own cluster opens it - no user role does.
+	ClusterFlows(*ClusterFlowsRequest, grpc.ServerStreamingServer[ClusterFlowsChunk]) error
+	// ClusterHandoff makes this member copy the packets of another member's
+	// open connections to it (docs/guide/clusters.md "Handing connections
+	// over"): it reads them from that member (ClusterFlows, over mTLS with
+	// its member certificate), and nftables copies each packet of one of
+	// them that reaches it to that member, dropping its own copy - instead
+	// of resetting a connection it never had. That member keeps serving
+	// its connections once its routes are withdrawn (drained), and this
+	// one's once it is back (the router spreads the traffic again). The
+	// list is read again every few seconds until it expires; asking again
+	// reads it at once and moves the end. Needs the nftables extension and
+	// a kernel with nft's dup statement (ClusterInfo.handoff_unavailable).
+	ClusterHandoff(context.Context, *ClusterHandoffRequest) (*ClusterHandoffResponse, error)
 	// TLSTicketKeysRotate adds a key to the node's TLS ticket key ring - or,
 	// with renew, replaces all of them - and hands it to HAProxy without a
 	// reload. The other members pull the ring afterwards (ClusterPull), so
@@ -349,6 +416,12 @@ func (UnimplementedClusterServiceServer) ClusterPull(*ClusterPullRequest, grpc.S
 }
 func (UnimplementedClusterServiceServer) ClusterExport(*ClusterExportRequest, grpc.ServerStreamingServer[Data]) error {
 	return status.Error(codes.Unimplemented, "method ClusterExport not implemented")
+}
+func (UnimplementedClusterServiceServer) ClusterFlows(*ClusterFlowsRequest, grpc.ServerStreamingServer[ClusterFlowsChunk]) error {
+	return status.Error(codes.Unimplemented, "method ClusterFlows not implemented")
+}
+func (UnimplementedClusterServiceServer) ClusterHandoff(context.Context, *ClusterHandoffRequest) (*ClusterHandoffResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ClusterHandoff not implemented")
 }
 func (UnimplementedClusterServiceServer) TLSTicketKeysRotate(context.Context, *TLSTicketKeysRotateRequest) (*TLSTicketKeysState, error) {
 	return nil, status.Error(codes.Unimplemented, "method TLSTicketKeysRotate not implemented")
@@ -515,6 +588,35 @@ func _ClusterService_ClusterExport_Handler(srv interface{}, stream grpc.ServerSt
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ClusterService_ClusterExportServer = grpc.ServerStreamingServer[Data]
 
+func _ClusterService_ClusterFlows_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ClusterFlowsRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ClusterServiceServer).ClusterFlows(m, &grpc.GenericServerStream[ClusterFlowsRequest, ClusterFlowsChunk]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ClusterService_ClusterFlowsServer = grpc.ServerStreamingServer[ClusterFlowsChunk]
+
+func _ClusterService_ClusterHandoff_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ClusterHandoffRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClusterServiceServer).ClusterHandoff(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ClusterService_ClusterHandoff_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClusterServiceServer).ClusterHandoff(ctx, req.(*ClusterHandoffRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ClusterService_TLSTicketKeysRotate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(TLSTicketKeysRotateRequest)
 	if err := dec(in); err != nil {
@@ -565,6 +667,10 @@ var ClusterService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ClusterService_ClusterUndrain_Handler,
 		},
 		{
+			MethodName: "ClusterHandoff",
+			Handler:    _ClusterService_ClusterHandoff_Handler,
+		},
+		{
 			MethodName: "TLSTicketKeysRotate",
 			Handler:    _ClusterService_TLSTicketKeysRotate_Handler,
 		},
@@ -583,6 +689,11 @@ var ClusterService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "ClusterExport",
 			Handler:       _ClusterService_ClusterExport_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "ClusterFlows",
+			Handler:       _ClusterService_ClusterFlows_Handler,
 			ServerStreams: true,
 		},
 	},

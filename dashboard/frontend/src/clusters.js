@@ -170,4 +170,4 @@ export function behindLatest(c, latest) {
 }
 
 // STAGES says a member's update's stage (internal/clusters Stage*).
-export const STAGES = { draining: 'draining', updating: 'updating', rebooting: 'rebooting', 'learning tables': 'learning its tables' }
+export const STAGES = { draining: 'draining', 'handing over': 'serving its connections out', updating: 'updating', rebooting: 'rebooting', 'learning tables': 'learning its tables' }

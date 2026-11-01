@@ -77,6 +77,11 @@ type Balancer struct {
 	// balancer was told it goes - its connections finishing - before it
 	// is drained or removed.
 	DrainDelaySeconds int `json:"drain_delay_seconds,omitempty"`
+	// Confirm (webhook): the receiver answers "check" calls - whether it
+	// sends a member traffic now (BalancerSees) -, so an update can wait
+	// for it to take a member back before the next one goes. A RouterOS
+	// hook always can: the engine reads the router's routes.
+	Confirm bool `json:"confirm,omitempty"`
 	// HasSecret: calls are signed; the secret is kept apart, sealed.
 	HasSecret bool `json:"has_secret,omitempty"`
 }
@@ -116,6 +121,9 @@ func (b *Balancer) Validate() error {
 			return errors.New("balancer user, prefixes, distance, routing_table, allow_http, check_gateway, read_only: for a routeros balancer")
 		}
 	case BalancerRouterOS:
+		if b.Confirm {
+			return errors.New("balancer confirm: for a webhook - a routeros balancer's routes are read")
+		}
 		if err := b.validateRouterOS(u); err != nil {
 			return err
 		}
@@ -151,7 +159,9 @@ type BalancerCall struct {
 	// Event: "in" (Member came into service), "out" (Member is about to
 	// go out of it - drain it from the balancer now), "sync" (the list
 	// again: settings saved, a call missed, a member drained or
-	// undrained elsewhere).
+	// undrained elsewhere), "check" (a question, to a hook with confirm:
+	// does it send Member traffic now? It answers 200 with
+	// {"in_service": true|false} and changes nothing).
 	Event   string           `json:"event"`
 	Member  string           `json:"member,omitempty"`
 	Members []BalancerMember `json:"members"`

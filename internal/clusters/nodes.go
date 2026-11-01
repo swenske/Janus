@@ -60,6 +60,9 @@ type Nodes interface {
 	// Addresses: every address on m's interfaces, link-local ones too -
 	// a router's route through m names one of them (RouterRoles).
 	Addresses(ctx context.Context, m Member) ([]netip.Addr, error)
+	// Prefixes: the same with their prefix lengths - an anycast address
+	// is a host's (/32, /128): SharedAddresses.
+	Prefixes(ctx context.Context, m Member) ([]netip.Prefix, error)
 	// BootTime: when m's kernel booted - a reboot moves it (Upgrade).
 	BootTime(ctx context.Context, m Member) (time.Time, error)
 	// VRRPMasters: the VRRP instances m is MASTER of; none without
@@ -71,6 +74,10 @@ type Nodes interface {
 	// with. A member just back from a reboot announces again only once
 	// its sessions are re-established.
 	Announcing(ctx context.Context, m Member) (string, error)
+	// ClusterHandoff has m copy another member's connections to it, or
+	// stop - read again at once when it does already -, and holds or
+	// refuses connections (janusv1alpha1.ClusterHandoffRequest).
+	ClusterHandoff(ctx context.Context, m Member, req *janusv1alpha1.ClusterHandoffRequest) (*janusv1alpha1.ClusterHandoffResponse, error)
 }
 
 // GRPC is Nodes over each member's gRPC connection.
@@ -343,6 +350,17 @@ func (g GRPC) ClusterUndrain(ctx context.Context, m Member) error {
 	return nodeError(err)
 }
 
+func (g GRPC) ClusterHandoff(ctx context.Context, m Member, req *janusv1alpha1.ClusterHandoffRequest) (*janusv1alpha1.ClusterHandoffResponse, error) {
+	c, err := g.cluster(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.ClusterHandoffResponse, error) {
+		return c.ClusterHandoff(ctx, req, opts...)
+	})
+	return resp, nodeError(err)
+}
+
 func (g GRPC) ClusterPull(ctx context.Context, m Member, from string, items []janusv1alpha1.ClusterItem) ([]string, error) {
 	c, err := g.cluster(ctx, m)
 	if err != nil {
@@ -545,6 +563,18 @@ func (g GRPC) ModuleApply(ctx context.Context, m Member, domain string, cfg []by
 }
 
 func (g GRPC) Addresses(ctx context.Context, m Member) ([]netip.Addr, error) {
+	prefixes, err := g.Prefixes(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	var out []netip.Addr
+	for _, p := range prefixes {
+		out = append(out, p.Addr())
+	}
+	return out, nil
+}
+
+func (g GRPC) Prefixes(ctx context.Context, m Member) ([]netip.Prefix, error) {
 	c, err := g.network(ctx, m)
 	if err != nil {
 		return nil, err
@@ -555,11 +585,11 @@ func (g GRPC) Addresses(ctx context.Context, m Member) ([]netip.Addr, error) {
 	if err != nil {
 		return nil, nodeError(err)
 	}
-	var out []netip.Addr
+	var out []netip.Prefix
 	for _, i := range st.GetInterfaces() {
 		for _, a := range i.GetAddresses() {
 			if p, err := netip.ParsePrefix(a); err == nil {
-				out = append(out, p.Addr())
+				out = append(out, p)
 			}
 		}
 	}

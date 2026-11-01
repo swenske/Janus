@@ -55,7 +55,7 @@ GEN_DIR := gen
 	disk-image qemu-ab-boot-test uki-image qemu-uefi-boot-test \
 	qemu-uefi-ab-boot-test qemu-lifecycle-rollback-test qemu-secureboot-test \
 	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test qemu-lifecycle-upgrade-variant-test qemu-lifecycle-upgrade-from-release-test release-bundle release-images release-image-files qemu-orchestrator-test \
-	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-probe-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-fleetctl-test qemu-cluster-test qemu-state-migrate-test qemu-controller-cluster-test qemu-clusterctl-test qemu-cluster-upgrade-test qemu-cluster-upgrade-bgp-test qemu-controller-cluster-upgrade-test qemu-self-register-fleet-test qemu-self-register-enroll-test qemu-self-register-legacy-test qemu-network-config-test qemu-dhcp-test \
+	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-probe-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-fleetctl-test qemu-cluster-test qemu-state-migrate-test qemu-controller-cluster-test qemu-clusterctl-test qemu-cluster-upgrade-test qemu-cluster-upgrade-bgp-test qemu-cluster-handoff-test qemu-controller-cluster-upgrade-test qemu-self-register-fleet-test qemu-self-register-enroll-test qemu-self-register-legacy-test qemu-network-config-test qemu-dhcp-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build dashboard-bin \
 	qemu-dashboard-test dashboard-image controller-self-update-test controller-libvirt-test controller-sso-test terraform-provider-build terraform-provider-dist terraform-provider-dist-test terraform-provider-test routeros-hook-test local-dev-image ca-certificates seed-controller-test \
@@ -1425,6 +1425,17 @@ qemu-cluster-upgrade-bgp-test: build extension-bird-amd64
 	cp --sparse=always $(BUILD_DIR)/rootfs/disk.img $(BUILD_DIR)/cluster-upgrade-from.img
 	$(MAKE) release-bundle SCHEMATIC=$(SCHEMATIC) VERSION=$(CLUSTER_UPGRADE_VERSION)
 	QEMU_CLUSTER_UPGRADE_KIND=bgp ./hack/qemu-cluster-upgrade-test.sh $(BUILD_DIR)/cluster-upgrade-from.img $(BUILD_DIR)/release $(BIN_DIR)/janusctl $(CLUSTER_UPGRADE_VERSION)
+
+# Connections handed over (docs/guide/clusters.md "Handing connections
+# over"): the BGP cluster updated in place with janusctl cluster upgrade
+# -handoff under long-lived TCP connections through the anycast address -
+# none broken, where a plain drain breaks them.
+qemu-cluster-handoff-test: SCHEMATIC = hack/testdata/schematic-bgp-nftables.json
+qemu-cluster-handoff-test: build extension-bird-amd64 extension-nftables-amd64
+	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)
+	cp --sparse=always $(BUILD_DIR)/rootfs/disk.img $(BUILD_DIR)/cluster-handoff-from.img
+	$(MAKE) release-bundle SCHEMATIC=$(SCHEMATIC) VERSION=$(CLUSTER_UPGRADE_VERSION)
+	./hack/qemu-cluster-handoff-test.sh $(BUILD_DIR)/cluster-handoff-from.img $(BUILD_DIR)/release $(BIN_DIR)/janusctl $(CLUSTER_UPGRADE_VERSION)
 
 # The Controller updates a cluster in place: two nodes of the published
 # CLUSTER_UPGRADE_FROM release (GitHub's janus-kvm.qcow2) moved to

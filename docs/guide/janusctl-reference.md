@@ -1441,7 +1441,7 @@ janusctl cluster replace [-address IP] [-var KEY=VALUE] [-new-image] NAME OLD NE
 The members updated in place to a release, one at a time: each drained, its own A/B update (reverted unless healthy), back on its other slot, its stick tables learnt, undrained; a member already on it is skipped, so running it again resumes.
 
 ```text
-janusctl cluster upgrade [-members MEMBER,...] [-kexec] [-allow-schematic-change] [-insecure-skip-signature-check] [-sha256 HEX] [-version VERSION] [-timeout DURATION] NAME VERSION|URL
+janusctl cluster upgrade [-members MEMBER,...] [-kexec] [-allow-schematic-change] [-insecure-skip-signature-check] [-sha256 HEX] [-version VERSION] [-timeout DURATION] [-wait-balancer] [-settle DURATION] [-handoff] [-handoff-grace DURATION] [-handoff-keep DURATION] NAME VERSION|URL
 ```
 
 | Flag | |
@@ -1453,6 +1453,11 @@ janusctl cluster upgrade [-members MEMBER,...] [-kexec] [-allow-schematic-change
 | `-sha256 HEX` | rootfs.squashfs's SHA-256 (default: the bundle's rootfs.squashfs.sha256) |
 | `-version VERSION` | the release a URL's bundle holds, as the nodes report it (default: read from the bundle's image) |
 | `-timeout DURATION` | how long each member has to come back on the new release (20m) |
+| `-wait-balancer` | ask the balancer hook too: a member goes once it has the others in service, the next once it has that one back |
+| `-settle DURATION` | a pause once a member is back, before the next one goes |
+| `-handoff` | hand each member's connections over: the others copy them to it while it is out, it copies theirs once back (an anycast cluster with the nftables extension) |
+| `-handoff-grace DURATION` | with -handoff: how long a drained member serves its connections at most before its update (2m) |
+| `-handoff-keep DURATION` | with -handoff: how long a member back copies the others' connections to them (1h) |
 
 #### janusctl cluster delete
 

@@ -79,6 +79,26 @@ service ClusterService {
   // role does.
   rpc ClusterExport(ClusterExportRequest) returns (stream Data);
 
+  // ClusterFlows streams this member's open TCP connections whose local
+  // address is one of those asked for - the addresses every member holds,
+  // an anycast cluster's -, and the addresses its peers copy their packets
+  // to. It serves ClusterHandoff: only a member certificate of this
+  // node's own cluster opens it - no user role does.
+  rpc ClusterFlows(ClusterFlowsRequest) returns (stream ClusterFlowsChunk);
+
+  // ClusterHandoff makes this member copy the packets of another member's
+  // open connections to it (docs/guide/clusters.md "Handing connections
+  // over"): it reads them from that member (ClusterFlows, over mTLS with
+  // its member certificate), and nftables copies each packet of one of
+  // them that reaches it to that member, dropping its own copy - instead
+  // of resetting a connection it never had. That member keeps serving
+  // its connections once its routes are withdrawn (drained), and this
+  // one's once it is back (the router spreads the traffic again). The
+  // list is read again every few seconds until it expires; asking again
+  // reads it at once and moves the end. Needs the nftables extension and
+  // a kernel with nft's dup statement (ClusterInfo.handoff_unavailable).
+  rpc ClusterHandoff(ClusterHandoffRequest) returns (ClusterHandoffResponse);
+
   // TLSTicketKeysRotate adds a key to the node's TLS ticket key ring - or,
   // with renew, replaces all of them - and hands it to HAProxy without a
   // reload. The other members pull the ring afterwards (ClusterPull), so
@@ -136,6 +156,81 @@ message ClusterInfo {
   // from a drain a reboot ended - a release that kept no drain across one
   // (0).
   int64 undrained_unix = 18;
+  // Why this node can't hand connections over (ClusterHandoff): no
+  // nftables extension, a kernel without nft's dup statement, a janusd
+  // that doesn't manage its host; empty: it can.
+  string handoff_unavailable = 19;
+  // The handoffs in effect: whose connections this node copies to them.
+  repeated ClusterHandoffState handoffs = 20;
+  // When the handoff's hold and refusal end (ClusterHandoffRequest); 0:
+  // none in effect.
+  int64 handoff_hold_until_unix = 21;
+  int64 handoff_refuse_until_unix = 22;
+}
+
+message ClusterFlowsRequest {
+  // The local addresses whose connections are listed; at least one.
+  repeated string addresses = 1;
+}
+
+message ClusterFlowsChunk {
+  // The connections, back to back, big endian: the remote address and
+  // port, then the local address and port - 12 bytes each for IPv4, 36
+  // for IPv6.
+  bytes flows4 = 1;
+  bytes flows6 = 2;
+  // Where a peer copies their packets to - this member's own address on
+  // the link that holds the addresses asked for, one per family (an IPv6
+  // one may be link-local); empty: none in that family. In the first
+  // chunk only.
+  string reach4 = 3;
+  string reach6 = 4;
+}
+
+message ClusterHandoffRequest {
+  // The member whose connections are copied to it; empty with
+  // hold_seconds or refuse_seconds alone.
+  string owner = 1;
+  // The addresses the connections are on - addresses this node holds too.
+  repeated string addresses = 2;
+  // How long the copies last, from now: 1 to 86400.
+  uint32 seconds = 3;
+  // Ends the handoff to owner now - owner empty: the hold and the
+  // refusal (the other fields unused).
+  bool stop = 4;
+  // For that long, the packets of TCP connections on the addresses this
+  // member has no trace of - not its own, tracked from their SYN, nor
+  // ones it copies - are dropped rather than reset: their senders send
+  // them again, and a reading copies them meanwhile. For a member back
+  // from a reboot, whose readings of the others' connections lag behind
+  // the router sending it part of them. At most 3600.
+  uint32 hold_seconds = 5;
+  // For that long, new connections' SYNs on the addresses are dropped:
+  // their senders try again a second later - by then on another member.
+  // For a member about to be drained, whose connections the others read
+  // once it takes no new one. At most 3600.
+  uint32 refuse_seconds = 6;
+}
+
+message ClusterHandoffResponse {
+  // owner's handoff, when one was named.
+  ClusterHandoffState state = 1;
+  // When the hold and the refusal end; 0: none.
+  int64 hold_until_unix = 2;
+  int64 refuse_until_unix = 3;
+}
+
+message ClusterHandoffState {
+  string owner = 1;
+  // The connections copied to it, as last read from it.
+  uint32 flows = 2;
+  int64 until_unix = 3;
+  // When its connections were last read; the last reading's failure
+  // (the copies then follow the reading before it).
+  int64 read_unix = 4;
+  string error = 5;
+  // Packets copied to it since the handoff began.
+  uint64 packets = 6;
 }
 
 message ClusterSetRequest {

@@ -39,6 +39,14 @@ type testBalancer struct {
 	answer int // the status it answers; 0: 200
 	f      *clusterFake
 	mark   int
+	// confirm: it answers check calls - a member it was told comes in
+	// (or goes out) taken in (out) after lag checks of it; stuck: members
+	// it never takes back in.
+	confirm bool
+	lag     int
+	stuck   map[string]bool
+	inSvc   map[string]bool
+	pending map[string]int
 }
 
 func (b *testBalancer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -53,7 +61,40 @@ func (b *testBalancer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	signed := hmac.Equal([]byte(r.Header.Get("X-Janus-Signature-256")), []byte(clusters.Signature([]byte("s3cret"), body)))
 	b.calls = append(b.calls, hookCall{BalancerCall: c, signed: signed && r.Header.Get("X-Janus-Event") == c.Event, nodeCalls: b.f.callsSince(b.mark), statusCode: code})
-	w.WriteHeader(code)
+	if !b.confirm {
+		w.WriteHeader(code)
+		return
+	}
+	if b.inSvc == nil {
+		b.inSvc, b.pending = map[string]bool{}, map[string]int{}
+	}
+	switch c.Event {
+	case "in", "out", "sync":
+		for _, m := range c.Members {
+			if _, known := b.inSvc[m.Name]; !known {
+				b.inSvc[m.Name] = m.InService
+			}
+		}
+		if c.Member != "" {
+			b.pending[c.Member] = b.lag + 1
+		}
+		w.WriteHeader(code)
+	case "check":
+		want := !b.inSvc[c.Member]
+		for _, m := range c.Members {
+			if m.Name == c.Member {
+				want = m.InService
+			}
+		}
+		if b.pending[c.Member] > 0 {
+			b.pending[c.Member]--
+			if b.pending[c.Member] == 0 && (!want || !b.stuck[c.Member]) {
+				b.inSvc[c.Member] = want
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]bool{"in_service": b.inSvc[c.Member]})
+	}
 }
 
 func (b *testBalancer) since(n int) []hookCall {
@@ -782,6 +823,16 @@ func TestClusterRouterReadOnly(t *testing.T) {
 		if !slices.Equal(view.Members[name], roles) {
 			t.Errorf("%s: %+v, want %+v", name, view.Members[name], roles)
 		}
+	}
+
+	// What an update waiting for the router reads: lb-1 takes both
+	// prefixes' traffic, lb-2 only the IPv4 one's (a backup on IPv6).
+	cc, _ := a.clusters.Store.Get(c.ID)
+	if in, said, err := a.clusters.BalancerSees(ctx, cc, "lb-1"); err != nil || !in || said != "multipath for 203.0.113.10/32, master for 2001:db8::10/128" {
+		t.Errorf("lb-1 seen: %v %q %v", in, said, err)
+	}
+	if in, said, err := a.clusters.BalancerSees(ctx, cc, "lb-2"); err != nil || in || !strings.Contains(said, "backup for 2001:db8::10/128") {
+		t.Errorf("lb-2 seen: %v %q %v", in, said, err)
 	}
 
 	// lb-2's page: its own roles, read from the cache.

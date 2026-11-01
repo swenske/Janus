@@ -220,6 +220,24 @@ func printCluster(info *janusv1alpha1.ClusterInfo) {
 		fmt.Println("Drained:     yes - out of service (VRRP priority lowered, BGP routes withdrawn) until cluster undrain or a reboot")
 	}
 	fmt.Printf("Peers port:  %d\n", info.GetPeersPort())
+	if why := info.GetHandoffUnavailable(); why != "" {
+		fmt.Printf("Handoff:     unavailable - %s\n", why)
+	}
+	for _, g := range []struct {
+		unix int64
+		what string
+	}{{info.GetHandoffRefuseUntilUnix(), "refusing new connections"}, {info.GetHandoffHoldUntilUnix(), "holding the packets of connections it has no trace of"}} {
+		if g.unix > 0 {
+			fmt.Printf("Handoff:     %s until %s\n", g.what, time.Unix(g.unix, 0).Local().Format(time.RFC3339))
+		}
+	}
+	for _, h := range info.GetHandoffs() {
+		line := fmt.Sprintf("Handoff:     copying %s's %d connection(s) to it until %s, %d packet(s) so far", h.GetOwner(), h.GetFlows(), time.Unix(h.GetUntilUnix(), 0).Local().Format(time.RFC3339), h.GetPackets())
+		if e := h.GetError(); e != "" {
+			line += " - last reading: " + e
+		}
+		fmt.Println(line)
+	}
 	if tk := info.GetTlsTicketKeys(); tk != nil {
 		fmt.Printf("Ticket keys: %d, changed %s, sha256 %s\n", tk.GetKeys(), time.Unix(tk.GetRotatedUnix(), 0).Local().Format(time.RFC3339), tk.GetSha256())
 	}

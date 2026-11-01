@@ -44,6 +44,7 @@ func (a *app) registerClusterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/clusters/{id}/pull", a.gate(auth.Reader, auth.Admin, a.handleClusterPull))
 	mux.HandleFunc("POST /api/clusters/{id}/recycle", a.gate(auth.Reader, auth.Admin, a.handleClusterRecycle))
 	mux.HandleFunc("POST /api/clusters/{id}/upgrade", a.gate(auth.Reader, auth.Admin, a.handleClusterUpgrade))
+	mux.HandleFunc("GET /api/clusters/{id}/upgrade-options", a.gate(auth.Reader, auth.Admin, a.handleClusterUpgradeOptions))
 	mux.HandleFunc("POST /api/clusters/{id}/scale", a.gate(auth.Reader, auth.Admin, a.handleClusterScale))
 	mux.HandleFunc("PUT /api/clusters/{id}/autoscale", a.gate(auth.Reader, auth.Admin, a.handleClusterAutoscale))
 	mux.HandleFunc("PUT /api/clusters/{id}/balancer", a.gate(auth.Reader, auth.Admin, a.handleClusterBalancer))
