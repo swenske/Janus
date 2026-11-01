@@ -341,7 +341,11 @@ shows its labels (`NodeLabels`): its own, edited in place by an admin,
 then those it inherits from its machine's hypervisor (`InheritedLabels`:
 "from kvm01", dashed badges, one its own label overrides struck
 through - `inheritedRows` in `labels.js`, `npm test`), read-only; the
-node list shows both under each name. Under the
+node list shows both under each name. **Add a node** (`AddNodeForm`,
+admins) takes the node's pairing code by default - name, address, code,
+the pairing address only when it isn't the API's host on 9506; without
+a fleet, a note sends to Secure your fleet instead of the fields -, an
+older node's `.pfx` or PEM as the other two choices. Under the
 Provision panel (which takes an enrollment token into its commands),
 **Enrollment tokens** (`Enroll.jsx`, admins): made with a name, a
 number of nodes, a validity and labels, shown once with where it goes;

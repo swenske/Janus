@@ -482,66 +482,77 @@ type app struct {
 // CI caller with raw PEM files in hand (e.g. straight out of
 // janusctl pki generate-client-config) has no reason to wrap them
 // in a PKCS#12 file first just to satisfy the UI's preferred format.
+//
+// With Code instead of the PEM fields, the node is added by its pairing
+// code (addNodeByCode) - a node of this release on, which has no admin
+// credential to hand over.
 type addNodeRequest struct {
 	Name             string `json:"name"`
 	Address          string `json:"address"`
 	CACertPEM        string `json:"ca_cert_pem"`
 	BootstrapCertPEM string `json:"bootstrap_cert_pem"`
 	BootstrapKeyPEM  string `json:"bootstrap_key_pem"`
+
+	Code           string            `json:"code"`
+	PairingAddress string            `json:"pairing_address"`
+	Labels         map[string]string `json:"labels"`
 }
 
-// parseAddNodeRequest reads name/address/CA-cert/bootstrap-cert/
-// bootstrap-key from either a multipart/form-data upload (fields
-// "name", "address", "pfx" file, "pfx_password" - the default the
-// frontend now uses: a single .pfx file, no PEM text to paste at all)
-// or the older addNodeRequest JSON body, dispatched on Content-Type.
-// Both arrive at exactly the same three PEM blocks handleAddNode
-// already knew what to do with - this function's only job is getting
-// there from either shape.
-func parseAddNodeRequest(r *http.Request) (name, address string, caPEM, certPEM, keyPEM []byte, err error) {
-	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
-		// 1 MiB is generous for a .pfx holding one EC key + two small
-		// certs (a few KB in practice) - just a sanity cap, not a real
-		// constraint.
-		if err := r.ParseMultipartForm(1 << 20); err != nil {
-			return "", "", nil, nil, nil, fmt.Errorf("parse form: %w", err)
+// parseAddNodeRequest reads the request from either a
+// multipart/form-data upload (fields "name", "address", "pfx" file,
+// "pfx_password": a node's admin credential as one .pfx file) or the
+// addNodeRequest JSON body - a pairing code, or the PEM blocks -,
+// dispatched on Content-Type. A .pfx arrives at the same three PEM
+// blocks as the JSON form's.
+func parseAddNodeRequest(r *http.Request) (req addNodeRequest, err error) {
+	if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		if derr := json.NewDecoder(r.Body).Decode(&req); derr != nil {
+			return req, fmt.Errorf("decode request: %w", derr)
 		}
-		name = r.FormValue("name")
-		address = r.FormValue("address")
-		password := r.FormValue("pfx_password")
+		return req, nil
+	}
+	name, address, caPEM, certPEM, keyPEM, err := parsePfxUpload(r)
+	return addNodeRequest{Name: name, Address: address, CACertPEM: string(caPEM), BootstrapCertPEM: string(certPEM), BootstrapKeyPEM: string(keyPEM)}, err
+}
 
-		file, _, ferr := r.FormFile("pfx")
-		if ferr != nil {
-			return "", "", nil, nil, nil, fmt.Errorf("read pfx upload: %w", ferr)
-		}
-		defer file.Close()
-		pfxData, rerr := io.ReadAll(file)
-		if rerr != nil {
-			return "", "", nil, nil, nil, fmt.Errorf("read pfx upload: %w", rerr)
-		}
+// parsePfxUpload is parseAddNodeRequest's multipart form: the .pfx's
+// three PEM blocks.
+func parsePfxUpload(r *http.Request) (name, address string, caPEM, certPEM, keyPEM []byte, err error) {
+	// 1 MiB is generous for a .pfx holding one EC key + two small
+	// certs (a few KB in practice) - just a sanity cap, not a real
+	// constraint.
+	if err := r.ParseMultipartForm(1 << 20); err != nil {
+		return "", "", nil, nil, nil, fmt.Errorf("parse form: %w", err)
+	}
+	name = r.FormValue("name")
+	address = r.FormValue("address")
+	password := r.FormValue("pfx_password")
 
-		key, cert, caCerts, derr := pkcs12.DecodeChain(pfxData, password)
-		if derr != nil {
-			return "", "", nil, nil, nil, fmt.Errorf("decode pfx (wrong password?): %w", derr)
-		}
-		if len(caCerts) == 0 {
-			return "", "", nil, nil, nil, fmt.Errorf("pfx has no CA certificate bundled - it needs to include the node's ca.crt (e.g. openssl pkcs12 -export -certfile ca.crt ...)")
-		}
-		keyDER, merr := x509.MarshalPKCS8PrivateKey(key)
-		if merr != nil {
-			return "", "", nil, nil, nil, fmt.Errorf("marshal private key from pfx: %w", merr)
-		}
-		certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
-		keyPEM = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
-		caPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCerts[0].Raw})
-		return name, address, caPEM, certPEM, keyPEM, nil
+	file, _, ferr := r.FormFile("pfx")
+	if ferr != nil {
+		return "", "", nil, nil, nil, fmt.Errorf("read pfx upload: %w", ferr)
+	}
+	defer file.Close()
+	pfxData, rerr := io.ReadAll(file)
+	if rerr != nil {
+		return "", "", nil, nil, nil, fmt.Errorf("read pfx upload: %w", rerr)
 	}
 
-	var req addNodeRequest
-	if derr := json.NewDecoder(r.Body).Decode(&req); derr != nil {
-		return "", "", nil, nil, nil, fmt.Errorf("decode request: %w", derr)
+	key, cert, caCerts, derr := pkcs12.DecodeChain(pfxData, password)
+	if derr != nil {
+		return "", "", nil, nil, nil, fmt.Errorf("decode pfx (wrong password?): %w", derr)
 	}
-	return req.Name, req.Address, []byte(req.CACertPEM), []byte(req.BootstrapCertPEM), []byte(req.BootstrapKeyPEM), nil
+	if len(caCerts) == 0 {
+		return "", "", nil, nil, nil, fmt.Errorf("pfx has no CA certificate bundled - it needs to include the node's ca.crt (e.g. openssl pkcs12 -export -certfile ca.crt ...)")
+	}
+	keyDER, merr := x509.MarshalPKCS8PrivateKey(key)
+	if merr != nil {
+		return "", "", nil, nil, nil, fmt.Errorf("marshal private key from pfx: %w", merr)
+	}
+	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
+	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
+	caPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCerts[0].Raw})
+	return name, address, caPEM, certPEM, keyPEM, nil
 }
 
 func (a *app) handleNodes(w http.ResponseWriter, r *http.Request) {
@@ -562,15 +573,21 @@ func (a *app) handleNodes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleAddNode(w http.ResponseWriter, r *http.Request) {
-	name, address, caPEM, bootstrapCertPEM, bootstrapKeyPEM, err := parseAddNodeRequest(r)
+	req, err := parseAddNodeRequest(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if name == "" || address == "" {
+	if req.Name == "" || req.Address == "" {
 		http.Error(w, "name and address are required", http.StatusBadRequest)
 		return
 	}
+	if req.Code != "" {
+		a.addNodeByCode(w, r, req)
+		return
+	}
+	name, address := req.Name, req.Address
+	caPEM, bootstrapCertPEM, bootstrapKeyPEM := []byte(req.CACertPEM), []byte(req.BootstrapCertPEM), []byte(req.BootstrapKeyPEM)
 
 	tlsConfig, err := pki.ClientTLSConfig(caPEM, bootstrapCertPEM, bootstrapKeyPEM)
 	if err != nil {

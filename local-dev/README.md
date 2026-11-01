@@ -37,13 +37,17 @@ If you're not on Linux (Docker Desktop on macOS/Windows doesn't support
 
 ```sh
 docker run -d --name janus-local-dev \
-  -p 9505:9505 -p 8080:8080 \
+  -p 9505:9505 -p 9506:9506 -p 8080:8080 \
   janus-local-dev
 ```
 
-(`9505` is janusd's own gRPC/mTLS port; `8080` is the bootstrap
+(`9505` is janusd's own gRPC/mTLS port; `9506` its pairing window,
+open until the node is paired; `8080` is the bootstrap
 `haproxy.cfg`'s health-check frontend - add `-p <port>:<port>` for
-whatever port your own `ApplyConfig` call binds to.)
+whatever port your own `ApplyConfig` call binds to. Several containers
+on `--network host` share one 9506: the first to start pairs, the
+others say `pairing: listen on :9506: ... - no pairing window` - give
+each its own with `-pairing-addr :PORT` after the image name.)
 
 PKI and the applied HAProxy config live in the container's own
 filesystem, not a volume - a fresh container means a fresh CA/admin
@@ -60,8 +64,19 @@ docker run -d --name janus-local-dev --network host \
 
 ## Using it
 
-`janusd` prints its bootstrapped PKI to the container's own logs on
-first run, exactly like a real node:
+`janusd` shows a pairing code in the container's logs, exactly like a
+real node's console: add the node to a fleet with it - `janusctl`'s
+own (below), or a Controller's (Add node, by its pairing code):
+
+```sh
+docker logs janus-local-dev 2>&1 | grep 'pairing: code'
+bin/janusctl -context local fleet init -name local -yes kit.age   # once: a fleet of your own
+bin/janusctl fleet adopt local-dev -endpoint 127.0.0.1:9505 -code CODE
+bin/janusctl -n local-dev version
+```
+
+It also still prints its bootstrapped PKI - a CA cert, an admin cert
+and key - on first run:
 
 ```sh
 docker logs janus-local-dev

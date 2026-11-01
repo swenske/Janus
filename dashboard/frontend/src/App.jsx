@@ -507,30 +507,43 @@ function PendingList({ pending, onApprove, onReject, busy, machines }) {
 
 // --- add node ---
 
+const emptyCode = { name: '', address: '', code: '', pairing_address: '' }
 const emptyPfx = { name: '', address: '', pfx_password: '' }
 const emptyPem = { name: '', address: '', ca_cert_pem: '', bootstrap_cert_pem: '', bootstrap_key_pem: '' }
 
-// Two ways to hand the Controller a one-time bootstrap admin credential
-// for a node - see dashboard/backend/main.go's parseAddNodeRequest. .pfx
-// upload is the default (the same file already imported into the browser
-// to open a node's page); paste-PEM stays for scripts with PEM files in
-// hand (hack/qemu-dashboard-test.sh drives that path).
-function AddNodeForm({ onAdded, onClose }) {
-  const [mode, setMode] = useState('pfx')
+// AddNodeForm adds a node already running (POST /api/nodes - see
+// dashboard/backend/main.go's parseAddNodeRequest). By default by the
+// pairing code its console shows (add_by_code.go): the node joins this
+// Controller's fleet, nothing is copied or kept - which needs the fleet
+// set up first. An older node, which shows no code, by its admin
+// credential: a .pfx (the file imported into the browser for its page),
+// or PEM pasted (scripts; hack/qemu-dashboard-test.sh drives the JSON
+// path) - used once to issue this Controller its own credential.
+function AddNodeForm({ fleet, onAdded, onClose }) {
+  const [mode, setMode] = useState('code')
+  const [byCode, setByCode] = useState(emptyCode)
   const [pfx, setPfx] = useState(emptyPfx)
   const [file, setFile] = useState(null)
   const [pem, setPem] = useState(emptyPem)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const toast = useToast()
+  const fleetReady = fleet?.state === 'ready'
 
   async function submit(e) {
     e.preventDefault()
     setBusy(true)
     setError(null)
     try {
-      if (mode === 'pfx') {
+      let name
+      if (mode === 'code') {
+        name = byCode.name
+        const body = { name: byCode.name, address: byCode.address, code: byCode.code.trim() }
+        if (byCode.pairing_address) body.pairing_address = byCode.pairing_address
+        await call('/api/nodes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      } else if (mode === 'pfx') {
         if (!file) throw new Error('choose a .pfx file')
+        name = pfx.name
         const body = new FormData()
         body.set('name', pfx.name)
         body.set('address', pfx.address)
@@ -539,9 +552,11 @@ function AddNodeForm({ onAdded, onClose }) {
         // No Content-Type: fetch sets the multipart boundary itself.
         await call('/api/nodes', { method: 'POST', body })
       } else {
+        name = pem.name
         await call('/api/nodes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pem) })
       }
-      toast(`Added ${mode === 'pfx' ? pfx.name : pem.name}`)
+      toast(`Added ${name}`)
+      setByCode(emptyCode)
       setPfx(emptyPfx)
       setFile(null)
       setPem(emptyPem)
@@ -564,7 +579,7 @@ function AddNodeForm({ onAdded, onClose }) {
       }
     >
       <p className="muted small" style={{ marginTop: 0 }}>
-        A node already running, with its admin certificate. Nodes still to install, or many at once, register by themselves instead -{' '}
+        A node already running, by the pairing code its console shows. Nodes still to install, or many at once, register by themselves instead -{' '}
         <a href="#/enrollment-tokens" onClick={onClose}>
           with an enrollment token
         </a>{' '}
@@ -573,13 +588,57 @@ function AddNodeForm({ onAdded, onClose }) {
       <form className="stack" onSubmit={submit}>
         <div className="row">
           <label className="check">
-            <input type="radio" checked={mode === 'pfx'} onChange={() => setMode('pfx')} /> Upload .pfx (recommended)
+            <input type="radio" checked={mode === 'code'} onChange={() => setMode('code')} /> Pairing code (recommended)
           </label>
           <label className="check">
-            <input type="radio" checked={mode === 'pem'} onChange={() => setMode('pem')} /> Paste PEM (scripts/CI)
+            <input type="radio" checked={mode === 'pfx'} onChange={() => setMode('pfx')} /> Older node: admin .pfx
+          </label>
+          <label className="check">
+            <input type="radio" checked={mode === 'pem'} onChange={() => setMode('pem')} /> Older node: paste PEM
           </label>
         </div>
-        {mode === 'pfx' ? (
+        {mode === 'code' ? (
+          fleetReady ? (
+            <>
+              <div className="grid grid-2">
+                <label className="field">
+                  <span>Name</span>
+                  <input value={byCode.name} onChange={(e) => setByCode({ ...byCode, name: e.target.value })} required />
+                </label>
+                <label className="field">
+                  <span>gRPC address (host:port, default port 9505)</span>
+                  <input value={byCode.address} onChange={(e) => setByCode({ ...byCode, address: e.target.value })} required placeholder="10.0.0.5:9505" />
+                </label>
+                <label className="field">
+                  <span>Pairing code</span>
+                  <input
+                    className="mono"
+                    value={byCode.code}
+                    onChange={(e) => setByCode({ ...byCode, code: e.target.value.toUpperCase() })}
+                    required
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="XXXX-XXXX-XXXX-XXXX-XXXX"
+                  />
+                </label>
+                <label className="field">
+                  <span>Pairing address (optional)</span>
+                  <input
+                    value={byCode.pairing_address}
+                    onChange={(e) => setByCode({ ...byCode, pairing_address: e.target.value })}
+                    placeholder={`${hostOf(byCode.address) || 'the same host'}:9506`}
+                  />
+                </label>
+              </div>
+              <p className="muted small" style={{ margin: 0 }}>
+                The code is on the node's console, in its banner - a new one each boot, until the node is paired. The Controller checks the node's certificate against it, then
+                gives the node this fleet's trust: nothing to copy, nothing kept. Five wrong codes close the node's window until it restarts.
+              </p>
+            </>
+          ) : (
+            <div className="notice warn">A node paired by code joins this Controller's fleet: secure your fleet first (above), then add it here.</div>
+          )
+        ) : mode === 'pfx' ? (
           <>
             <div className="grid grid-2">
               <label className="field">
@@ -600,8 +659,8 @@ function AddNodeForm({ onAdded, onClose }) {
               </label>
             </div>
             <p className="muted small" style={{ margin: 0 }}>
-              Used once, immediately, to issue this Controller its own dedicated credential - never stored. A .pfx must include the node's ca.crt (
-              <code>openssl pkcs12 -export -certfile ca.crt …</code>).
+              For a node that shows no pairing code. Used once, immediately, to issue this Controller its own dedicated credential - never stored. A .pfx must include the
+              node's ca.crt (<code>openssl pkcs12 -export -certfile ca.crt …</code>).
             </p>
           </>
         ) : (
@@ -634,13 +693,22 @@ function AddNodeForm({ onAdded, onClose }) {
         )}
         <ErrorBox error={error} />
         <div>
-          <button className="primary" type="submit" disabled={busy}>
-            {busy ? 'Adding…' : 'Add node'}
+          <button className="primary" type="submit" disabled={busy || (mode === 'code' && !fleetReady)}>
+            {busy ? (mode === 'code' ? 'Pairing…' : 'Adding…') : 'Add node'}
           </button>
         </div>
       </form>
     </Card>
   )
+}
+
+// hostOf is an address's host - "10.0.0.5:9505" -> "10.0.0.5", an IPv6
+// one's brackets kept.
+function hostOf(address) {
+  const a = address.trim()
+  if (a.startsWith('[')) return a.slice(0, a.indexOf(']') + 1)
+  const i = a.lastIndexOf(':')
+  return i > 0 ? a.slice(0, i) : a
 }
 
 function CopyField({ label, value, inputRef, rows, onCopy }) {
@@ -1453,6 +1521,7 @@ function MainApp() {
             </div>
             {adding && (
               <AddNodeForm
+                fleet={fleet}
                 onAdded={() => {
                   setAdding(false)
                   reload()
@@ -1468,7 +1537,7 @@ function MainApp() {
                     <button className="small" onClick={() => setAdding(true)}>
                       Add one
                     </button>{' '}
-                    with its admin certificate, or provision new ones to self-register (below).
+                    by the pairing code its console shows, or provision new ones to self-register (below).
                   </>
                 ) : (
                   'No node yet.'

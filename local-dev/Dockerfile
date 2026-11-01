@@ -42,12 +42,14 @@ COPY build/janusd /usr/local/bin/janusd
 COPY build/haproxy /usr/local/sbin/haproxy
 COPY rootfs/base/etc/haproxy/haproxy.cfg /etc/haproxy/haproxy.cfg
 
-# 9505: janusd's own gRPC (mTLS) listener. 8080: the bootstrap
-# haproxy.cfg's own health-check frontend - whatever real listener
-# port a later ApplyConfig call adds (e.g. testing the Prometheus
-# exporter on :8404) isn't known ahead of time and needs its own -p at
-# `docker run` time, or --network host to sidestep the question
-# entirely - see local-dev/README.md.
-EXPOSE 9505 8080
+# 9505: janusd's own gRPC (mTLS) listener. 9506: its pairing window,
+# open until the node is paired (internal/pairing) - janusd opens it by
+# itself only on a real node (-manage-host), so the entrypoint asks for
+# it. 8080: the bootstrap haproxy.cfg's own health-check frontend -
+# whatever real listener port a later ApplyConfig call adds (e.g.
+# testing the Prometheus exporter on :8404) isn't known ahead of time
+# and needs its own -p at `docker run` time, or --network host to
+# sidestep the question entirely - see local-dev/README.md.
+EXPOSE 9505 9506 8080
 
-ENTRYPOINT ["/usr/local/bin/janusd"]
+ENTRYPOINT ["/usr/local/bin/janusd", "-pairing-addr", ":9506"]

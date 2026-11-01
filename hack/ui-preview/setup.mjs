@@ -50,21 +50,15 @@ async function until(what, fn, seconds = 120) {
 }
 
 await call('POST', '/api/auth/setup', { password: PASSWORD, mfa_required: 'nobody' })
-const ids = {}
-for (const [name, ip] of Object.entries(NODES)) {
-  const admin = fs.readFileSync(`/creds/${name}.admin`, 'utf8')
-  const node = await call('POST', '/api/nodes', {
-    name,
-    address: `${ip}:9505`,
-    ca_cert_pem: fs.readFileSync(`/creds/${name}.ca`, 'utf8'),
-    bootstrap_cert_pem: admin.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----\n/)[0],
-    bootstrap_key_pem: admin.match(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]+?-----END [A-Z ]*PRIVATE KEY-----\n/)[0],
-  })
-  ids[name] = node.id
-}
+// The fleet first: a node is added by its pairing code into it.
 const fleet = await call('POST', '/api/fleet/setup')
 const kit = await call('GET', '/api/fleet/recovery-kit')
 await call('POST', '/api/fleet/confirm', { kit, passphrase: fleet.passphrase })
+const ids = {}
+for (const [name, ip] of Object.entries(NODES)) {
+  const node = await call('POST', '/api/nodes', { name, address: `${ip}:9505`, code: fs.readFileSync(`/creds/${name}.code`, 'utf8').trim() })
+  ids[name] = node.id
+}
 await until('the nodes to trust the fleet', async () => {
   const f = await call('GET', '/api/fleet')
   return Object.values(ids).every((id) => f.nodes?.[id]?.state === 'trusted')

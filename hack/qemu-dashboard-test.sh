@@ -28,6 +28,10 @@
 #      below. Also checks the two real error paths: a wrong password,
 #      and a .pfx missing the bundled CA certificate - both need a
 #      real, actionable message, not a generic parse failure.
+#   3c. once the fleet is set up: a second node, from the image as it
+#      is, added by the pairing code its console shows (add_by_code.go)
+#      - a wrong code refused, the node trusting the fleet, its page
+#      relayed, the code in no log -, then removed again.
 #   4. GET /api/nodes lists it (name/address/port only, no credential).
 #   5. hit the allocated per-node HTTPS port with the *bootstrap*
 #      admin cert as the TLS client certificate (any cert issued by the
@@ -170,6 +174,8 @@ HOST_GRPC_PORT="${QEMU_DASHBOARD_NODE_GRPC_PORT:-$((18121 + ${JANUS_TEST_PORT_OF
 DASHBOARD_ADDR_PORT="${QEMU_DASHBOARD_ADDR_PORT:-$((18122 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 DASHBOARD_REGISTER_PORT="${QEMU_DASHBOARD_REGISTER_PORT:-$((18123 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 S3_PORT="$((18124 + ${JANUS_TEST_PORT_OFFSET:-0}))"
+PAIRED_API_PORT="$((18125 + ${JANUS_TEST_PORT_OFFSET:-0}))"
+PAIRED_PAIR_PORT="$((18126 + ${JANUS_TEST_PORT_OFFSET:-0}))"
 VGW_PID=""
 
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
@@ -179,14 +185,30 @@ OVMF_VARS_TEMPLATE="${OVMF_VARS_TEMPLATE:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
 
 WORKDIR="$(mktemp -d)"
 QEMU_PID=""
+PAIRED_PID=""
 DASHBOARD_PID=""
 cleanup() {
   [ -n "$DASHBOARD_PID" ] && kill "$DASHBOARD_PID" 2>/dev/null || true
   [ -n "$VGW_PID" ] && kill "$VGW_PID" 2>/dev/null || true
   [ -n "$QEMU_PID" ] && kill "$QEMU_PID" 2>/dev/null || true
+  [ -n "$PAIRED_PID" ] && kill "$PAIRED_PID" 2>/dev/null || true
   rm -rf "$WORKDIR"
 }
 trap cleanup EXIT
+
+# A second node, from the image as it is (before the first boots it):
+# added by the pairing code its console shows, once the fleet is set up.
+cp --sparse=always "$DISK" "$WORKDIR/paired.img"
+cp "$OVMF_VARS_TEMPLATE" "$WORKDIR/paired.vars"
+qemu-system-x86_64 -accel kvm -accel tcg \
+  -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
+  -drive if=pflash,format=raw,file="$WORKDIR/paired.vars" \
+  -drive file="$WORKDIR/paired.img",format=raw,if=virtio \
+  -nographic -no-reboot -display none -m 512M \
+  -netdev "user,id=net0,hostfwd=tcp::${PAIRED_API_PORT}-:9505,hostfwd=tcp::${PAIRED_PAIR_PORT}-:9506" \
+  -device virtio-net-pci,netdev=net0 \
+  -serial file:"$WORKDIR/paired.log" </dev/null &
+PAIRED_PID=$!
 
 # --- boot the real node ---
 OVMF_VARS="$WORKDIR/OVMF_VARS.fd"
@@ -467,7 +489,9 @@ WRONG_PW_RESP="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X POS
   -F "pfx_password=not-the-password" -F "pfx=@$WORKDIR/admin.pfx;type=application/x-pkcs12")"
 [ "$WRONG_PW_RESP" = "400" ] || { echo "Dashboard test FAILED: wrong .pfx password should return 400, got $WRONG_PW_RESP" >&2; exit 1; }
 
-openssl pkcs12 -export -inkey "$WORKDIR/admin.key" -in "$WORKDIR/admin.crt" \
+# admin.crt is the certificate and its CA (state_pki): the first alone.
+openssl x509 -in "$WORKDIR/admin.crt" -out "$WORKDIR/admin-leaf.crt"
+openssl pkcs12 -export -inkey "$WORKDIR/admin.key" -in "$WORKDIR/admin-leaf.crt" \
   -out "$WORKDIR/admin-no-ca.pfx" -passout pass:dashboard-test-pfx >/dev/null 2>&1
 NO_CA_RESP="$(curl -sk -b "$COOKIE_JAR" -X POST "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/nodes" \
   -F "name=no-ca" -F "address=127.0.0.1:${HOST_GRPC_PORT}" \
@@ -930,6 +954,60 @@ done
 [ ! -e "$WORKDIR/data/nodes/$FLEET_NODE_ID/service.key" ] || { echo "Dashboard test FAILED: the node's service key is still kept once it trusts the fleet" >&2; exit 1; }
 grep -q '"fleet":true' "$WORKDIR/data/nodes/$FLEET_NODE_ID/meta.json" || { echo "Dashboard test FAILED: the node isn't recorded as trusting the fleet" >&2; exit 1; }
 echo "Fleet setup OK: a wrong passphrase refused, the kit confirmed, the root key gone, the node trusts the fleet and its service key is deleted"
+
+# --- a node added by its pairing code (dashboard/backend/add_by_code.go):
+# the code its console shows, the node's certificate checked against it
+# by the Controller; a wrong code refused with the node's words; the
+# node trusts the fleet at once, its page answers through it, no
+# credential kept; the same node twice refused. Removed after, so the
+# rest goes on with one node. ---
+deadline=$((SECONDS + 90))
+until grep -aq 'pairing: code' "$WORKDIR/paired.log"; do
+  [ "$SECONDS" -lt "$deadline" ] || { echo "Dashboard test FAILED: the second node shows no pairing code" >&2; tail -40 "$WORKDIR/paired.log" >&2; exit 1; }
+  sleep 1
+done
+PAIR_CODE="$(grep -ao 'pairing: code [0-9A-Z-]*' "$WORKDIR/paired.log" | tail -1 | awk '{print $3}')"
+pair_node() { # pair_node CODE: the answer's body, then its status
+  printf '{"name":"paired-node","address":"127.0.0.1:%s","pairing_address":"127.0.0.1:%s","code":"%s","labels":{"added":"by-code"}}' \
+    "$PAIRED_API_PORT" "$PAIRED_PAIR_PORT" "$1" >"$WORKDIR/pair.json"
+  curl -sk -b "$COOKIE_JAR" -w '\n%{http_code}' -X POST "$API/api/nodes" -H 'Content-Type: application/json' --data-binary @"$WORKDIR/pair.json"
+}
+wrong_pair="$(pair_node "$(go run ./hack/pairingcode wrong "$PAIR_CODE")")"
+[ "$(tail -1 <<<"$wrong_pair")" = 400 ] && grep -q 'wrong pairing code - 4 tries left' <<<"$wrong_pair" \
+  || { echo "Dashboard test FAILED: a wrong pairing code: $wrong_pair" >&2; exit 1; }
+paired="$(pair_node "$PAIR_CODE")"
+[ "$(tail -1 <<<"$paired")" = 201 ] || { echo "Dashboard test FAILED: adding a node by its pairing code: $paired" >&2; cat "$WORKDIR/dashboardd-restart.log" >&2; exit 1; }
+PAIRED_ID="$(head -1 <<<"$paired" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+again="$(pair_node "$PAIR_CODE")"
+[ "$(tail -1 <<<"$again")" = 409 ] && grep -q 'already here, as paired-node' <<<"$again" \
+  || { echo "Dashboard test FAILED: the same node added twice: $again" >&2; exit 1; }
+[ ! -e "$WORKDIR/data/nodes/$PAIRED_ID/service.key" ] && grep -q '"fleet":true' "$WORKDIR/data/nodes/$PAIRED_ID/meta.json" \
+  || { echo "Dashboard test FAILED: the paired node isn't recorded trusting the fleet, with no credential: $(cat "$WORKDIR/data/nodes/$PAIRED_ID/meta.json")" >&2; exit 1; }
+curl -sk -b "$COOKIE_JAR" "$API/api/nodes" | grep -q '"added":"by-code"' || { echo "Dashboard test FAILED: the paired node's labels" >&2; exit 1; }
+deadline=$((SECONDS + 60))
+until [ "$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' "$API/nodes/$PAIRED_ID/api/info")" = 200 ]; do
+  [ "$SECONDS" -lt "$deadline" ] || { echo "Dashboard test FAILED: the paired node's page doesn't answer: $(curl -sk -b "$COOKIE_JAR" "$API/nodes/$PAIRED_ID/api/info")" >&2; exit 1; }
+  sleep 1
+done
+deadline=$((SECONDS + 60))
+until curl -sk -b "$COOKIE_JAR" "$API/api/fleet" | python3 -c 'import json,sys; sys.exit(json.load(sys.stdin)["nodes"].get(sys.argv[1], {}).get("state") != "trusted")' "$PAIRED_ID"; do
+  [ "$SECONDS" -lt "$deadline" ] || { echo "Dashboard test FAILED: the paired node isn't shown trusting the fleet: $(curl -sk -b "$COOKIE_JAR" "$API/api/fleet")" >&2; exit 1; }
+  sleep 1
+done
+curl -sk -m 4 -b "$COOKIE_JAR" "$API/nodes/$PAIRED_ID/api/stream/logs?id=janusd&tail=200" >"$WORKDIR/paired-janusd.log" || true
+grep -q 'pairing: paired from .* the node trusts the fleet of root' "$WORKDIR/paired-janusd.log" || { echo "Dashboard test FAILED: the paired node didn't log its pairing: $(grep pairing "$WORKDIR/paired-janusd.log")" >&2; exit 1; }
+if grep -q "$PAIR_CODE" "$WORKDIR/paired-janusd.log" "$WORKDIR/dashboardd-restart.log" "$WORKDIR/data/audit.jsonl"; then
+  echo "Dashboard test FAILED: the pairing code is in a log" >&2; exit 1
+fi
+grep -q "node added by its pairing code: paired-node" "$WORKDIR/dashboardd-restart.log" || { echo "Dashboard test FAILED: the Controller didn't log the node it paired" >&2; exit 1; }
+del_paired="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X DELETE "$API/api/nodes/$PAIRED_ID")"
+[ "$del_paired" = 204 ] || { echo "Dashboard test FAILED: removing the paired node: $del_paired" >&2; exit 1; }
+denials="$(grep -a 'avc:.*denied' "$WORKDIR/paired.log" || true)"
+[ -z "$denials" ] || { echo "$denials" >&2; echo "Dashboard test FAILED: AVC denials on the paired node" >&2; exit 1; }
+kill "$PAIRED_PID" 2>/dev/null || true
+wait "$PAIRED_PID" 2>/dev/null || true
+PAIRED_PID=""
+echo "Pairing code OK: a node added by the code its console shows - a wrong one refused with the node's words, the same node twice refused -, it trusts the fleet, its page answers, no credential kept, the code in no log, zero AVC denials"
 
 fleet_relay() { # the node's page, now relayed with the fleet certificate
   curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X POST "${NODE_BASE}/api/system/services/haproxy/restart"
