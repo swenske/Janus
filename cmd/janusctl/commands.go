@@ -487,6 +487,8 @@ var commands = &command{name: "janusctl", subs: []*command{
 			valFlag("endpoint", "HOST:PORT", "the node's API", argNone),
 			valFlag("ca", "FILE", "its first boot's CA (ca.crt)", argFile), valFlag("cert", "FILE", "admin.crt", argFile), valFlag("key", "FILE", "admin.key", argFile),
 			valFlag("ca-fingerprint", "SHA256", "a node already in the fleet: its CA's SHA-256", argNone), kitFlag,
+			valFlag("code", "CODE", "a node that trusts nothing yet: the pairing code on its console", argNone),
+			valFlag("pairing", "HOST:PORT", "with -code: its pairing window (the endpoint's host, port 9506)", argNone),
 		}, required: 1},
 		{name: "sync", help: "the newest bundle everywhere", flags: []flagDef{kitFlag}},
 		{name: "status", help: "each node's bundle, this machine's certificate"},

@@ -28,6 +28,7 @@ import (
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/fleetkit"
+	"github.com/swenske/Janus/internal/pairing"
 	"github.com/swenske/Janus/internal/pki"
 )
 
@@ -595,8 +596,16 @@ func fleetAdopt(globalCtx string, args []string) {
 	keyFile := fs.String("key", "", "with its first boot's admin credential: admin.key")
 	fingerprint := fs.String("ca-fingerprint", "", "a node already in the fleet: its CA's SHA-256, as its console shows it (\"ca sha256\")")
 	kitPath := fs.String("kit", "", "with -ca-fingerprint: reach the node with a certificate the root signs - its bundle doesn't list this machine yet (janusctl fleet recover) - and make it take this machine's bundle, signed again above its own")
+	code := fs.String("code", "", "a node that trusts nothing yet: the pairing code its console shows (\"pairing\")")
+	pairingAddr := fs.String("pairing", "", "with -code: the node's pairing window, HOST:PORT (default: the endpoint's host, port "+pairing.DefaultPort+")")
 	parseAnywhere(fs, args)
-	if fs.NArg() != 1 || *endpoint == "" || (*fingerprint == "") == (*caFile == "") {
+	given := 0
+	for _, s := range []string{*fingerprint, *caFile, *code} {
+		if s != "" {
+			given++
+		}
+	}
+	if fs.NArg() != 1 || *endpoint == "" || given != 1 {
 		fleetUsage()
 		os.Exit(2)
 	}
@@ -616,6 +625,24 @@ func fleetAdopt(globalCtx string, args []string) {
 	}
 	c2, cancel := ctx()
 	defer cancel()
+
+	if *code != "" {
+		// The pairing window: the code names its certificate, checked
+		// before anything is sent, and proves this machine read the
+		// console. The node takes this fleet; its CA, verified, is then
+		// what the node is pinned by - as if its fingerprint was given.
+		paddr := *pairingAddr
+		if paddr == "" {
+			host, _, _ := net.SplitHostPort(addr)
+			paddr = net.JoinHostPort(host, pairing.DefaultPort)
+		}
+		_, ca, err := pairing.Pair(c2, paddr, *code, f.rootPEM, f.signed)
+		if err != nil {
+			log.Fatalf("janusctl fleet adopt: pairing with %s: %v", paddr, err)
+		}
+		fmt.Fprintf(os.Stderr, "Paired with %s: it trusts fleet %q now.\n", paddr, c.Fleet.Name)
+		*fingerprint = pki.Fingerprint(ca.Raw)
+	}
 
 	var client janusv1alpha1.AccessServiceClient
 	var caPEM []byte
