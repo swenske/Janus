@@ -467,7 +467,9 @@ WRONG_PW_RESP="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X POS
   -F "pfx_password=not-the-password" -F "pfx=@$WORKDIR/admin.pfx;type=application/x-pkcs12")"
 [ "$WRONG_PW_RESP" = "400" ] || { echo "Dashboard test FAILED: wrong .pfx password should return 400, got $WRONG_PW_RESP" >&2; exit 1; }
 
-openssl pkcs12 -export -inkey "$WORKDIR/admin.key" -in "$WORKDIR/admin.crt" \
+# admin.crt is the certificate and its CA (state_pki): the first alone.
+openssl x509 -in "$WORKDIR/admin.crt" -out "$WORKDIR/admin-leaf.crt"
+openssl pkcs12 -export -inkey "$WORKDIR/admin.key" -in "$WORKDIR/admin-leaf.crt" \
   -out "$WORKDIR/admin-no-ca.pfx" -passout pass:dashboard-test-pfx >/dev/null 2>&1
 NO_CA_RESP="$(curl -sk -b "$COOKIE_JAR" -X POST "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/nodes" \
   -F "name=no-ca" -F "address=127.0.0.1:${HOST_GRPC_PORT}" \
