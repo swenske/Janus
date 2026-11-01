@@ -121,6 +121,9 @@ func main() {
 	if err := dataWritable(*dataDir); err != nil {
 		log.Fatal(err)
 	}
+	if err := lockDataDir(*dataDir); err != nil {
+		log.Fatal(err)
+	}
 	if err := keyReadable(*masterKeyFile); err != nil {
 		log.Fatal(err)
 	}

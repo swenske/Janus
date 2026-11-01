@@ -635,7 +635,8 @@ bucket's own rules.
 instead**: the bucket (or a file), the backup kit and its passphrase.
 It starts again as the Controller backed up - its accounts, second
 factors, fleet and nodes: the nodes keep trusting it. Or on the host,
-with the Controller stopped:
+with the Controller stopped - a restore refuses a data directory a
+running Controller holds:
 
 ```sh
 docker run --rm -it -v janus-controller-data:/data -v ./backup:/b swenske/janus-controller \

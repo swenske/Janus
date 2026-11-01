@@ -44,10 +44,11 @@ import (
 const maxBackupFile = 64 << 20
 
 // backupSkipped are what the data directory holds that a backup leaves
-// out: images downloaded on their way to a hypervisor, temporary files.
+// out: images downloaded on their way to a hypervisor, temporary files,
+// the running Controller's lock.
 func backupSkipped(rel string, d fs.DirEntry) bool {
 	base := d.Name()
-	return rel == "images" || strings.HasPrefix(base, "cidata-") || strings.HasSuffix(base, ".tmp") || strings.HasSuffix(base, ".download")
+	return rel == "images" || rel == dataLockFile || strings.HasPrefix(base, "cidata-") || strings.HasSuffix(base, ".tmp") || strings.HasSuffix(base, ".download")
 }
 
 type archiveWriter struct {
