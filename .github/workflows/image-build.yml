@@ -644,6 +644,12 @@ jobs:
       - name: Dashboard backend add/list/relay/mTLS-gate/delete/restart against a real node (dashboard prep)
         run: make qemu-dashboard-test
 
+      # The Controller's warm standby: pairing, copies, a forced
+      # promotion behind a VIP, the old active fenced, a switchover back.
+      # See hack/controller-standby-test.sh.
+      - name: Controller warm standby - promotion, fencing, switchover
+        run: make controller-standby-test
+
       # SystemService.PacketCapture on a real enforcing node, plus the
       # janusd console banner. See hack/qemu-packet-capture-test.sh.
       - name: SystemService.PacketCapture captures real traffic

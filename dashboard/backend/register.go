@@ -19,6 +19,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/enroll"
+	"github.com/swenske/Janus/dashboard/backend/internal/ha"
 	"github.com/swenske/Janus/dashboard/backend/internal/pending"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	"github.com/swenske/Janus/internal/pki"
@@ -35,34 +36,14 @@ import (
 // accept an announcement from a node the Controller has never seen
 // before, so there's no client certificate to require yet.
 func (a *app) startRegistrationListener(addr string) error {
-	// A node provisioned with the fleet's root asks for the fleet's name
-	// (SNI) and gets the fleet certificate; any other - provisioned with
-	// this Controller's identity - gets the identity's certificate.
-	tlsConfig := &tls.Config{
-		ClientAuth: tls.NoClientCert,
-		MinVersion: tls.VersionTLS13,
-		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-			if hello.ServerName == pki.FleetControllerName && a.fleet != nil {
-				if c, err := a.fleet.ServerCertificate(); err == nil {
-					return c, nil
-				}
-			}
-			return a.identity.Certificate(), nil
-		},
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/register", a.handleRegister)
-	mux.HandleFunc("GET /register/{id}", a.handleRegisterPoll)
-
-	ln, err := tls.Listen("tcp", addr, tlsConfig)
+	ln, err := tls.Listen("tcp", addr, a.registrationTLS())
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", addr, err)
 	}
 	// Anyone who reaches this port may open a connection: bound how
 	// long one may take to say what it wants, and how long it may stay.
 	srv := &http.Server{
-		Handler:           mux,
+		Handler:           a.registrationMux(),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -80,6 +61,40 @@ func (a *app) startRegistrationListener(addr string) error {
 	}()
 	log.Printf("dashboardd registration endpoint listening on %s", addr)
 	return nil
+}
+
+// registrationTLS is the registration port's TLS: a node provisioned with
+// the fleet's root asks for the fleet's name (SNI) and gets the fleet
+// certificate; the warm standby peer asks for its own (internal/ha); any
+// other - provisioned with this Controller's identity - gets the
+// identity's certificate.
+func (a *app) registrationTLS() *tls.Config {
+	return &tls.Config{
+		ClientAuth: tls.NoClientCert,
+		MinVersion: tls.VersionTLS13,
+		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+			if hello.ServerName == pki.FleetControllerName && a.fleet != nil {
+				if c, err := a.fleet.ServerCertificate(); err == nil {
+					return c, nil
+				}
+			}
+			// Its warm standby peer (internal/ha) pins this one.
+			if hello.ServerName == ha.ServerName && a.ha != nil {
+				return a.ha.Certificate(), nil
+			}
+			return a.identity.Certificate(), nil
+		},
+	}
+}
+
+// registrationMux is the registration port's routes: the nodes', and the
+// warm standby peer's (ha.go).
+func (a *app) registrationMux() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/register", a.handleRegister)
+	mux.HandleFunc("GET /register/{id}", a.handleRegisterPoll)
+	a.registerHAPeerRoutes(mux)
+	return mux
 }
 
 // registerRequest is what a self-registering node posts. ServiceCertPEM/
