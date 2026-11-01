@@ -57,6 +57,9 @@ func runAccess(conn *grpc.ClientConn, args []string) {
 	case "rotate-ca":
 		rotateCA(c, client, args[1:])
 		return
+	case "rescue": // main runs it before dialing: a rescue window takes no certificate
+		accessRescue(args[1:])
+		return
 	default:
 		fmt.Fprintf(os.Stderr, "janusctl access: unknown subcommand %q\n", args[0])
 		usage()

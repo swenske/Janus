@@ -133,6 +133,118 @@ func (x *PairResponse) GetTrust() *TrustState {
 	return nil
 }
 
+type RescueRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Secret        []byte                 `protobuf:"bytes,1,opt,name=secret,proto3" json:"secret,omitempty"`                        // the code's secret part (pairing.Code.SecretBytes)
+	PublicKey     []byte                 `protobuf:"bytes,2,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"` // PEM PKIX: ECDSA P-256/P-384, Ed25519, RSA 2048+
+	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`                            // who - the certificate is rescue:<name>
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RescueRequest) Reset() {
+	*x = RescueRequest{}
+	mi := &file_janus_v1alpha1_pairing_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RescueRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RescueRequest) ProtoMessage() {}
+
+func (x *RescueRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_pairing_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RescueRequest.ProtoReflect.Descriptor instead.
+func (*RescueRequest) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_pairing_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *RescueRequest) GetSecret() []byte {
+	if x != nil {
+		return x.Secret
+	}
+	return nil
+}
+
+func (x *RescueRequest) GetPublicKey() []byte {
+	if x != nil {
+		return x.PublicKey
+	}
+	return nil
+}
+
+func (x *RescueRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type RescueResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CaCert        []byte                 `protobuf:"bytes,1,opt,name=ca_cert,json=caCert,proto3" json:"ca_cert,omitempty"` // PEM: the node's own CA
+	Cert          []byte                 `protobuf:"bytes,2,opt,name=cert,proto3" json:"cert,omitempty"`                   // PEM: the certificate, os:admin, an hour
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RescueResponse) Reset() {
+	*x = RescueResponse{}
+	mi := &file_janus_v1alpha1_pairing_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RescueResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RescueResponse) ProtoMessage() {}
+
+func (x *RescueResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_pairing_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RescueResponse.ProtoReflect.Descriptor instead.
+func (*RescueResponse) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_pairing_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *RescueResponse) GetCaCert() []byte {
+	if x != nil {
+		return x.CaCert
+	}
+	return nil
+}
+
+func (x *RescueResponse) GetCert() []byte {
+	if x != nil {
+		return x.Cert
+	}
+	return nil
+}
+
 var File_janus_v1alpha1_pairing_proto protoreflect.FileDescriptor
 
 const file_janus_v1alpha1_pairing_proto_rawDesc = "" +
@@ -144,9 +256,18 @@ const file_janus_v1alpha1_pairing_proto_rawDesc = "" +
 	"\x06bundle\x18\x03 \x01(\fR\x06bundle\"Y\n" +
 	"\fPairResponse\x12\x17\n" +
 	"\aca_cert\x18\x01 \x01(\fR\x06caCert\x120\n" +
-	"\x05trust\x18\x02 \x01(\v2\x1a.janus.v1alpha1.TrustStateR\x05trust2S\n" +
+	"\x05trust\x18\x02 \x01(\v2\x1a.janus.v1alpha1.TrustStateR\x05trust\"Z\n" +
+	"\rRescueRequest\x12\x16\n" +
+	"\x06secret\x18\x01 \x01(\fR\x06secret\x12\x1d\n" +
+	"\n" +
+	"public_key\x18\x02 \x01(\fR\tpublicKey\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\"=\n" +
+	"\x0eRescueResponse\x12\x17\n" +
+	"\aca_cert\x18\x01 \x01(\fR\x06caCert\x12\x12\n" +
+	"\x04cert\x18\x02 \x01(\fR\x04cert2\x9c\x01\n" +
 	"\x0ePairingService\x12A\n" +
-	"\x04Pair\x12\x1b.janus.v1alpha1.PairRequest\x1a\x1c.janus.v1alpha1.PairResponseB;Z9github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1b\x06proto3"
+	"\x04Pair\x12\x1b.janus.v1alpha1.PairRequest\x1a\x1c.janus.v1alpha1.PairResponse\x12G\n" +
+	"\x06Rescue\x12\x1d.janus.v1alpha1.RescueRequest\x1a\x1e.janus.v1alpha1.RescueResponseB;Z9github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1b\x06proto3"
 
 var (
 	file_janus_v1alpha1_pairing_proto_rawDescOnce sync.Once
@@ -160,18 +281,22 @@ func file_janus_v1alpha1_pairing_proto_rawDescGZIP() []byte {
 	return file_janus_v1alpha1_pairing_proto_rawDescData
 }
 
-var file_janus_v1alpha1_pairing_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_janus_v1alpha1_pairing_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_janus_v1alpha1_pairing_proto_goTypes = []any{
-	(*PairRequest)(nil),  // 0: janus.v1alpha1.PairRequest
-	(*PairResponse)(nil), // 1: janus.v1alpha1.PairResponse
-	(*TrustState)(nil),   // 2: janus.v1alpha1.TrustState
+	(*PairRequest)(nil),    // 0: janus.v1alpha1.PairRequest
+	(*PairResponse)(nil),   // 1: janus.v1alpha1.PairResponse
+	(*RescueRequest)(nil),  // 2: janus.v1alpha1.RescueRequest
+	(*RescueResponse)(nil), // 3: janus.v1alpha1.RescueResponse
+	(*TrustState)(nil),     // 4: janus.v1alpha1.TrustState
 }
 var file_janus_v1alpha1_pairing_proto_depIdxs = []int32{
-	2, // 0: janus.v1alpha1.PairResponse.trust:type_name -> janus.v1alpha1.TrustState
+	4, // 0: janus.v1alpha1.PairResponse.trust:type_name -> janus.v1alpha1.TrustState
 	0, // 1: janus.v1alpha1.PairingService.Pair:input_type -> janus.v1alpha1.PairRequest
-	1, // 2: janus.v1alpha1.PairingService.Pair:output_type -> janus.v1alpha1.PairResponse
-	2, // [2:3] is the sub-list for method output_type
-	1, // [1:2] is the sub-list for method input_type
+	2, // 2: janus.v1alpha1.PairingService.Rescue:input_type -> janus.v1alpha1.RescueRequest
+	1, // 3: janus.v1alpha1.PairingService.Pair:output_type -> janus.v1alpha1.PairResponse
+	3, // 4: janus.v1alpha1.PairingService.Rescue:output_type -> janus.v1alpha1.RescueResponse
+	3, // [3:5] is the sub-list for method output_type
+	1, // [1:3] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
 	1, // [1:1] is the sub-list for extension extendee
 	0, // [0:1] is the sub-list for field type_name
@@ -189,7 +314,7 @@ func file_janus_v1alpha1_pairing_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_janus_v1alpha1_pairing_proto_rawDesc), len(file_janus_v1alpha1_pairing_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

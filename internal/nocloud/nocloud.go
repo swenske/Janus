@@ -143,16 +143,25 @@ func ScanBlockDevices(excludeDisk string) ([]string, error) {
 // is scanning devices with no prior knowledge of what's actually
 // attached.
 func FindVolume(candidates []string) (string, error) {
+	return FindLabel(candidates, "cidata")
+}
+
+// FindLabel is FindVolume for any label: the first candidate whose
+// filesystem carries it (case-insensitive, padding - spaces or NULs -
+// trimmed), ErrNotFound when none does.
+func FindLabel(candidates []string, label string) (string, error) {
 	for _, path := range candidates {
 		d, err := diskfs.Open(path, diskfs.WithOpenMode(diskfs.ReadOnly))
 		if err != nil {
 			continue
 		}
 		fs, err := d.GetFilesystem(0)
-		if err != nil {
-			continue
+		got := ""
+		if err == nil {
+			got = strings.Trim(fs.Label(), " \x00")
 		}
-		if strings.EqualFold(strings.TrimSpace(fs.Label()), "cidata") {
+		_ = d.Close()
+		if strings.EqualFold(got, label) {
 			return path, nil
 		}
 	}

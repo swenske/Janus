@@ -63,11 +63,13 @@ certificate the root signed itself lets in too. Its own CA always does.
 
 A node's pairing window (`internal/pairing`, [trust](internals/trust.md#the-pairing-window)):
 the one way in without a client certificate, on its own port (9506),
-only while the node trusts no fleet and no Controller.
+only while the node trusts no fleet and no Controller - or at a boot with
+a rescue volume attached ([recovery](guide/recovery.md#neither)).
 
 | Method | Streaming | Status | Purpose |
 |---|---|---|---|
 | `Pair` | | ✅ | Give the node a fleet - its root and bundle, checked as `TrustSet` checks them - when the secret is the code's (the client checked the window's certificate against the code first); answers the node's CA. 5 wrong secrets close the window until the node restarts; audited |
+| `Rescue` | | ✅ | A rescue volume's window only: an `os:admin` certificate of the node's own CA for the caller's public key, an hour, named `rescue:<name>`, when the secret is the code's; closes the window for the boot; audited |
 
 ## SystemService
 

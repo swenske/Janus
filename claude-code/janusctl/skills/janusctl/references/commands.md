@@ -152,6 +152,7 @@ janusctl -endpoint HOST:PORT -ca FILE -cert FILE -key FILE COMMAND ...
 - `janusctl access trust-set [-root FILE] BUNDLE` - **critical** - pin the fleet's root and apply a bundle. Pins a fleet's root on the node
 - `janusctl access trust-reset` - **critical** - forget the fleet (the node's own CA only). The fleet - a Controller too - loses the node
 - `janusctl access rotate-ca [-console] DIR` - **critical** - replace the node's own CA
+- `janusctl access rescue [-endpoint HOST[:9505]] [-code CODE] [-pairing HOST:PORT] [-name NAME] DIR` - **critical** - an hour's admin certificate of the node's own CA, from the rescue code its console shows - a node started with a rescue volume (image rescue-volume). An admin certificate from a rescue window: closes it for this boot
 
 ## Cluster
 
@@ -203,6 +204,7 @@ janusctl -endpoint HOST:PORT -ca FILE -cert FILE -key FILE COMMAND ...
 - `janusctl image seed-controller [-controller-address HOST:PORT] [-controller-ca FILE] [-controller-fleet-root FILE] [-registration-token TOKEN] DISK` - **changes** - a Controller to self-register with. Writes onto a disk image on this machine
 - `janusctl image seed-fleet [-fleet-root FILE] [-fleet-bundle FILE] DISK` - **changes** - a fleet to trust from the first boot. Writes onto a disk image on this machine
 - `janusctl image seed-network [-config FILE] DISK` - **changes** - a network configuration from the first boot. Writes onto a disk image on this machine
+- `janusctl image rescue-volume [-fat] [-skip-firewall] OUT` - **changes** - a rescue volume: attached at a boot, the node opens a rescue window (access rescue). Writes a file on this machine
 
 ## Shell
 

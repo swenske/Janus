@@ -4,6 +4,7 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRenderMOTD(t *testing.T) {
@@ -34,7 +35,11 @@ func TestRenderMOTD(t *testing.T) {
 	if out := renderMOTD(info, false); !strings.Contains(out, "pairing   9BC3-3016-3D39-2K7Q-M2XD\n") || !strings.Contains(out, "janusctl fleet adopt -code, or Add node") {
 		t.Errorf("a node with its pairing window open: no code in the MOTD:\n%s", out)
 	}
-	info.PairingCode = ""
+	info.RescueUntil = time.Date(2026, 11, 1, 18, 30, 0, 0, time.UTC)
+	if out := renderMOTD(info, false); !strings.Contains(out, "rescue    9BC3-3016-3D39-2K7Q-M2XD\n") || !strings.Contains(out, "janusctl access rescue -code, until 18:30 UTC") || strings.Contains(out, "pairing ") {
+		t.Errorf("a node with a rescue window: its MOTD:\n%s", out)
+	}
+	info.PairingCode, info.RescueUntil = "", time.Time{}
 
 	info.ActiveSlot, info.HAProxyRunning, info.FirstBoot = "", false, true
 	out = renderMOTD(info, true)

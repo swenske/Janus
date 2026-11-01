@@ -23,7 +23,7 @@ func TestAllowing(t *testing.T) {
 		}
 	}
 	slices.Sort(nobody)
-	if len(admin)+len(nobody) != len(Required) || !slices.Equal(nobody, []string{"ClusterService/ClusterExport", "ClusterService/ClusterFlows", "PairingService/Pair"}) {
+	if len(admin)+len(nobody) != len(Required) || !slices.Equal(nobody, []string{"ClusterService/ClusterExport", "ClusterService/ClusterFlows", "PairingService/Pair", "PairingService/Rescue"}) {
 		t.Errorf("admin: %d of %d, for no human: %v", len(admin), len(Required), nobody)
 	}
 	for _, c := range []struct {

@@ -23,6 +23,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -348,6 +349,57 @@ func bootNetwork() error {
 	return nil
 }
 
+// bootDisk is the whole disk this node booted from (its slot's data
+// partition's): never a NoCloud or a rescue volume.
+func bootDisk() string {
+	if cmdline, err := os.ReadFile("/proc/cmdline"); err == nil {
+		if dataDev, ok := bootslot.DataDevice(string(cmdline)); ok {
+			disk, _ := bootslot.WholeDisk(dataDev)
+			return disk
+		}
+	}
+	return ""
+}
+
+// findRescue looks for a rescue volume (nocloud.RescueLabel, janusctl
+// image rescue-volume) at every boot, provisioned or not, and leaves
+// what it says for janusd (nocloud.RescueRunFile, on /run's tmpfs: this
+// boot only) - janusd then opens a rescue window, whatever the node
+// trusts. Someone who can attach a volume and restart the node is at its
+// console, or its hypervisor's: the code the window shows there is
+// what's asked.
+func findRescue() {
+	candidates, err := nocloud.ScanBlockDevices(bootDisk())
+	if err != nil {
+		fmt.Printf("init: rescue: scan block devices: %v\n", err)
+		return
+	}
+	volume, err := nocloud.FindRescue(candidates)
+	if err != nil {
+		if err != nocloud.ErrNoRescue {
+			fmt.Printf("init: rescue: %v\n", err)
+		}
+		return
+	}
+	r, err := nocloud.ReadRescue(volume)
+	if err != nil {
+		fmt.Printf("init: rescue: %s: %v - no rescue window\n", volume, err)
+		return
+	}
+	raw, err := json.Marshal(r)
+	if err == nil {
+		err = os.MkdirAll(filepath.Dir(nocloud.RescueRunFile), 0o755)
+	}
+	if err == nil {
+		err = os.WriteFile(nocloud.RescueRunFile, raw, 0o600)
+	}
+	if err != nil {
+		fmt.Printf("init: rescue: %v - no rescue window\n", err)
+		return
+	}
+	fmt.Printf("init: rescue: a rescue volume on %s - janusd opens a rescue window, its code on the console; detach the volume once done\n", volume)
+}
+
 func seedFromNoCloud() {
 	const addressPath = "/etc/janus/controller/address"
 	_, err := os.Stat(addressPath)
@@ -359,14 +411,7 @@ func seedFromNoCloud() {
 		return
 	}
 
-	var bootDisk string
-	if cmdline, err := os.ReadFile("/proc/cmdline"); err == nil {
-		if dataDev, ok := bootslot.DataDevice(string(cmdline)); ok {
-			bootDisk, _ = bootslot.WholeDisk(dataDev)
-		}
-	}
-
-	candidates, err := nocloud.ScanBlockDevices(bootDisk)
+	candidates, err := nocloud.ScanBlockDevices(bootDisk())
 	if err != nil {
 		fmt.Printf("init: nocloud: scan block devices: %v\n", err)
 		return
@@ -648,6 +693,7 @@ func main() {
 	tuneSysctls()
 	mountReleaseBundle()
 	seedFromNoCloud()
+	findRescue()
 	pendingMarker := checkBootCommit()
 
 	release, err := os.ReadFile("/proc/sys/kernel/osrelease")

@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/swenske/Janus/internal/brand"
 )
@@ -33,6 +34,8 @@ type motdInfo struct {
 	// PairingCode is the open pairing window's code (internal/pairing):
 	// empty when there's none.
 	PairingCode string
+	// RescueUntil: the window is a rescue volume's, open until then.
+	RescueUntil time.Time
 }
 
 // renderMOTD builds the console banner janusd prints once it's
@@ -81,7 +84,9 @@ func renderMOTD(info motdInfo, color bool) string {
 		group := func(s string) string { return s[0:8] + " " + s[8:16] + " " + s[16:24] + " " + s[24:32] }
 		text = append(text, "ca sha256 "+group(fp[:32]), "          "+group(fp[32:]))
 	}
-	if info.PairingCode != "" {
+	if info.PairingCode != "" && !info.RescueUntil.IsZero() {
+		text = append(text, "rescue    "+paint(ansiBold, info.PairingCode), "          "+paint(ansiDim, "janusctl access rescue -code, until "+info.RescueUntil.Format("15:04 MST")))
+	} else if info.PairingCode != "" {
 		text = append(text, "pairing   "+paint(ansiBold, info.PairingCode), "          "+paint(ansiDim, "janusctl fleet adopt -code, or Add node"))
 	}
 	text = append(text,

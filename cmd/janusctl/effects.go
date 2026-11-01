@@ -160,6 +160,7 @@ var effects = map[string]effectOf{
 	"access trust-set":   {effectCritical, "pins a fleet's root on the node"},
 	"access trust-reset": {effectCritical, "the fleet - a Controller too - loses the node"},
 	"access rotate-ca":   {effectCritical, ""},
+	"access rescue":      {effectCritical, "an admin certificate from a rescue window: closes it for this boot"},
 
 	"cluster list":           {effectReads, ""},
 	"cluster create":         {effectCritical, ""},
@@ -210,6 +211,7 @@ var effects = map[string]effectOf{
 	"image seed-controller": {effectChanges, "writes onto a disk image on this machine"},
 	"image seed-fleet":      {effectChanges, "writes onto a disk image on this machine"},
 	"image seed-network":    {effectChanges, "writes onto a disk image on this machine"},
+	"image rescue-volume":   {effectChanges, "writes a file on this machine"},
 
 	"completion": {effectReads, ""},
 	"help":       {effectReads, ""},

@@ -58,6 +58,7 @@ import (
 	"github.com/swenske/Janus/internal/logvol"
 	"github.com/swenske/Janus/internal/netconfig"
 	"github.com/swenske/Janus/internal/netmgr"
+	"github.com/swenske/Janus/internal/nocloud"
 	"github.com/swenske/Janus/internal/nodeexporter"
 	"github.com/swenske/Janus/internal/oomadj"
 	"github.com/swenske/Janus/internal/pairing"
@@ -83,6 +84,7 @@ const serviceLogLines = 5000
 func main() {
 	showVersion := flag.Bool("version", false, "print the daemon version and exit")
 	addr := flag.String("addr", ":9505", "gRPC listen address")
+	rescueFile := flag.String("rescue-file", "auto", "what init found on this boot's rescue volume (internal/nocloud.Rescue): a rescue window opens, whatever the node trusts - \"auto\": "+nocloud.RescueRunFile+" with -manage-host, none without")
 	pairingAddr := flag.String("pairing-addr", "auto", "the pairing window's address (internal/pairing): open while the node trusts no fleet and no Controller, its code on the console - \"auto\": :"+pairing.DefaultPort+" with -manage-host, none without; empty: none")
 	pkiDir := flag.String("pki-dir", "/etc/janus/pki", "directory holding the node's CA/server/admin certificates (generated here on first boot)")
 	haproxyBin := flag.String("haproxy-binary", "/usr/local/sbin/haproxy", "path to the haproxy binary")
@@ -225,12 +227,20 @@ func main() {
 		events.Publish("system.state_applied", map[string]any{"from": imported.Manifest.Hostname, "files": len(imported.Files), "identity": imported.Manifest.Identity})
 	}
 
+	// A rescue volume at boot (init's file): a rescue window, and maybe
+	// no saved firewall ruleset this boot - it may shut the window's port.
+	rescuePathV := rescuePath(*rescueFile, *manageHost)
+	rescue, rescueUntil := bootRescue(rescuePathV, time.Now())
+
 	// The firewall (the nftables extension) before anything listens: the
 	// window where the node is up without its saved ruleset is the boot
 	// itself, until here.
 	firewall.Dir = *configDir
 	fwMgr := firewall.New()
-	if *manageHost {
+	switch {
+	case *manageHost && rescue != nil && rescue.Firewall == "skip":
+		log.Printf("firewall: the rescue volume says skip - the saved ruleset isn't applied this boot")
+	case *manageHost:
 		if err := fwMgr.Boot(); err != nil {
 			log.Printf("firewall: %v - the node runs without its saved ruleset", err)
 		}
@@ -773,8 +783,15 @@ func main() {
 	if pkiBootstrap.AdminIssued {
 		markPairing(*pkiDir)
 	}
-	if a := pairingListen(*pairingAddr, *manageHost); a != "" && pairingWanted(fleet, fleetErr, *pkiDir) {
-		pw = openPairing(a, local, access, fleet, hostname)
+	switch a := pairingListen(*pairingAddr, *manageHost); {
+	case a == "":
+		if rescue != nil {
+			log.Printf("rescue: a rescue volume, but no pairing address (-pairing-addr) - no rescue window")
+		}
+	case rescue != nil:
+		pw = openPairing(a, local, access, fleet, hostname, rescueUntil, func() { markRescued(rescuePathV) })
+	case pairingWanted(fleet, fleetErr, *pkiDir):
+		pw = openPairing(a, local, access, fleet, hostname, time.Time{}, nil)
 	}
 
 	log.Printf("janusd %s listening on %s (mTLS required)", version, *addr)
@@ -783,9 +800,10 @@ func main() {
 	}
 	kernelTrack, haproxyVersion := logImage(haproxyMgr)
 	pairingCode := ""
+	var rescueShown time.Time
 	if pw != nil {
 		pw.sayCode()
-		pairingCode = pw.code.String()
+		pairingCode, rescueShown = pw.code.String(), pw.rescueUntil
 	}
 	printMOTD(motdInfo{
 		Version:        version,
@@ -798,6 +816,7 @@ func main() {
 		FirstBoot:      pkiBootstrap.AdminIssued,
 		CAFingerprint:  pki.Fingerprint(local.CA().Cert.Raw),
 		PairingCode:    pairingCode,
+		RescueUntil:    rescueShown,
 	})
 	if err := srv.Serve(clients.Listener(lis)); err != nil {
 		fmt.Fprintln(os.Stderr, "serve:", err)

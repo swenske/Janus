@@ -2,7 +2,8 @@
 
 What keeps working without the Controller, reaching its nodes meanwhile,
 and how to get it back - a backup restored on the same host or another
-one, the fleet's recovery kit when there's no backup.
+one, the fleet's recovery kit when there's no backup, a node's rescue
+volume when there's neither.
 
 ## What keeps working
 
@@ -93,6 +94,45 @@ Controller's certificates stop working on each node it reaches.
 
 ## Neither
 
-Without a backup nor the kit, a node is reached again with a
-certificate of its own CA (`janusctl access trust-reset` forgets the
-fleet, then the node joins a new one).
+Without a backup nor the kit, each node is taken back at its console -
+or its hypervisor's - with a **rescue volume**: attached at a boot, it
+opens a rescue window whatever the node trusts, and the code its console
+shows there gives an admin certificate of the node's own CA, an hour.
+With it the node forgets the lost fleet and joins another.
+
+1. Make the volume: `janusctl image rescue-volume rescue.iso` - a
+   CD-ROM; `-fat rescue.img` for a disk or a USB stick. Add
+   `-skip-firewall` if the node's firewall may shut port 9506: its
+   saved ruleset isn't applied for that boot.
+2. Attach it and restart the node. Its console shows
+   `init: rescue: a rescue volume on /dev/sr0` and, in its banner,
+   `rescue    XXXX-XXXX-XXXX-XXXX-XXXX` - for 30 minutes; five wrong
+   codes close the window until the next boot.
+3. From a machine that reaches the node:
+
+   ```sh
+   janusctl access rescue -endpoint 10.0.0.5 -code XXXX-XXXX-XXXX-XXXX-XXXX node1/
+   ```
+
+   janusctl checks the node's certificate against the code before it
+   sends anything, makes a key and writes `node1/ca.crt`,
+   `node1/admin.crt` and `node1/admin.key`: `os:admin`, named
+   `rescue:<you>` (`-name`) - the node logs and audits every call made
+   with it. The window closes: the next one needs another boot with the
+   volume.
+4. Give the node another fleet:
+
+   ```sh
+   C="-endpoint 10.0.0.5 -ca node1/ca.crt -cert node1/admin.crt -key node1/admin.key"
+   janusctl $C access trust-reset
+   janusctl fleet adopt node1 $C   # into this machine's fleet (janusctl fleet init)
+   ```
+
+   Or to a Controller: its **Add node** takes the three files (an older
+   node's PEM) - or restart the node without the volume: trusting
+   nothing, it shows a pairing code.
+5. Detach the volume: every boot with it opens a window.
+
+Whoever can attach a volume and read the console owns the node already:
+they could reinstall it. Nothing else opens the window - a network
+can't -, and its code is shown on the console only, never in a log.

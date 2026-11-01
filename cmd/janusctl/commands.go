@@ -364,6 +364,12 @@ var commands = &command{name: "janusctl", subs: []*command{
 		{name: "trust-set", args: "BUNDLE", help: "pin the fleet's root and apply a bundle", flags: []flagDef{valFlag("root", "FILE", "the fleet's root (the first time)", argFile)}, pos: []argKind{argFile}, required: 1},
 		{name: "trust-reset", help: "forget the fleet (the node's own CA only)"},
 		{name: "rotate-ca", args: "DIR", help: "replace the node's own CA", flags: []flagDef{boolFlag("console", "the node prints the admin key on its console")}, pos: []argKind{argDir}, required: 1},
+		{name: "rescue", args: "DIR", help: "an hour's admin certificate of the node's own CA, from the rescue code its console shows - a node started with a rescue volume (image rescue-volume)", flags: []flagDef{
+			valFlag("endpoint", "HOST[:9505]", "the node's API", argNone),
+			valFlag("code", "CODE", "the rescue code its console shows", argNone),
+			valFlag("pairing", "HOST:PORT", "its rescue window (default: the endpoint's host, port 9506)", argNone),
+			valFlag("name", "NAME", "who you are - the certificate is rescue:NAME", argNone),
+		}, pos: []argKind{argDir}, required: 1},
 	}},
 	{name: "cluster", group: "🔗 Cluster", help: "clusters of a fleet without a Controller (create, apply, check...), and a node's membership of one (-n NODE: get, status, release, drain...)", subs: []*command{
 		{name: "list", help: "the clusters this fleet context orchestrates"},
@@ -538,6 +544,10 @@ var commands = &command{name: "janusctl", subs: []*command{
 		}, pos: []argKind{argFile}, required: 1},
 		{name: "seed-fleet", args: "DISK", help: "a fleet to trust from the first boot", flags: []flagDef{valFlag("fleet-root", "FILE", "the fleet's root", argFile), valFlag("fleet-bundle", "FILE", "its bundle", argFile)}, pos: []argKind{argFile}, required: 1},
 		{name: "seed-network", args: "DISK", help: "a network configuration from the first boot", flags: []flagDef{valFlag("config", "FILE", "the configuration (JSON)", argFile)}, pos: []argKind{argFile}, required: 1},
+		{name: "rescue-volume", args: "OUT", help: "a rescue volume: attached at a boot, the node opens a rescue window (access rescue)", flags: []flagDef{
+			boolFlag("fat", "a FAT disk image (a USB stick, a disk) - an ISO by default (a CD-ROM)"),
+			boolFlag("skip-firewall", "the node doesn't apply its saved firewall ruleset that boot"),
+		}, pos: []argKind{argFile}, required: 1},
 	}},
 	{name: "completion", group: "✨ Shell", offline: true, args: "bash|zsh|fish", help: "the shell's completion script (README: Shell completion)", pos: []argKind{argShell}, required: 1},
 	{name: "help", offline: true, args: "[COMMAND...]", help: "this help, or a command's", hidden: false},

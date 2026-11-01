@@ -188,6 +188,14 @@ can't be read through the API, by anyone.
   there's nothing to keep.
 - **Every call is audited** (`janusctl system audit`): `pairing code`,
   the caller's address, how it ended.
+- **A rescue volume** (`JANUSRESCUE`, `janusctl image rescue-volume`)
+  attached at a boot opens the window whatever the node trusts - init
+  finds it, janusd opens it for 30 minutes, the banner says `rescue` -,
+  with a second call, `PairingService/Rescue`: an `os:admin`
+  certificate of the node CA for the caller's key, an hour, named
+  `rescue:<name>`. It closes the window for that boot, even across a
+  janusd restart; `-skip-firewall` leaves the saved ruleset out that boot
+  ([when the Controller is down or lost](../guide/recovery.md#neither)).
 
 ### The first-boot admin certificate
 
@@ -459,6 +467,7 @@ given may be others:
 | The node's CA, certificates, rotation | `internal/pki` (`bootstrap.go`, `servercert.go`, `rotate.go`) |
 | The fleet: pinning, bundles, chains | `internal/pki/fleet.go`, `internal/api/access.go` |
 | The pairing window | `internal/pairing`, `internal/api/pairing.go`, `cmd/janusd/pairing.go` |
+| The rescue volume | `internal/nocloud/rescue.go`, `rootfs/init` (`findRescue`), `cmd/janusd/rescue.go`, `cmd/janusctl/rescue.go` |
 | Scoped certificates | `internal/pki/scope.go` |
 | Roles per call | `internal/api/authz.go`, `internal/rbac` |
 | Registration | `internal/selfregister`, `dashboard/backend/register.go` |

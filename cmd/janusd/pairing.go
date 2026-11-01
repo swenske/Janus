@@ -66,12 +66,16 @@ type pairingWindow struct {
 	addr   string
 	window *pairing.Window
 	srv    *grpc.Server
+	// rescueUntil: a rescue volume's window, open until then.
+	rescueUntil time.Time
 }
 
 // openPairing opens the pairing window on addr: its own certificate, its
 // own server serving PairingService alone, a new code - nil when it
-// can't (nothing then lets in but what did before: say so).
-func openPairing(addr string, local *pki.Local, access *api.Access, fleet *pki.Fleet, hostname string) *pairingWindow {
+// can't (nothing then lets in but what did before: say so). With a
+// rescueUntil, it's a rescue volume's (rescue.go): Rescue answers too,
+// whatever the node trusts, until then - rescued is called once it did.
+func openPairing(addr string, local *pki.Local, access *api.Access, fleet *pki.Fleet, hostname string, rescueUntil time.Time, rescued func()) *pairingWindow {
 	leaf, err := pairing.NewLeaf(local.CA(), hostname, pki.LocalIPs())
 	if err != nil {
 		log.Printf("pairing: the window's certificate: %v - no pairing window", err)
@@ -87,9 +91,14 @@ func openPairing(addr string, local *pki.Local, access *api.Access, fleet *pki.F
 		log.Printf("pairing: listen on %s: %v - no pairing window", addr, err)
 		return nil
 	}
-	w := &pairingWindow{code: code, addr: addr, window: pairing.NewWindow(code.SecretBytes(), 0)}
+	rescue := !rescueUntil.IsZero()
+	lifetime := time.Duration(0)
+	if rescue {
+		lifetime = time.Until(rescueUntil)
+	}
+	w := &pairingWindow{code: code, addr: addr, window: pairing.NewWindow(code.SecretBytes(), lifetime), rescueUntil: rescueUntil}
 	w.srv = grpc.NewServer(grpc.Creds(credentials.NewTLS(pairing.ServerTLS(leaf))), grpc.UnaryInterceptor(api.PairingInterceptor))
-	janusv1alpha1.RegisterPairingServiceServer(w.srv, &api.Pairing{Window: w.window, Access: access})
+	janusv1alpha1.RegisterPairingServiceServer(w.srv, &api.Pairing{Window: w.window, Access: access, RescueVolume: rescue, OnRescue: rescued})
 	go func() {
 		if err := w.srv.Serve(lis); err != nil {
 			log.Printf("pairing: %v", err)
@@ -97,17 +106,25 @@ func openPairing(addr string, local *pki.Local, access *api.Access, fleet *pki.F
 	}()
 	// The window closes once the node trusts a fleet - paired, given one
 	// with TrustSet or by its Controller -, or after its tries: the port
-	// with it.
+	// with it. A rescue window, once it gave its certificate (or a
+	// fleet), after its tries, or at its time.
 	go func() {
 		tick := time.NewTicker(2 * time.Second)
 		defer tick.Stop()
+		var end <-chan time.Time
+		if rescue {
+			end = time.After(lifetime)
+		}
 	wait:
 		for {
 			select {
 			case <-w.window.Done():
 				break wait
+			case <-end:
+				w.window.Close("its time is up")
+				break wait
 			case <-tick.C:
-				if fleet.Root() != nil {
+				if !rescue && fleet.Root() != nil {
 					w.window.Close("the node trusts a fleet")
 					break wait
 				}
@@ -115,18 +132,26 @@ func openPairing(addr string, local *pki.Local, access *api.Access, fleet *pki.F
 		}
 		why := w.window.Closed()
 		log.Printf("pairing: the window on %s is closed: %s", addr, why)
-		if why == "paired" {
+		if why == "paired" || why == "rescued" {
 			// The call that paired it may come again, its answer lost.
 			time.Sleep(api.PairReplay)
 		}
 		w.srv.GracefulStop()
 	}()
-	log.Printf("pairing: the node trusts nothing yet - a pairing window on %s, its code on the console", addr)
+	if rescue {
+		log.Printf("rescue: a rescue volume - a rescue window on %s until %s, its code on the console", addr, rescueUntil.Format(time.RFC3339))
+	} else {
+		log.Printf("pairing: the node trusts nothing yet - a pairing window on %s, its code on the console", addr)
+	}
 	return w
 }
 
 // sayCode shows the window's code on the console - never in janusd's log,
 // which Logs, the LOGS partition and log forwarding carry.
 func (w *pairingWindow) sayCode() {
+	if !w.rescueUntil.IsZero() {
+		fmt.Fprintf(os.Stderr, "rescue: code %s on %s until %s - janusctl access rescue -endpoint ADDRESS -code CODE DIR\n", w.code, w.addr, w.rescueUntil.Format("15:04 MST"))
+		return
+	}
 	fmt.Fprintf(os.Stderr, "pairing: code %s on %s - janusctl fleet adopt NAME -endpoint ADDRESS -code CODE, or the Controller's Add node\n", w.code, w.addr)
 }

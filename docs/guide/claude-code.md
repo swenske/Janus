@@ -288,6 +288,7 @@ repository's `.claude/settings.json`:
       "Bash(janusctl *access trust-set *)",
       "Bash(janusctl *access trust-reset*)",
       "Bash(janusctl *access rotate-ca *)",
+      "Bash(janusctl *access rescue *)",
       "Bash(janusctl *cluster create *)",
       "Bash(janusctl *cluster remove *)",
       "Bash(janusctl *cluster replace *)",
