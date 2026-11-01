@@ -167,8 +167,36 @@ out="$(ctl network firewall status)"
 grep -q "Saved: *no" <<<"$out" || fail "an empty ruleset still counts as a saved firewall: $out"
 echo "  ok: an empty ruleset removes the firewall"
 
-if grep -aq "avc:.*denied" "$LOG"; then
-  grep -a "avc:.*denied" "$LOG" >&2
-  fail "AVC denials under enforcing"
-fi
-echo "Firewall test OK: validated, applied on trial, confirmed over a new connection, filtering for real, a lockout reverted by itself, sets edited live and kept across a reboot, zero AVC denials"
+# A power cut right after a confirm: the ruleset is on disk already - its
+# file's rename too, not only within the journal's next commit.
+out="$(ctl network firewall apply -timeout 30s "$WORKDIR/ruleset.nft")" || fail "apply: $out"
+grep -q "confirmed over a new connection" <<<"$out" || fail "apply wasn't confirmed: $out"
+kill -9 "$QEMU_PID"
+wait "$QEMU_PID" 2>/dev/null || true
+FIRST_LOG="$LOG"
+LOG="$WORKDIR/after-cut.log"
+qemu-system-x86_64 -accel kvm -accel tcg \
+  -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
+  -drive if=pflash,format=raw,file="$WORKDIR/OVMF_VARS.fd" \
+  -drive file="$DISK",format=raw,if=virtio \
+  -nographic -display none -m 512M \
+  -netdev "user,id=net0,hostfwd=tcp::${P_HTTP}-:8080,hostfwd=tcp::${P_GRPC}-:9505,hostfwd=tcp::${P_METRICS}-:10056" \
+  -device virtio-net-pci,netdev=net0 \
+  -serial file:"$LOG" </dev/null &
+QEMU_PID=$!
+deadline=$((SECONDS + TIMEOUT))
+until grep -aq "listening on" "$LOG" 2>/dev/null; do
+  [ "$SECONDS" -lt "$deadline" ] || fail "the node didn't come back after the power cut"
+  sleep 1
+done
+grep -aq "firewall: applied the saved ruleset" "$LOG" || fail "the ruleset confirmed just before a power cut wasn't applied at boot"
+[ "$(http)" = "000" ] || fail "8080 open after the power cut"
+echo "  ok: a power cut right after a confirm keeps the ruleset"
+
+for l in "$FIRST_LOG" "$LOG"; do
+  if grep -aq "avc:.*denied" "$l"; then
+    grep -a "avc:.*denied" "$l" >&2
+    fail "AVC denials under enforcing"
+  fi
+done
+echo "Firewall test OK: validated, applied on trial, confirmed over a new connection, filtering for real, a lockout reverted by itself, sets edited live and kept across a reboot, a confirmed ruleset kept through a power cut, zero AVC denials"

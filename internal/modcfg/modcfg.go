@@ -175,5 +175,18 @@ func writeAtomic(dir, name string, data []byte, sync bool) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp, filepath.Join(dir, name))
+	if err := os.Rename(tmp, filepath.Join(dir, name)); err != nil {
+		return err
+	}
+	if !sync {
+		return nil
+	}
+	// The rename itself, on disk: a power cut within the journal's commit
+	// interval would leave the previous configuration.
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
