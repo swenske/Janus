@@ -80,6 +80,28 @@ A node that runs already, without the fleet: adopt it with its first
 boot's admin credential, once - `janusctl fleet adopt edge-2 -endpoint
 192.0.2.11 -ca ca.crt -cert admin.crt -key admin.key`.
 
+## Nodes provisioned with nothing: the pairing code
+
+A node that trusts no fleet and no Controller shows a pairing code on
+its console:
+
+```text
+pairing   9BC3-3016-3D39-2K7Q-M2XD
+          janusctl fleet adopt -code, or Add node
+```
+
+```sh
+janusctl fleet adopt edge-3 -endpoint 192.0.2.12 -code 9BC3-3016-3D39-2K7Q-M2XD
+```
+
+janusctl reaches the node's pairing window (port 9506; `-pairing
+HOST:PORT` elsewhere), checks the certificate it presents against the
+code before it sends anything, then gives it the fleet: the node trusts
+it from then on, and its window closes. A mistyped code is caught by
+janusctl; five wrong ones close the window until the node restarts,
+which shows a new code. The code is good once and nothing else: there's
+nothing to keep ([the pairing window](internals/trust.md#the-pairing-window)).
+
 Each node logs what the fleet's certificates do as theirs: `api:
 SystemService/ServiceRestart: alice (os:admin, fleet)`.
 

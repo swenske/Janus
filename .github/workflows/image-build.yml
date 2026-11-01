@@ -692,6 +692,14 @@ jobs:
       - name: A fleet without a Controller (janusctl fleet)
         run: make qemu-fleetctl-test
 
+      # The pairing window (internal/pairing): a node that trusts nothing
+      # paired with the code its console shows - checked by janusctl
+      # before anything is sent, a wrong one counted, five closing the
+      # window -, provisioned nodes opening none.
+      # See hack/qemu-pairing-test.sh.
+      - name: The pairing window (janusctl fleet adopt -code)
+        run: make qemu-pairing-test
+
       # A cluster of three nodes (ClusterService): the generated peers
       # section, stick tables replicated over mTLS, kept through a reload,
       # learnt back after a restart, a member renewed and one leaving. See

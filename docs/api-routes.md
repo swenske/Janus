@@ -59,6 +59,16 @@ certificate the root signed itself lets in too. Its own CA always does.
 | `TrustReset` | | ✅ | Forget the fleet - admin, and only with a certificate of the node's own CA |
 | `LocalCARotate` | | ✅ | Replace the node's own CA (admin): new CA, server and admin certificates; every certificate the old CA issued stops working, the fleet's don't. The new admin certificate is issued for the caller's public key (`janusctl access rotate-ca` makes the key locally), or the node makes the key and prints it on its console like at first boot. The new CA comes cross-signed by the old one, served after the server certificate: whoever pinned the old CA still verifies the node, and the Controller pins the new one by itself. Written in two steps on STATE - a power cut leaves the old CA or the new one, whole |
 
+## PairingService
+
+A node's pairing window (`internal/pairing`, [trust](internals/trust.md#the-pairing-window)):
+the one way in without a client certificate, on its own port (9506),
+only while the node trusts no fleet and no Controller.
+
+| Method | Streaming | Status | Purpose |
+|---|---|---|---|
+| `Pair` | | ✅ | Give the node a fleet - its root and bundle, checked as `TrustSet` checks them - when the secret is the code's (the client checked the window's certificate against the code first); answers the node's CA. 5 wrong secrets close the window until the node restarts; audited |
+
 ## SystemService
 
 | Method | Streaming | Status | Purpose |

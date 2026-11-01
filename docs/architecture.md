@@ -142,7 +142,10 @@ longer. Bare metal untried.
 ## mTLS / PKI
 
 Every gRPC call is authenticated with a client certificate - there is no
-unauthenticated endpoint (`internal/pki`, implemented in Phase 2). Each
+unauthenticated endpoint (`internal/pki`, implemented in Phase 2), but
+one: a node that trusts nothing yet opens a pairing window on a port of
+its own, whose single call gives it a fleet when the caller proves it
+read the code on its console ([trust](internals/trust.md#the-pairing-window)). Each
 node maintains its own self-signed ECDSA P-256 CA (10-year validity),
 and issues itself a server certificate for the gRPC listener - reissued
 whenever the node's addresses or hostname change, and renewed 30 days
