@@ -4,6 +4,7 @@ import Chart from '../../shared/chart/Chart.jsx'
 import { Badge, Card, PageHeader, Stat, stateTone } from '../../shared/ui.jsx'
 import { GaugeStat } from '../../shared/Gauge.jsx'
 import { bytes, compact, cpuModels, cpuShape, dateTime, duration, num, percent, rate } from '../format.js'
+import { logsTexts, logsVolume } from '../logsVolume.js'
 import { useMetrics, useNodeStatus, usePoll, useSSE } from '../hooks.jsx'
 import { useMay } from '../may.js'
 import { UpdateBadge } from './UpdateBadge.jsx'
@@ -58,19 +59,6 @@ function stateMount(mounts) {
   return m && size ? { name: m.mounted_on === '/' ? '/' : 'STATE', size, used: size - (Number(m.available_bytes) || 0) } : null
 }
 
-// The LOGS partition (/api/log-boots: Install's partition 7, raw - no
-// filesystem, never mounted): a ring of 1 MiB segments, a boot's each,
-// the oldest written over once full - full is its normal state. Its fill
-// is the segments its boots hold; null on a node without one.
-function logsVolume(resp) {
-  const size = Number(resp?.size_bytes) || 0
-  if (!resp?.available || !size) return null
-  const boots = resp.boots || []
-  const used = Math.min(size, boots.reduce((n, b) => n + (Number(b.mebibytes) || 0), 0) * 1024 * 1024)
-  const starts = boots.map((b) => Number(b.started_unix_ns)).filter((t) => t > 0)
-  return { size, used, boots: boots.length, oldest: starts.length ? Math.min(...starts) / 1e6 : null }
-}
-
 export default function Overview() {
   const { points, latest, clock } = useMetrics()
   const { overview, check } = useNodeStatus()
@@ -80,6 +68,7 @@ export default function Overview() {
   const may = useMay()
   const logBoots = usePoll('/api/log-boots', { every: 30000, enabled: may('SystemService/LogBoots') })
   const logs = logsVolume(logBoots.data)
+  const logsText = logs && logsTexts(logs)
   const [windowMs, setWindowMs] = useChartWindow()
   const WINDOW = windowMs || undefined
   const rx = latest && netTotal(latest, 'rx')
@@ -146,14 +135,21 @@ export default function Overview() {
           sub={disk ? `${bytes(disk.used)} of ${bytes(disk.size)}` : mounts.data ? 'not mounted' : ''}
         />
         {logs && (
+          // How far back the logs go in its middle, the ring's fill around
+          // it - full once it went round, its normal state: never amber or
+          // red (logsVolume.js).
           <GaugeStat
             label="LOGS"
             color="var(--chart-3)"
-            value={(logs.used / logs.size) * 100}
+            value={logs.full ? logs.ring : logs.used}
+            max={logs.ring}
+            display={logsText.display}
             thresholds={[100, 100]}
             sub={
-              <span title={logs.oldest ? `A ring: the oldest boot's logs go first - kept since ${dateTime(logs.oldest)}` : 'A ring: the oldest boot\'s logs go first'}>
-                {bytes(logs.used)} of {bytes(logs.size)} · {logs.boots} {logs.boots === 1 ? 'boot' : 'boots'}
+              <span className="logs-sub" title={logsText.title}>
+                {logsText.lines.map((l) => (
+                  <span key={l}>{l}</span>
+                ))}
               </span>
             }
           />

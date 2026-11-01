@@ -450,6 +450,8 @@ mark.refused { background: var(--danger-soft); color: var(--danger); outline: 1p
 .overview-six { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 @media (max-width: 1400px) { .overview-six { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .overview-six { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* LOGS' tile: since when, then its boots and rate - a line each. */
+.logs-sub { display: flex; flex-direction: column; align-items: center; }
 
 /* Metrics' HAProxy breakdowns. */
 .metrics-h { display: flex; align-items: baseline; gap: 0.6rem; margin: 1.4rem 0 0.8rem; font-size: 1.05rem; }
