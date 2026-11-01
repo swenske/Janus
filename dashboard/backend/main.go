@@ -56,6 +56,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/backup"
 	"github.com/swenske/Janus/dashboard/backend/internal/enroll"
 	"github.com/swenske/Janus/dashboard/backend/internal/fleet"
+	"github.com/swenske/Janus/dashboard/backend/internal/ha"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
 	"github.com/swenske/Janus/dashboard/backend/internal/identity"
 	"github.com/swenske/Janus/dashboard/backend/internal/labels"
@@ -98,6 +99,19 @@ func main() {
 		restoreCommand(os.Args[2:])
 		return
 	}
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "standby":
+			standbyCommand(os.Args[2:])
+			return
+		case "promote":
+			promoteCommand(os.Args[2:])
+			return
+		case "ha":
+			haCommand(os.Args[2:])
+			return
+		}
+	}
 	addr := flag.String("addr", envOr("JANUS_CONTROLLER_ADDR", ":8080"), "main HTTPS address (node list, add/remove - never a credential) - e.g. \":443\" to run the UI on the standard HTTPS port; also settable via JANUS_CONTROLLER_ADDR (same \":port\"/\"host:port\" format - a flag takes precedence over the env var if both are given), for Docker Compose deployments where an environment: entry is more natural than overriding the container's command")
 	registerAddr := flag.String("register-addr", ":8443", "TLS address nodes self-register against (see internal/pending) - not the same port pool as approved nodes' own per-node listeners")
 	dataDir := flag.String("data-dir", "/data", "persistent data directory (Docker volume) - node registry + this dashboard's own TLS identity")
@@ -126,6 +140,28 @@ func main() {
 	}
 	if err := keyReadable(*masterKeyFile); err != nil {
 		log.Fatal(err)
+	}
+	masterKey, err := secrets.LoadOrCreate(*masterKeyFile, *dataDir)
+	if err != nil {
+		log.Fatalf("master key: %v", err)
+	}
+	// A standby (internal/ha) opens none of the stores below and runs
+	// none of the loops: it copies its active and waits. An active whose
+	// peer was promoted above it while it was away becomes its standby
+	// here, before anything runs.
+	haStore, err := ha.Open(filepath.Join(*dataDir, ha.Dir), masterKey)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if peer, fenced := fencedAtStart(haStore); fenced {
+		log.Printf("ha: the peer %s is the active at epoch %d, above this Controller's %d - starting as its standby", peer.Name, peer.Epoch, haStore.State().Epoch)
+		if err := haStore.SetRole(ha.Standby, peer.Epoch); err != nil {
+			log.Fatal(err)
+		}
+	}
+	if haStore.State().Role == ha.Standby {
+		runStandby(&standby{ha: haStore, dataDir: *dataDir, masterKeyFile: *masterKeyFile, masterKeyPath: masterKey.Path}, *addr, *registerAddr, *tlsCertFile, *tlsKeyFile)
+		return
 	}
 	st, err := store.Open(*dataDir)
 	if err != nil {
@@ -168,10 +204,6 @@ func main() {
 	machineStore, err := machines.Open(*dataDir)
 	if err != nil {
 		log.Fatalf("open machine store: %v", err)
-	}
-	masterKey, err := secrets.LoadOrCreate(*masterKeyFile, *dataDir)
-	if err != nil {
-		log.Fatalf("master key: %v", err)
 	}
 	if addr := suggestRegisterAddress(*advertiseAddresses, *registerAddr); addr != "" {
 		from := "this host's first address"
@@ -242,6 +274,8 @@ func main() {
 		sso:                   newSingleSignOn(ssoStore),
 		telemetry:             telemetryStore,
 		telemetryURL:          *telemetryURL,
+		ha:                    haStore,
+		haPairLimiter:         ratelimit.New(5, time.Minute),
 	}
 	app.runner = newMachineRunner(app)
 	app.clusters = newClusterEngine(app, clusterStore)
@@ -260,6 +294,7 @@ func main() {
 	go app.backupLoop(context.Background())
 	go app.identityLoop(context.Background())
 	go app.telemetryLoop(context.Background())
+	go app.haLoop(context.Background())
 	if err := app.startLogForwarding(masterKey); err != nil {
 		log.Fatalf("log forwarding: %v", err)
 	}
@@ -380,6 +415,7 @@ func (a *app) routes(spa http.Handler) *http.ServeMux {
 	a.registerFleetRoutes(mux)
 	a.registerMachineRoutes(mux)
 	a.registerClusterRoutes(mux)
+	a.registerHARoutes(mux)
 	mux.Handle("/", spa)
 	return mux
 }
@@ -450,9 +486,18 @@ type app struct {
 	consoles      consoleHub
 
 	challenges challenges
-	// restored: a backup was restored - the process starts again.
-	restored  atomic.Bool
-	cliLogins cliLogins
+	// restored: a backup was restored - the process starts again (or
+	// it steps down, internal/ha).
+	restored atomic.Bool
+	// ha is the warm standby's state (ha.go); haView the last look at
+	// the standby; haStepping a switchover under way.
+	ha         *ha.Store
+	haView     haPeerView
+	haStepping atomic.Bool
+	// haPairLimiter bounds pairing attempts per address: a token is 256
+	// bits, but nobody needs more than a few tries; nil in tests.
+	haPairLimiter *ratelimit.Limiter
+	cliLogins     cliLogins
 	// pages holds each node's page handler (node_pages.go), made on its
 	// first request.
 	pagesMu sync.Mutex

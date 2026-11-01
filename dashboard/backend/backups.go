@@ -28,6 +28,7 @@ import (
 
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/backup"
+	"github.com/swenske/Janus/dashboard/backend/internal/ha"
 	"github.com/swenske/Janus/dashboard/backend/internal/nodeproxy"
 	"github.com/swenske/Janus/dashboard/backend/internal/s3"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
@@ -45,10 +46,11 @@ const maxBackupFile = 64 << 20
 
 // backupSkipped are what the data directory holds that a backup leaves
 // out: images downloaded on their way to a hypervisor, temporary files,
-// the running Controller's lock.
+// the running Controller's lock, its warm standby's state (internal/ha:
+// each Controller's own).
 func backupSkipped(rel string, d fs.DirEntry) bool {
 	base := d.Name()
-	return rel == "images" || rel == dataLockFile || strings.HasPrefix(base, "cidata-") || strings.HasSuffix(base, ".tmp") || strings.HasSuffix(base, ".download")
+	return rel == "images" || rel == dataLockFile || rel == ha.Dir || strings.HasPrefix(base, "cidata-") || strings.HasSuffix(base, ".tmp") || strings.HasSuffix(base, ".download")
 }
 
 type archiveWriter struct {
@@ -64,9 +66,9 @@ func (w archiveWriter) add(name string, data []byte, mtime time.Time) error {
 }
 
 // buildArchive is a backup's content: controller/data/... (the data
-// directory), controller/master.key, nodes/<name>/... (their
-// configurations).
-func (a *app) buildArchive(ctx context.Context) ([]byte, backup.Manifest, error) {
+// directory), controller/master.key, and withNodes nodes/<name>/...
+// (their configurations) - a standby's copy (internal/ha) goes without.
+func (a *app) buildArchive(ctx context.Context, withNodes bool) ([]byte, backup.Manifest, error) {
 	m := backup.Manifest{Version: version, Created: time.Now().UTC(), Nodes: map[string]string{}}
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
@@ -115,6 +117,9 @@ func (a *app) buildArchive(ctx context.Context) ([]byte, backup.Manifest, error)
 		}
 	}
 	for _, n := range a.store.List() {
+		if !withNodes {
+			break
+		}
 		if err := a.archiveNode(ctx, w, n); err != nil {
 			m.Nodes[n.Name] = err.Error()
 		} else {
@@ -246,7 +251,7 @@ func (a *app) backupName(t time.Time) string {
 
 // makeBackup is a backup file, sealed.
 func (a *app) makeBackup(ctx context.Context) ([]byte, backup.Manifest, error) {
-	archive, m, err := a.buildArchive(ctx)
+	archive, m, err := a.buildArchive(ctx, true)
 	if err != nil {
 		return nil, m, err
 	}

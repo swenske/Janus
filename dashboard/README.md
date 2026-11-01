@@ -675,6 +675,18 @@ the old host
 | the Controller, running | what the Controller can do while they hold it - it can't read past backups, and versioning or Object Lock keeps them |
 | the kit and its passphrase | the backups: keep them like the fleet's recovery kit |
 
+### Warm standby
+
+A second Controller can copy this one every minute and take over when
+you promote it - by hand, never by itself: **Settings › High
+availability › Add a standby** gives a pairing token, `dashboardd
+standby -peer ACTIVE:8443 -pair TOKEN` pairs a new data directory with
+it, and `dashboardd promote` on the standby's host - or **Switch over**
+on the active's card - makes it the active, the same Controller one
+epoch above; the old active becomes its standby. Behind a VIP or a DNS
+name both serve ([a warm standby for the
+Controller](../docs/guide/controller-standby.md)).
+
 ### API tokens and Terraform
 
 A program uses the Controller's API with an API token (the **API tokens**

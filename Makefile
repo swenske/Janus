@@ -58,7 +58,7 @@ GEN_DIR := gen
 	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-probe-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-fleetctl-test qemu-pairing-test qemu-rescue-test qemu-cluster-test qemu-state-migrate-test qemu-controller-cluster-test qemu-clusterctl-test qemu-cluster-upgrade-test qemu-cluster-upgrade-bgp-test qemu-cluster-handoff-test qemu-controller-cluster-upgrade-test qemu-self-register-fleet-test qemu-self-register-enroll-test qemu-self-register-legacy-test qemu-network-config-test qemu-dhcp-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build dashboard-bin \
-	qemu-dashboard-test dashboard-image controller-self-update-test controller-libvirt-test controller-sso-test terraform-provider-build terraform-provider-dist terraform-provider-dist-test terraform-provider-test routeros-hook-test local-dev-image ca-certificates seed-controller-test \
+	qemu-dashboard-test controller-standby-test dashboard-image controller-self-update-test controller-libvirt-test controller-sso-test terraform-provider-build terraform-provider-dist terraform-provider-dist-test terraform-provider-test routeros-hook-test local-dev-image ca-certificates seed-controller-test \
 	nocloud-seed-test kvm-image vmware-image iso-image qemu-iso-boot-test \
 	qemu-iso-install-test iso-image-with-bundle qemu-pxe-fetch-test \
 	rpi4-kernel-build rpi4-init rpi4-initramfs qemu-raspi4-boot-test \
@@ -1029,6 +1029,13 @@ versitygw:
 
 qemu-dashboard-test: dashboard-bin disk-image versitygw
 	./hack/qemu-dashboard-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/dashboardd $(BUILD_DIR)/versitygw/versitygw
+
+# The Controller's warm standby (internal/ha, docs/guide/controller-
+# standby.md): two native dashboardd behind a TCP forwarder standing for
+# the VIP, real enforcing nodes - pairing, copies, a forced promotion,
+# the old active fenced, a switchover back.
+controller-standby-test: dashboard-bin disk-image
+	./hack/controller-standby-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/dashboardd
 
 # Dashboard prep, tranche 5: builds dashboard/Dockerfile's runnable
 # image locally (see that file's own comment for why it needs no

@@ -28,6 +28,7 @@ import (
 
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/backup"
+	"github.com/swenske/Janus/dashboard/backend/internal/ha"
 	"github.com/swenske/Janus/dashboard/backend/internal/identity"
 	"github.com/swenske/Janus/dashboard/backend/internal/s3"
 )
@@ -84,6 +85,9 @@ func restoreFiles(archive []byte, dataDir, masterKeyPath string) (int, error) {
 			}
 			if rel == dataLockFile {
 				continue // the restoring process's own lock
+			}
+			if rel == ha.Dir || strings.HasPrefix(rel, ha.Dir+"/") {
+				continue // the restoring Controller's own warm standby state
 			}
 			dest = filepath.Join(dataDir, filepath.FromSlash(rel))
 			restoredCA = restoredCA || rel == identity.CAKeyFile

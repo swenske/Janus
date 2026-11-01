@@ -252,6 +252,17 @@ delete), on a schedule. A new Controller restores one from its first
 page or `dashboardd restore`, the signature checked with the key the kit
 holds: it's the same Controller again, its fleet with it.
 
+A warm standby (`dashboard/backend/internal/ha`, `ha.go`, `standby.go`,
+[a warm standby for the Controller](guide/controller-standby.md)) pulls
+the active's data directory and master key every minute over the
+registration port - each pinning the other's certificate, a secret
+shared since their pairing - and runs nothing else. Promoting it, by
+hand, restores the last copy one epoch above; a Controller that finds
+its peer active at a higher epoch steps down - at its start, before any
+loop, and every 30 s - its data set aside. No witness: a forced
+promotion behind a partition leaves two actives until one sees the
+other.
+
 A node registering itself with a Controller whose fleet is ready sends
 no key at all (`internal/selfregister`, protocol 2): its CA's
 certificate, its token if the Controller created it, and a secret it

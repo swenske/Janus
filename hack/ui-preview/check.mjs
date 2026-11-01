@@ -377,6 +377,18 @@ for (const reducedMotion of ['reduce', 'no-preference']) {
   await axe(page, 'settings')
   await page.screenshot({ path: `${OUT}/settings.png`, fullPage: true })
   if (!(await page.getByText('HTTPS certificate', { exact: false }).count())) problems.push('settings: no HTTPS certificate for an admin')
+  // The warm standby's card (HighAvailability.jsx): a token and the
+  // command that pairs a standby with it.
+  const ha = page.locator('section.card').filter({ has: page.locator('.card-title', { hasText: /^High availability$/ }) })
+  if (!(await ha.count())) problems.push('settings: no High availability card')
+  else {
+    await ha.getByRole('button', { name: /Add a standby/ }).click()
+    await page.waitForTimeout(1000)
+    const command = (await ha.getByLabel("The standby's command").inputValue().catch(() => '')) || ''
+    if (!/^dashboardd standby -data-dir \/data -peer \S+:\d+ -pair janus-standby_[0-9a-f]{64}_\S+$/.test(command)) problems.push(`settings: no pairing command on the High availability card: ${command || (await ha.innerText()).slice(0, 300)}`)
+    await axe(page, 'settings with a pairing token')
+    await page.screenshot({ path: `${OUT}/settings-ha.png`, fullPage: true })
+  }
   // Node figures off: the Nodes page asks for none, draws none; the
   // charts' box can't be ticked.
   await page.getByLabel(/Node figures/).uncheck()
