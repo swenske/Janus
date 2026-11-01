@@ -22,6 +22,8 @@
 #
 # Usage: hack/haproxy-runtime-test.sh <janusd-bin> <janusctl-bin> <haproxy-bin>
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 
 JANUSD="$(realpath "${1:?usage: $0 <janusd-bin> <janusctl-bin> <haproxy-bin>}")"
 CTL_BIN="$(realpath "${2:?usage: $0 <janusd-bin> <janusctl-bin> <haproxy-bin>}")"
@@ -126,10 +128,11 @@ for _ in $(seq 1 50); do
     sleep 0.2
 done
 grep -q "listening on" "$WORKDIR/janusd.log" || { echo "janusd never listened:" >&2; cat "$WORKDIR/janusd.log" >&2; exit 1; }
+pki_admin /etc/janus/pki-rt "$WORKDIR/pki" || { echo "no PKI in /etc/janus/pki-rt" >&2; cat "$WORKDIR/janusd.log" >&2; exit 1; }
 
 ctl() {
-    "$CTL_BIN" -endpoint "127.0.0.1:$P_GRPC" -ca /etc/janus/pki-rt/ca.crt \
-        -cert /etc/janus/pki-rt/admin.crt -key /etc/janus/pki-rt/admin.key "$@"
+    "$CTL_BIN" -endpoint "127.0.0.1:$P_GRPC" -ca "$WORKDIR/pki/ca.crt" \
+        -cert "$WORKDIR/pki/admin.crt" -key "$WORKDIR/pki/admin.key" "$@"
 }
 fail() { echo "haproxy-runtime-test: $*" >&2; cat "$WORKDIR/janusd.log" >&2; exit 1; }
 

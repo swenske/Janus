@@ -5,10 +5,13 @@
 //
 // Usage: go run ./hack/fleetca DIR
 //
-//	go run ./hack/fleetca sign CA.crt CA.key ROLE NAME OUT - a client
-//	certificate an issuing CA signs, whatever role (OUT.crt, the chain,
-//	and OUT.key): what a machine holding that CA's key could make without
-//	janusctl, which keeps to the bundle's limit (hack/qemu-fleetctl-test.sh).
+//	go run ./hack/fleetca sign CA.crt CA.key ROLE NAME OUT [VALIDITY] - a
+//	client certificate a CA signs, whatever role (OUT.crt, the chain, and
+//	OUT.key), valid VALIDITY (a Go duration, 1h by default): what a
+//	machine holding an issuing CA's key could make without janusctl,
+//	which keeps to the bundle's limit (hack/qemu-fleetctl-test.sh) - or
+//	a node's own CA read off its STATE, a test's admin certificate
+//	(hack/state-read.sh).
 //
 // DIR gets root.crt, stranger-root.crt (a CA of no fleet); bundle-1.json (lists issuing), bundle-2.json (lists
 // other); and <name>.crt/<name>.key, each certificate followed by the CA
@@ -29,12 +32,20 @@ import (
 )
 
 func main() {
-	if len(os.Args) == 7 && os.Args[1] == "sign" {
-		sign(os.Args[2], os.Args[3], os.Args[4], os.Args[5], os.Args[6])
+	if (len(os.Args) == 7 || len(os.Args) == 8) && os.Args[1] == "sign" {
+		validity := time.Hour
+		if len(os.Args) == 8 {
+			d, err := time.ParseDuration(os.Args[7])
+			if err != nil || d <= 0 {
+				log.Fatalf("VALIDITY %q: a Go duration (24h)", os.Args[7])
+			}
+			validity = d
+		}
+		sign(os.Args[2], os.Args[3], os.Args[4], os.Args[5], os.Args[6], validity)
 		return
 	}
 	if len(os.Args) != 2 {
-		log.Fatal("usage: fleetca DIR | fleetca sign CA.crt CA.key ROLE NAME OUT")
+		log.Fatal("usage: fleetca DIR | fleetca sign CA.crt CA.key ROLE NAME OUT [VALIDITY]")
 	}
 	dir := os.Args[1]
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -92,7 +103,7 @@ func must(ca *pki.CA, err error) *pki.CA {
 	return ca
 }
 
-func sign(certFile, keyFile, role, name, out string) {
+func sign(certFile, keyFile, role, name, out string, validity time.Duration) {
 	certPEM, err := os.ReadFile(certFile)
 	if err != nil {
 		log.Fatal(err)
@@ -102,7 +113,7 @@ func sign(certFile, keyFile, role, name, out string) {
 		log.Fatal(err)
 	}
 	ca := must(pki.LoadCA(certPEM, keyPEM))
-	leaf, key, err := ca.Issue(pki.IssueOptions{CommonName: name, Roles: []string{role}, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, Validity: time.Hour})
+	leaf, key, err := ca.Issue(pki.IssueOptions{CommonName: name, Roles: []string{role}, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, Validity: validity})
 	if err != nil {
 		log.Fatal(err)
 	}

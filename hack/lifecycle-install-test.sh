@@ -177,14 +177,12 @@ JANUSD_PID=$!
 # (janusd runs under sudo, for CAP_SYS_CHROOT) - the invoking
 # non-root user can't even traverse into it, so every check/read
 # against $PKI_DIR needs sudo too, not just the janusctl calls.
-DEADLINE=$((SECONDS + 20))
-while ! sudo test -s "$PKI_DIR/admin.crt" && [ "$SECONDS" -lt "$DEADLINE" ]; do sleep 1; done
-if ! sudo test -s "$PKI_DIR/admin.crt"; then
+if ! pki_admin "$PKI_DIR" "$WORKDIR/native-pki"; then
   echo "Install test FAILED: janusd never bootstrapped PKI at $PKI_DIR within 20s" >&2
   echo "--- native janusd log ---" >&2; cat "$WORKDIR/native.log" >&2
   exit 1
 fi
-NATIVE_CTL_ARGS=(-endpoint "127.0.0.1:${NATIVE_PORT}" -ca "$PKI_DIR/ca.crt" -cert "$PKI_DIR/admin.crt" -key "$PKI_DIR/admin.key")
+NATIVE_CTL_ARGS=(-endpoint "127.0.0.1:${NATIVE_PORT}" -ca "$WORKDIR/native-pki/ca.crt" -cert "$WORKDIR/native-pki/admin.crt" -key "$WORKDIR/native-pki/admin.key")
 echo "Native janusd OK: PKI bootstrapped at $PKI_DIR"
 
 BLANK_DISK="$WORKDIR/blank-disk.img"
