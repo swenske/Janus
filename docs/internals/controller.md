@@ -59,6 +59,13 @@ sequenceDiagram
 The master key (`JANUS_CONTROLLER_MASTER_KEY_FILE`) lives outside the
 data directory, so a copy of the data alone opens nothing.
 
+One Controller at a time on a data directory: it holds
+`<data-dir>/.dashboardd.lock` locked while it runs, and a second one -
+or a `dashboardd restore` - started on the same directory stops at once,
+saying which process holds it (a second container on the same volume,
+the volume mounted on two hosts would otherwise both run its loops).
+`dashboardd reset-user` is the exception: it's made to run beside it.
+
 ## Background work
 
 - **The fleet's trust**: a loop brings every node to trust the fleet,

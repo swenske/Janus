@@ -82,6 +82,9 @@ func restoreFiles(archive []byte, dataDir, masterKeyPath string) (int, error) {
 			if rel == "" || strings.HasPrefix(rel, "../") || path.IsAbs(rel) {
 				return n, fmt.Errorf("the archive names %q: refused", h.Name)
 			}
+			if rel == dataLockFile {
+				continue // the restoring process's own lock
+			}
 			dest = filepath.Join(dataDir, filepath.FromSlash(rel))
 			restoredCA = restoredCA || rel == identity.CAKeyFile
 		default:
@@ -290,7 +293,8 @@ var restartSelf = func() {
 // FILE] -kit KIT BACKUP` - the passphrase from JANUS_BACKUP_PASSPHRASE or
 // asked - or, with an admin's key instead of the kit, `-identity
 // ~/.ssh/id_ed25519 -signing-key BASE64` (the key the Controller's backup
-// page shows). The Controller must not be running on that data directory.
+// page shows). The Controller must not be running on that data directory:
+// its lock (datalock.go) refuses it.
 func restoreCommand(args []string) {
 	fs := flag.NewFlagSet("restore", flag.ExitOnError)
 	dataDir := fs.String("data-dir", "/data", "the Controller's data directory")
@@ -311,6 +315,12 @@ func restoreCommand(args []string) {
 	fail := func(err error) {
 		fmt.Fprintln(os.Stderr, "restore:", err)
 		os.Exit(1)
+	}
+	if err := os.MkdirAll(*dataDir, 0o700); err != nil {
+		fail(err)
+	}
+	if err := lockDataDir(*dataDir); err != nil {
+		fail(err)
 	}
 	file, err := os.ReadFile(fs.Arg(0))
 	if err != nil {
