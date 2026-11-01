@@ -132,9 +132,16 @@ technology - a node's CPU, memory, STATE and LOGS on its Overview, each
 writable filesystem on Storage, a hypervisor's CPU, memory and pool.
 LOGS (`/api/log-boots`, every 30 s, SystemService/LogBoots: the raw
 partition 7, never mounted - Mounts doesn't list it) is a ring of 1 MiB
-segments, full by design once it went round: its gauge never turns
-amber or red (`thresholds={[100, 100]}`), its line says the boots it
-holds, its tooltip since when. With it, Overview's six tiles fill one
+segments, full by design once it went round, so its gauge leads with
+how far back the logs go (`logsVolume.js`): in its middle the span from
+the oldest segment it still holds ("2d 9h", the days alone past a
+month), around it the ring's fill - full once it went round, never
+amber or red (`thresholds={[100, 100]}`) -, under it since when, then
+its boots and the rate it's written at (used over span, "~214 MiB/day",
+from an hour on) or, still filling, its share and "none written over";
+the tooltip says what a full ring means, when a filling one fills, and
+how to keep logs longer (a log target, HAProxy's access logs off LOGS).
+With it, Overview's six tiles fill one
 row, then two of three, then three of two (`.overview-six`); without
 (a node installed before it, the ISO, local-dev), five as before.
 `Meter` stays for bars in tables and relative sizes.
@@ -1109,7 +1116,8 @@ for every chart (`scheduler.js`).
 - **Previous boots** (Logs › Service logs, Logs › Kernel): a node with a
   LOGS partition lists its earlier boots (`/api/log-boots`) in a
   `BootSelect` next to the page's other controls - only once there is
-  one. A previous boot is fetched whole (`/api/logs?boot=`,
+  one; once the ring went round, its oldest boot says from when it's
+  kept, its start may be written over. A previous boot is fetched whole (`/api/logs?boot=`,
   `/api/dmesg?boot=`, plain text) by `BootLog` and shown in `LogViewer`
   with `text` - no pause, follow or clear, a "previous boot" badge.
 

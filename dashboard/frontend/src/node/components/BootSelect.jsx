@@ -1,5 +1,6 @@
 import { usePoll } from '../hooks.jsx'
 import { fmtDateTime } from '../../shared/units.js'
+import { cutBoot } from '../logsVolume.js'
 
 function started(b) {
   return fmtDateTime(Number(b.started_unix_ns) / 1e6)
@@ -7,17 +8,19 @@ function started(b) {
 
 // BootSelect picks this boot (followed live) or a previous one, from the
 // node's LOGS partition. Nothing to pick on a node without one, or
-// before its first reboot.
+// before its first reboot. Once the ring went round, its oldest boot's
+// first lines may be written over: that one says from when it's kept.
 export default function BootSelect({ value, onChange }) {
   const resp = usePoll('/api/log-boots', { every: 0 })
   const boots = resp.data?.available ? (resp.data.boots || []).filter((b) => b.offset < 0) : []
+  const cut = cutBoot(resp.data)
   if (boots.length === 0) return null
   return (
     <select value={value} onChange={(e) => onChange(Number(e.target.value))} aria-label="Boot">
       <option value={0}>This boot (live)</option>
       {boots.map((b) => (
         <option key={b.offset} value={b.offset}>
-          {b.offset === -1 ? 'Previous boot' : `Boot ${b.offset}`} (started {started(b)})
+          {b.offset === -1 ? 'Previous boot' : `Boot ${b.offset}`} {b.offset === cut ? `(kept from ${started(b)} - its start may be written over)` : `(started ${started(b)})`}
         </option>
       ))}
     </select>
