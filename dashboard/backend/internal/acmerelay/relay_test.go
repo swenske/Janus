@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -244,5 +246,36 @@ func TestLimits(t *testing.T) {
 	s.release("n1")
 	if !s.take("n1") {
 		t.Error("refused once one ended")
+	}
+}
+
+// TestGiven: the URLs given are kept newest last, once each, GivenKept at
+// most, across a reload.
+func TestGiven(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "given.json")
+	g, err := LoadGiven(path)
+	if err != nil || g.Has("https://a:8444") {
+		t.Fatalf("a new one: %v", err)
+	}
+	for i := range GivenKept + 3 {
+		if err := g.Note(fmt.Sprintf("https://192.0.2.%d:8444", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := g.Note("https://192.0.2.5:8444"); err != nil { // given again: the newest
+		t.Fatal(err)
+	}
+	if err := g.Note(""); err != nil {
+		t.Fatal(err)
+	}
+	again, err := LoadGiven(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again.urls) != GivenKept || again.urls[GivenKept-1] != "https://192.0.2.5:8444" {
+		t.Errorf("kept %v", again.urls)
+	}
+	if again.Has("https://192.0.2.0:8444") || !again.Has("https://192.0.2.18:8444") || again.Has("") {
+		t.Errorf("the oldest stays or the newest is gone: %v", again.urls)
 	}
 }

@@ -68,5 +68,7 @@ from the Controller's web UI, from `janusctl`, or from Terraform.
 - [Troubleshooting](troubleshooting.md) - where each problem shows,
   without a shell: registration, access, HAProxy, the network, VRRP and
   BGP, updates.
+- [When the Controller is down or lost](recovery.md) - what keeps
+  working, restoring it on the same host or another, the recovery kit.
 - [Security policy](../../SECURITY.md) - supported versions and how to
   report a vulnerability.

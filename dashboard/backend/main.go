@@ -263,6 +263,7 @@ func main() {
 	if err := app.startLogForwarding(masterKey); err != nil {
 		log.Fatalf("log forwarding: %v", err)
 	}
+	sayRestored(*dataDir, app.suggestedRegisterAddr)
 	app.startACMERelay()
 	if err := app.startACMEOrdering(masterKey, *acmeClient); err != nil {
 		log.Fatalf("lets encrypt ordering: %v", err)
@@ -402,8 +403,10 @@ type app struct {
 	// relay is the nodes' way to Let's Encrypt through the Controller
 	// (acme_relay.go), ordering the certificates it orders for them
 	// (acme_order.go); nil in tests that don't use them.
-	relay    *acmerelay.Server
-	ordering *acmeOrdering
+	relay *acmerelay.Server
+	// relayGiven are the URLs nodes were given to reach it.
+	relayGiven *acmerelay.Given
+	ordering   *acmeOrdering
 	// identity is the Controller's own (internal/identity): what nodes
 	// register against (-register-addr) and are provisioned with - its
 	// CA. ui is what the main port serves - that identity, or the page's

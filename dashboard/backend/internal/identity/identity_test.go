@@ -298,3 +298,63 @@ func TestMismatchedFiles(t *testing.T) {
 		t.Error("not a certificate of the CA")
 	}
 }
+
+// TestNewHostAddress: a Controller started on a host with an address its
+// certificate doesn't name - restored on another host, given a new
+// address - gets a new one naming it, signed by the same CA, still naming
+// what the one before did; a link-local address changes nothing, nor
+// does a legacy certificate move before its switch for it.
+func TestNewHostAddress(t *testing.T) {
+	saved := localIPs
+	t.Cleanup(func() { localIPs = saved })
+	host := []net.IP{net.ParseIP("192.0.2.10")}
+	localIPs = func() []net.IP { return host }
+
+	dir := t.TempDir()
+	key := masterKey(t, dir)
+	id, err := Open(dir, key, "controller.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := id.Certificate()
+	if !hasIP(leafOf(t, first), "192.0.2.10") {
+		t.Fatal("the host's address isn't named")
+	}
+
+	// A veth's link-local address appears: nothing to do.
+	host = append(host, net.ParseIP("fe80::1"))
+	if renewed, err := id.Refresh(); err != nil || renewed {
+		t.Fatalf("renewed for a link-local address: %v %v", renewed, err)
+	}
+
+	// The data directory restored on another host.
+	host = []net.IP{net.ParseIP("198.51.100.20")}
+	moved, err := Open(dir, key, "controller.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf := leafOf(t, moved.Certificate())
+	if bytes.Equal(moved.Certificate().Certificate[0], first.Certificate[0]) {
+		t.Fatal("not renewed on a host whose address it doesn't name")
+	}
+	if !hasIP(leaf, "198.51.100.20") || !hasIP(leaf, "192.0.2.10") || !slices.Contains(leaf.DNSNames, "controller.example.com") {
+		t.Errorf("names: %v %v", leaf.DNSNames, leaf.IPAddresses)
+	}
+	if !moved.CA().Equal(id.CA()) || verifies(id.TrustPEM(), moved.Certificate(), "198.51.100.20") != nil {
+		t.Error("what trusted the identity before doesn't take it at the new address")
+	}
+	if renewed, err := moved.Refresh(); err != nil || renewed {
+		t.Errorf("renewed again though nothing changed: %v %v", renewed, err)
+	}
+
+	// A legacy certificate keeps being served until its switch.
+	ldir := t.TempDir()
+	legacy := legacyIdentity(t, ldir, 200*24*time.Hour)
+	lid, err := Open(ldir, masterKey(t, ldir), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !lid.Legacy() || !bytes.Equal(lid.Certificate().Certificate[0], legacy.Raw) {
+		t.Error("a legacy certificate was replaced for this host's address before its switch")
+	}
+}

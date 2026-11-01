@@ -28,6 +28,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/swenske/Janus/internal/pki"
 	"github.com/swenske/Janus/internal/sshsig"
 )
 
@@ -82,6 +83,9 @@ type cliContext struct {
 	SSHKey string `json:"ssh_key,omitempty"`
 	// Fleet: no Controller - janusctl keeps the fleet itself (fleet.go).
 	Fleet *ctxFleet `json:"fleet,omitempty"`
+	// Kit: the certificate is the recovery kit's (janusctl login -kit,
+	// loginkit.go), not the Controller's - never renewed by asking it.
+	Kit bool `json:"kit,omitempty"`
 
 	// seen is the SHA-256 of the certificate the Controller presented on
 	// the last call - what an SSH sign-in's signature names.
@@ -162,8 +166,11 @@ func runLogin(args []string) {
 	browser := fs.Bool("browser", false, "sign in on the Controller's page, opened in the browser (the default without -user, -ssh-key or JANUS_TOKEN)")
 	noOpen := fs.Bool("no-open", false, "with -browser: only print the page's address")
 	deviceFlag := fs.Bool("device", false, "sign in on the Controller's page from another machine: a code to enter there")
+	kitFile := fs.String("kit", "", "the Controller down: the fleet's recovery kit signs this context a certificate for an hour - its passphrase from "+kitPassphraseEnv+" or asked; the Controller isn't asked")
+	kitRole := fs.String("role", pki.RoleAdmin, "with -kit: the certificate's role")
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), "usage: janusctl login [-context NAME] [-controller HOST[:PORT]] [-controller-ca FILE | -controller-fingerprint SHA256] [-browser | -device | -user NAME [-ssh-key FILE]]")
+		fmt.Fprintln(fs.Output(), "       janusctl login [-context NAME] -kit KIT [-role ROLE]   the Controller down: an hour's certificate from the recovery kit")
 		fmt.Fprintln(fs.Output(), "       (neither -controller-ca nor -controller-fingerprint: a Controller certificate this system trusts)")
 		fmt.Fprintln(fs.Output(), "       JANUS_TOKEN=janus_... janusctl login [-context NAME] [-controller ...]   with an API token instead (CI)")
 		fs.PrintDefaults()
@@ -187,6 +194,21 @@ func runLogin(args []string) {
 	}
 	if ctx.Fleet != nil {
 		log.Fatalf("janusctl login: %q is a fleet context, without a Controller: its certificate is signed here (janusctl fleet)", ctxName)
+	}
+	if *kitFile != "" {
+		if ctx.Controller == "" || *controller != "" {
+			log.Fatalf("janusctl login -kit: the context of a Controller signed in to before - the nodes it listed then are the ones reached")
+		}
+		if err := loginKit(ctxName, ctx, *kitFile, *kitRole); err != nil {
+			log.Fatalf("janusctl login -kit: %v", err)
+		}
+		cfg.Contexts[ctxName] = ctx
+		cfg.Current = ctxName
+		if err := cfg.save(); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("Signed with the recovery kit: a certificate the fleet's root signs, %s (%s) until %s - context %q, %d node(s); the Controller wasn't asked. janusctl login once it's back.\n", kitUser(ctx.User), ctx.Role, ctx.Expires.Local().Format("15:04"), ctxName, len(ctx.Nodes))
+		return
 	}
 	if *controller != "" {
 		addr := normalizeController(*controller)
@@ -262,6 +284,7 @@ func runLogin(args []string) {
 			log.Fatalf("janusctl login: %v", err)
 		}
 	}
+	ctx.Kit = false
 	cfg.Contexts[ctxName] = ctx
 	cfg.Current = ctxName
 	if err := cfg.save(); err != nil {
@@ -642,6 +665,9 @@ func fresh(cfg *cliConfig, name string, ctx *cliContext) error {
 		}
 		return cfg.save()
 	}
+	if ctx.Kit {
+		return fmt.Errorf("the recovery kit's certificate of context %q ends at %s: janusctl login -kit KIT again - or janusctl login, the Controller back", name, ctx.Expires.Local().Format("15:04"))
+	}
 	if token := os.Getenv(tokenEnv); token != "" && ctx.SSHKey == "" {
 		if err := ctx.signIn(name, token); err != nil {
 			return fmt.Errorf("renew the certificate: %w", err)
@@ -815,6 +841,9 @@ func runContext(args []string) {
 			state := "until " + c.Expires.Local().Format("2006-01-02 15:04")
 			if time.Now().After(c.Expires) {
 				state = "ended - janusctl login"
+			}
+			if c.Kit {
+				state = "the recovery kit's certificate " + state
 			}
 			where := c.Controller
 			if f := c.Fleet; f != nil {

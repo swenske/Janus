@@ -1297,8 +1297,35 @@ python3 -c 'import json,sys; m=json.load(open(sys.argv[1]))["manifest"]; assert 
   || { echo "Dashboard test FAILED: the backup didn't take every node's configuration: $(cat "$WORKDIR/backup-run.json")" >&2; exit 1; }
 echo "Backup OK: the Controller backed itself and the node's configuration up to versitygw, encrypted to its backup kit, signed"
 
+# The context's node list (its CA) as the Controller has it now - the
+# node's CA was rotated twice since its last sign-in.
+JANUS_TOKEN="$ADMIN_TOKEN" "$WORKDIR/janusctl" login -context admin >"$WORKDIR/janusctl-relogin.txt" 2>&1 \
+  || { echo "Dashboard test FAILED: janusctl login before the Controller stops: $(cat "$WORKDIR/janusctl-relogin.txt")" >&2; exit 1; }
 kill "$DASHBOARD_PID"
 wait "$DASHBOARD_PID" 2>/dev/null || true
+
+# --- the Controller down (docs/guide/recovery.md): the fleet's recovery
+# kit signs janusctl's context a certificate for an hour - the node takes
+# it, names the kit in its log; the Controller isn't asked, the node's
+# bundle doesn't change ---
+bundle_version() {
+  local out
+  out="$("$WORKDIR/janusctl" -context admin -n test-node access trust 2>&1)" || { echo "Dashboard test FAILED: reading the node's trust: $out" >&2; return 1; }
+  grep -o 'version [0-9]*' <<<"$out" | head -1
+}
+bundle_before="$(bundle_version)" || exit 1
+JANUS_KIT_PASSPHRASE="$PASSPHRASE" "$WORKDIR/janusctl" login -context admin -kit "$WORKDIR/recovery-kit.age" >"$WORKDIR/janusctl-kit.txt" 2>&1 \
+  || { echo "Dashboard test FAILED: janusctl login -kit with the Controller down: $(cat "$WORKDIR/janusctl-kit.txt")" >&2; exit 1; }
+grep -q "Signed with the recovery kit: a certificate the fleet's root signs, kit:admin (os:admin)" "$WORKDIR/janusctl-kit.txt" || { echo "Dashboard test FAILED: janusctl login -kit: $(cat "$WORKDIR/janusctl-kit.txt")" >&2; exit 1; }
+"$WORKDIR/janusctl" -context admin -n test-node system service restart haproxy >"$WORKDIR/janusctl-kit-restart.txt" 2>&1 \
+  || { echo "Dashboard test FAILED: janusctl with the kit's certificate: $(cat "$WORKDIR/janusctl-kit-restart.txt")" >&2; exit 1; }
+"$WORKDIR/janusctl" -context admin -n test-node system logs janusd >"$WORKDIR/node-janusd-kit.log" 2>&1 || true
+grep -qE 'api: SystemService/ServiceRestart: kit:admin \(os:admin, fleet\)$' "$WORKDIR/node-janusd-kit.log" || { echo "Dashboard test FAILED: the node didn't log the kit's restart: $(grep ServiceRestart "$WORKDIR/node-janusd-kit.log")" >&2; exit 1; }
+"$WORKDIR/janusctl" context list | grep -q "the recovery kit's certificate until" || { echo "Dashboard test FAILED: context list doesn't say the kit's certificate: $("$WORKDIR/janusctl" context list)" >&2; exit 1; }
+bundle_after="$(bundle_version)" || exit 1
+[ -n "$bundle_after" ] && [ "$bundle_before" = "$bundle_after" ] || { echo "Dashboard test FAILED: the node's bundle changed under the kit's certificate: '$bundle_before' -> '$bundle_after'" >&2; exit 1; }
+echo "Controller down OK: janusctl login -kit signed the context an hour's certificate with the fleet's root; the node took it and logged kit:admin; its bundle didn't change"
+
 "$DASHBOARDD" -addr ":${DASHBOARD_ADDR_PORT}" -register-addr ":${DASHBOARD_REGISTER_PORT}" -data-dir "$WORKDIR/data2" > "$WORKDIR/dashboardd-new.log" 2>&1 &
 DASHBOARD_PID=$!
 deadline=$((SECONDS + 20))

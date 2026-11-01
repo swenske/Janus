@@ -458,13 +458,87 @@ func Load(path string) (Config, error) {
 	return c, nil
 }
 
-// Save writes c at path durably: tmp, fsync, rename, the directory's
-// fsync.
+// Save writes c at path durably.
 func Save(path string, c Config) error {
 	data, err := json.MarshalIndent(c.Normalized(), "", "  ")
 	if err != nil {
 		return err
 	}
+	return writeFile(path, data)
+}
+
+// GivenKept is how many URLs Given keeps.
+const GivenKept = 16
+
+// Given are the URLs the Controller gave its nodes to reach the relay,
+// newest last, kept in a file: a node still set to one of them was set
+// by the Controller, and follows it when the relay's address changes (a
+// Controller restored on another host, an admin's new address). An
+// address an admin typed on a node for itself is none of them: it stays.
+type Given struct {
+	path string
+	mu   sync.Mutex
+	urls []string
+}
+
+// LoadGiven reads the URLs given, kept at path; none if there's no file.
+func LoadGiven(path string) (*Given, error) {
+	g := &Given{path: path}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return g, nil
+	}
+	if err != nil {
+		return g, err
+	}
+	var f struct {
+		URLs []string `json:"urls"`
+	}
+	if err := json.Unmarshal(data, &f); err != nil {
+		return g, fmt.Errorf("%s: %w", path, err)
+	}
+	g.urls = f.URLs
+	return g, nil
+}
+
+// Note records url as given now - the newest - and saves it when that's
+// news.
+func (g *Given) Note(url string) error {
+	if url == "" {
+		return nil
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if n := len(g.urls); n > 0 && g.urls[n-1] == url {
+		return nil
+	}
+	urls := append(slices.DeleteFunc(slices.Clone(g.urls), func(u string) bool { return u == url }), url)
+	if len(urls) > GivenKept {
+		urls = urls[len(urls)-GivenKept:]
+	}
+	data, err := json.MarshalIndent(struct {
+		URLs []string `json:"urls"`
+	}{urls}, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := writeFile(g.path, data); err != nil {
+		return err
+	}
+	g.urls = urls
+	return nil
+}
+
+// Has reports whether url was given.
+func (g *Given) Has(url string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return slices.Contains(g.urls, url)
+}
+
+// writeFile writes data at path durably: tmp, fsync, rename, the
+// directory's fsync.
+func writeFile(path string, data []byte) error {
 	tmp := path + ".tmp"
 	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {

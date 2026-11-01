@@ -13,8 +13,12 @@
 #     verified against Pebble's root;
 #   - the relay's journal names the node, the CA's host and the bytes;
 #     a destination not allowed is refused and journaled, a client
-#     certificate of another CA is refused, a node removed from the
-#     Controller is refused;
+#     certificate of another CA is refused;
+#   - the Controller restored from its backup at another address - as on
+#     another host (docs/guide/recovery.md): its certificate names the
+#     new address, and once its relay's address is set to it, the node
+#     is given the new URL by itself and reaches the CA through it;
+#   - a node removed from the Controller is refused;
 #   - no AVC denial on the node.
 #
 # Usage: hack/qemu-acme-relay-test.sh <disk.img> <janusctl-bin> <pebble-bin-dir> <dashboardd-bin>
@@ -33,10 +37,12 @@ TIMEOUT="${QEMU_ACME_TIMEOUT:-90}"
 B="${QEMU_ACME_RELAY_BASE_PORT:-$((18820 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 P_HEALTH=$B P_GRPC=$((B + 1)) P_80=$((B + 2)) P_443=$((B + 3))
 P_ACME=$((B + 4)) P_ACME_MGMT=$((B + 5)) P_DNS=$((B + 6)) P_DNS_MGMT=$((B + 7))
-P_DASH=$((B + 8)) P_REG=$((B + 9)) P_RELAY=$((B + 10))
+P_DASH=$((B + 8)) P_REG=$((B + 9)) P_RELAY=$((B + 10)) P_RELAY2=$((B + 12))
 # The relay's address as the node sees it: a guestfwd, and a name in the
-# Controller's identity (-advertise-address).
+# Controller's identity (-advertise-address). RELAY_GUEST2: the restored
+# Controller's, "on another host".
 RELAY_GUEST=10.0.2.100
+RELAY_GUEST2=10.0.2.101
 
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
 OVMF_VARS_TEMPLATE="${OVMF_VARS_TEMPLATE:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
@@ -52,7 +58,7 @@ trap cleanup EXIT
 LOG="$WORKDIR/boot.log"
 fail() {
   echo "ACME relay test FAILED: $*" >&2
-  for f in pebble.log dash.log forward.log; do
+  for f in pebble.log dash.log dash2.log forward.log; do
     [ -f "$WORKDIR/$f" ] && { echo "--- $f ---" >&2; tail -40 "$WORKDIR/$f" >&2; }
   done
   [ -f "$LOG" ] && { echo "--- console output ---" >&2; tail -150 "$LOG" >&2; }
@@ -105,6 +111,7 @@ cp "$OVMF_VARS_TEMPLATE" "$WORKDIR/OVMF_VARS.fd"
 fwd="restrict=on,hostfwd=tcp::${P_HEALTH}-:8080,hostfwd=tcp::${P_GRPC}-:9505"
 fwd="$fwd,hostfwd=tcp:127.0.0.1:${P_80}-:80,hostfwd=tcp::${P_443}-:443"
 fwd="$fwd,guestfwd=tcp:$RELAY_GUEST:8444-cmd:$WORKDIR/connectproxy -stdio -forward 127.0.0.1:$P_RELAY -log $WORKDIR/forward.log"
+fwd="$fwd,guestfwd=tcp:$RELAY_GUEST2:8444-cmd:$WORKDIR/connectproxy -stdio -forward 127.0.0.1:$P_RELAY2 -log $WORKDIR/forward.log"
 qemu-system-x86_64 -accel kvm -accel tcg \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file="$WORKDIR/OVMF_VARS.fd" \
@@ -132,14 +139,15 @@ echo "  ok: the node is up, its account key made"
 # --- the Controller -------------------------------------------------------
 "$DASHBOARDD" -addr "127.0.0.1:$P_DASH" -register-addr "127.0.0.1:$P_REG" -advertise-address "$RELAY_GUEST" \
   -data-dir "$WORKDIR/data" > "$WORKDIR/dash.log" 2>&1 &
-PIDS+=($!)
+DASH_PID=$!
+PIDS+=($DASH_PID)
 API="https://127.0.0.1:$P_DASH"
 for _ in $(seq 30); do curl -sk -o /dev/null "$API/api/auth/status" && break; sleep 1; done
 JAR="$WORKDIR/jar"
 curl -sk -c "$JAR" -o /dev/null -X POST "$API/api/auth/setup" -H 'Content-Type: application/json' -d '{"password":"relay-test-admin-pw"}'
 curl -sk -b "$JAR" -X POST "$API/api/auth/mfa/totp/setup" -o "$WORKDIR/totp.json"
 SECRET="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["secret"])' "$WORKDIR/totp.json")"
-curl -sk -b "$JAR" -o /dev/null -X POST "$API/api/auth/mfa/totp/enable" -H 'Content-Type: application/json' \
+curl -sk -b "$JAR" -o "$WORKDIR/recovery.json" -X POST "$API/api/auth/mfa/totp/enable" -H 'Content-Type: application/json' \
   -d "{\"code\":\"$(python3 "$(dirname "$0")/totp.py" "$SECRET")\"}"
 api() { curl -sk -b "$JAR" -H 'Content-Type: application/json' "$@"; }
 ID="$(curl -sk -b "$JAR" -X POST "$API/api/nodes" -F "name=edge-relay" -F "address=127.0.0.1:$P_GRPC" -F "pfx_password=t" \
@@ -229,6 +237,43 @@ if curl -s -m 10 -o /dev/null --proxy "https://127.0.0.1:$P_RELAY" --proxy-insec
 fi
 grep -q "not a certificate of an approved node's CA" "$WORKDIR/dash.log" || fail "the stranger's refusal isn't in the Controller's log"
 echo "  ok: a certificate of another CA is refused"
+
+# --- the Controller restored at another address -----------------------------
+# Its backup, downloaded, restored with `dashboardd restore` on a second
+# data directory; started with another -advertise-address and its relay
+# on another port - what a Controller restored on another host sees.
+BACKUP_PASS="$(api -X POST "$API/api/backups/kit" | python3 -c 'import json,sys; print(json.load(sys.stdin)["passphrase"])')"
+api "$API/api/backups/kit" -o "$WORKDIR/backup-kit.age"
+python3 -c 'import json,sys; print(json.dumps({"kit": open(sys.argv[1]).read(), "passphrase": sys.argv[2]}))' "$WORKDIR/backup-kit.age" "$BACKUP_PASS" > "$WORKDIR/kit-confirm.json"
+[ "$(api -o /dev/null -w '%{http_code}' -X POST "$API/api/backups/kit/confirm" --data-binary @"$WORKDIR/kit-confirm.json")" = 200 ] || fail "confirm the backup kit"
+[ "$(api -o "$WORKDIR/backup.janusbackup" -w '%{http_code}' "$API/api/backups/download")" = 200 ] || fail "download a backup"
+kill "$DASH_PID"
+wait "$DASH_PID" 2>/dev/null || true
+out="$(JANUS_BACKUP_PASSPHRASE="$BACKUP_PASS" "$DASHBOARDD" restore -data-dir "$WORKDIR/data2" -kit "$WORKDIR/backup-kit.age" "$WORKDIR/backup.janusbackup" 2>&1)" ||
+  fail "dashboardd restore: $out"
+"$DASHBOARDD" -addr "127.0.0.1:$P_DASH" -register-addr "127.0.0.1:$P_REG" -advertise-address "$RELAY_GUEST2" \
+  -data-dir "$WORKDIR/data2" > "$WORKDIR/dash2.log" 2>&1 &
+PIDS+=($!)
+for _ in $(seq 30); do curl -sk -o /dev/null "$API/api/auth/status" && break; sleep 1; done
+grep -q "restore: first start on the backup of" "$WORKDIR/dash2.log" || fail "the restored Controller's first start doesn't say what to check"
+grep -q "identity: the Controller's certificate doesn't name $RELAY_GUEST2: renewed for it" "$WORKDIR/dash2.log" ||
+  fail "the restored Controller's certificate wasn't renewed for its new address"
+curl -sk -c "$JAR" -o /dev/null -X POST "$API/api/auth/login" -H 'Content-Type: application/json' -d '{"password":"relay-test-admin-pw"}'
+code="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["recovery_codes"][0])' "$WORKDIR/recovery.json")"
+[ "$(api -o /dev/null -w '%{http_code}' -X POST "$API/api/auth/mfa/recovery" -d "{\"code\":\"$code\"}")" = 204 ] || fail "sign in to the restored Controller"
+echo | openssl s_client -connect "127.0.0.1:$P_REG" 2>/dev/null | openssl x509 -noout -ext subjectAltName > "$WORKDIR/san.txt" || true
+check "the certificate names the new address and the old one" "IP Address:$RELAY_GUEST2" "$(cat "$WORKDIR/san.txt")"
+check "the certificate names the new address and the old one" "IP Address:$RELAY_GUEST," "$(cat "$WORKDIR/san.txt"),"
+api -X PUT "$API/api/acme-relay" -d "{\"enabled\": true, \"listen\": \"127.0.0.1:$P_RELAY2\", \"address\": \"$RELAY_GUEST2:8444\", \"allowed\": [\"127.0.0.1:$P_ACME\"]}" > "$WORKDIR/relay.json"
+check "the restored relay listens on its new port" "\"listening\": ?\"127.0.0.1:$P_RELAY2\"" "$(cat "$WORKDIR/relay.json")"
+deadline=$((SECONDS + 60))
+until grep -q "acme relay: node edge-relay ($ID): reaches the relay at https://$RELAY_GUEST2:8444 now (was https://$RELAY_GUEST:8444)" "$WORKDIR/dash2.log"; do
+  [ "$SECONDS" -lt "$deadline" ] || fail "the node wasn't given the relay's new URL"
+  sleep 1
+done
+out="$(ctl haproxy acme test-path)" || fail "the CA through the restored Controller's relay: $out"
+check "the CA reached through the new URL" "reached through the Controller's relay https://$RELAY_GUEST2:8444" "$out"
+echo "  ok: restored at another address, the Controller named it in its certificate and gave the node its relay's new URL; the CA comes through it"
 
 api -X DELETE "$API/api/nodes/$ID" >/dev/null
 if out="$(ctl haproxy acme test-path 2>&1)"; then fail "a node removed from the Controller still went through: $out"; fi

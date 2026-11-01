@@ -63,6 +63,7 @@ Install, configure and operate Janus nodes and the Controller.
 - [Packet capture](packet-capture.md)
 - [Connectivity test](guide/connectivity-probe.md)
 - [Troubleshooting](guide/troubleshooting.md)
+- [Controller down or lost](guide/recovery.md)
 - [Diagnostic bundle](guide/diagnostic-bundle.md)
 - [Security policy](../SECURITY.md)
 
