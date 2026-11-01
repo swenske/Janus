@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	PairingService_Pair_FullMethodName = "/janus.v1alpha1.PairingService/Pair"
+	PairingService_Pair_FullMethodName   = "/janus.v1alpha1.PairingService/Pair"
+	PairingService_Rescue_FullMethodName = "/janus.v1alpha1.PairingService/Rescue"
 )
 
 // PairingServiceClient is the client API for PairingService service.
@@ -35,12 +36,24 @@ const (
 // client proves it read there - five wrong ones close the window until
 // the node restarts. The port is never the API's, and closes once the
 // node trusts a fleet.
+//
+// A node started with a rescue volume attached (a JANUSRESCUE volume,
+// janusctl image rescue-volume) opens the window whatever it trusts,
+// for 30 minutes, once a boot: someone at its console - or its
+// hypervisor's - gets an admin certificate of its own CA, the way back
+// to a node whose fleet is lost.
 type PairingServiceClient interface {
 	// Gives the node a fleet - root_cert and bundle, checked as TrustSet
 	// checks them - when secret is the code's: the node trusts that fleet
 	// from now on, and its pairing window closes. The answer is the
 	// node's own CA, what a client verifies it with from then on.
 	Pair(ctx context.Context, in *PairRequest, opts ...grpc.CallOption) (*PairResponse, error)
+	// Issues an os:admin certificate of the node's own CA, valid an hour,
+	// for public_key - named rescue:<name> - when secret is the code's and
+	// the window is a rescue volume's: its holder may reset the node's
+	// trust and give it another fleet. The window closes; the next one
+	// needs the volume and another boot.
+	Rescue(ctx context.Context, in *RescueRequest, opts ...grpc.CallOption) (*RescueResponse, error)
 }
 
 type pairingServiceClient struct {
@@ -61,6 +74,16 @@ func (c *pairingServiceClient) Pair(ctx context.Context, in *PairRequest, opts .
 	return out, nil
 }
 
+func (c *pairingServiceClient) Rescue(ctx context.Context, in *RescueRequest, opts ...grpc.CallOption) (*RescueResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RescueResponse)
+	err := c.cc.Invoke(ctx, PairingService_Rescue_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PairingServiceServer is the server API for PairingService service.
 // All implementations must embed UnimplementedPairingServiceServer
 // for forward compatibility.
@@ -74,12 +97,24 @@ func (c *pairingServiceClient) Pair(ctx context.Context, in *PairRequest, opts .
 // client proves it read there - five wrong ones close the window until
 // the node restarts. The port is never the API's, and closes once the
 // node trusts a fleet.
+//
+// A node started with a rescue volume attached (a JANUSRESCUE volume,
+// janusctl image rescue-volume) opens the window whatever it trusts,
+// for 30 minutes, once a boot: someone at its console - or its
+// hypervisor's - gets an admin certificate of its own CA, the way back
+// to a node whose fleet is lost.
 type PairingServiceServer interface {
 	// Gives the node a fleet - root_cert and bundle, checked as TrustSet
 	// checks them - when secret is the code's: the node trusts that fleet
 	// from now on, and its pairing window closes. The answer is the
 	// node's own CA, what a client verifies it with from then on.
 	Pair(context.Context, *PairRequest) (*PairResponse, error)
+	// Issues an os:admin certificate of the node's own CA, valid an hour,
+	// for public_key - named rescue:<name> - when secret is the code's and
+	// the window is a rescue volume's: its holder may reset the node's
+	// trust and give it another fleet. The window closes; the next one
+	// needs the volume and another boot.
+	Rescue(context.Context, *RescueRequest) (*RescueResponse, error)
 	mustEmbedUnimplementedPairingServiceServer()
 }
 
@@ -92,6 +127,9 @@ type UnimplementedPairingServiceServer struct{}
 
 func (UnimplementedPairingServiceServer) Pair(context.Context, *PairRequest) (*PairResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Pair not implemented")
+}
+func (UnimplementedPairingServiceServer) Rescue(context.Context, *RescueRequest) (*RescueResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Rescue not implemented")
 }
 func (UnimplementedPairingServiceServer) mustEmbedUnimplementedPairingServiceServer() {}
 func (UnimplementedPairingServiceServer) testEmbeddedByValue()                        {}
@@ -132,6 +170,24 @@ func _PairingService_Pair_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PairingService_Rescue_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RescueRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PairingServiceServer).Rescue(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PairingService_Rescue_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PairingServiceServer).Rescue(ctx, req.(*RescueRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PairingService_ServiceDesc is the grpc.ServiceDesc for PairingService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -142,6 +198,10 @@ var PairingService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Pair",
 			Handler:    _PairingService_Pair_Handler,
+		},
+		{
+			MethodName: "Rescue",
+			Handler:    _PairingService_Rescue_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

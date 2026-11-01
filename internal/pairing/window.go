@@ -12,6 +12,13 @@ import (
 // bits then leave a guesser 5 in 2^36.
 const MaxFailures = 5
 
+// A rescue window (a rescue volume at boot) stays open RescueLifetime,
+// and the certificate it gives is good for RescueValidity.
+const (
+	RescueLifetime = 30 * time.Minute
+	RescueValidity = time.Hour
+)
+
 // ErrClosed is a call to a window that's closed - paired, given a fleet
 // otherwise, out of tries or of time.
 type ErrClosed struct{ Why string }

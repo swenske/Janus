@@ -82,9 +82,52 @@ func (v *verifier) verify(raw [][]byte, _ [][]*x509.Certificate) error {
 // anything is sent. It returns the node's answer and its CA, verified:
 // what a client pins to reach the node's API from then on.
 func Pair(ctx context.Context, addr, code string, rootPEM, bundle []byte, opts ...grpc.DialOption) (*janusv1alpha1.PairResponse, *x509.Certificate, error) {
-	c, err := ParseCode(code)
+	c, conn, v, err := dial(addr, code, opts)
 	if err != nil {
 		return nil, nil, err
+	}
+	defer conn.Close()
+	resp, err := janusv1alpha1.NewPairingServiceClient(conn).Pair(ctx, &janusv1alpha1.PairRequest{Secret: c.SecretBytes(), RootCert: rootPEM, Bundle: bundle})
+	if err != nil {
+		return nil, nil, err
+	}
+	ca, err := v.answered(resp.GetCaCert())
+	if err != nil {
+		return nil, nil, err
+	}
+	return resp, ca, nil
+}
+
+// Rescue asks the rescue window at addr - a node started with a rescue
+// volume - for an admin certificate of the node's own CA for pubPEM
+// (PKIX), named rescue:<name>, the window checked against code before
+// anything is sent. It returns the node's answer and its CA, verified.
+func Rescue(ctx context.Context, addr, code string, pubPEM []byte, name string, opts ...grpc.DialOption) (*janusv1alpha1.RescueResponse, *x509.Certificate, error) {
+	c, conn, v, err := dial(addr, code, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer conn.Close()
+	resp, err := janusv1alpha1.NewPairingServiceClient(conn).Rescue(ctx, &janusv1alpha1.RescueRequest{Secret: c.SecretBytes(), PublicKey: pubPEM, Name: name})
+	if err != nil {
+		return nil, nil, err
+	}
+	ca, err := v.answered(resp.GetCaCert())
+	if err != nil {
+		return nil, nil, err
+	}
+	cert, err := parsePEM(resp.GetCert())
+	if err != nil || cert.CheckSignatureFrom(ca) != nil {
+		return nil, nil, errors.New("the node answered with a certificate its CA didn't sign")
+	}
+	return resp, ca, nil
+}
+
+// dial connects to a window, its certificate to be checked against code.
+func dial(addr, code string, opts []grpc.DialOption) (Code, *grpc.ClientConn, *verifier, error) {
+	c, err := ParseCode(code)
+	if err != nil {
+		return Code{}, nil, nil, err
 	}
 	v := &verifier{code: c}
 	creds := credentials.NewTLS(&tls.Config{
@@ -94,23 +137,24 @@ func Pair(ctx context.Context, addr, code string, rootPEM, bundle []byte, opts .
 	})
 	conn, err := grpc.NewClient(addr, append([]grpc.DialOption{grpc.WithTransportCredentials(creds)}, opts...)...)
 	if err != nil {
-		return nil, nil, fmt.Errorf("dial %s: %w", addr, err)
+		return Code{}, nil, nil, fmt.Errorf("dial %s: %w", addr, err)
 	}
-	defer conn.Close()
-	resp, err := janusv1alpha1.NewPairingServiceClient(conn).Pair(ctx, &janusv1alpha1.PairRequest{Secret: c.SecretBytes(), RootCert: rootPEM, Bundle: bundle})
-	if err != nil {
-		return nil, nil, err
-	}
+	return c, conn, v, nil
+}
+
+// answered is the CA a window's certificate was checked against, once
+// the node's answer names the same one.
+func (v *verifier) answered(caPEM []byte) (*x509.Certificate, error) {
 	v.mu.Lock()
 	ca := v.ca
 	v.mu.Unlock()
 	if ca == nil {
-		return nil, nil, errors.New("the node's pairing certificate wasn't checked")
+		return nil, errors.New("the node's pairing certificate wasn't checked")
 	}
-	if got, err := parsePEM(resp.GetCaCert()); err != nil || !got.Equal(ca) {
-		return nil, nil, errors.New("the node answered with another CA than its pairing certificate's")
+	if got, err := parsePEM(caPEM); err != nil || !got.Equal(ca) {
+		return nil, errors.New("the node answered with another CA than its pairing certificate's")
 	}
-	return resp, ca, nil
+	return ca, nil
 }
 
 func parsePEM(p []byte) (*x509.Certificate, error) {

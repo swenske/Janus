@@ -15,12 +15,25 @@ option go_package = "github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1";
 // client proves it read there - five wrong ones close the window until
 // the node restarts. The port is never the API's, and closes once the
 // node trusts a fleet.
+//
+// A node started with a rescue volume attached (a JANUSRESCUE volume,
+// janusctl image rescue-volume) opens the window whatever it trusts,
+// for 30 minutes, once a boot: someone at its console - or its
+// hypervisor's - gets an admin certificate of its own CA, the way back
+// to a node whose fleet is lost.
 service PairingService {
   // Gives the node a fleet - root_cert and bundle, checked as TrustSet
   // checks them - when secret is the code's: the node trusts that fleet
   // from now on, and its pairing window closes. The answer is the
   // node's own CA, what a client verifies it with from then on.
   rpc Pair(PairRequest) returns (PairResponse);
+
+  // Issues an os:admin certificate of the node's own CA, valid an hour,
+  // for public_key - named rescue:<name> - when secret is the code's and
+  // the window is a rescue volume's: its holder may reset the node's
+  // trust and give it another fleet. The window closes; the next one
+  // needs the volume and another boot.
+  rpc Rescue(RescueRequest) returns (RescueResponse);
 }
 
 message PairRequest {
@@ -32,4 +45,15 @@ message PairRequest {
 message PairResponse {
   bytes ca_cert = 1; // PEM: the node's own CA
   TrustState trust = 2;
+}
+
+message RescueRequest {
+  bytes secret = 1; // the code's secret part (pairing.Code.SecretBytes)
+  bytes public_key = 2; // PEM PKIX: ECDSA P-256/P-384, Ed25519, RSA 2048+
+  string name = 3; // who - the certificate is rescue:<name>
+}
+
+message RescueResponse {
+  bytes ca_cert = 1; // PEM: the node's own CA
+  bytes cert = 2; // PEM: the certificate, os:admin, an hour
 }

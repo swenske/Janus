@@ -1336,6 +1336,21 @@ janusctl access rotate-ca [-console] DIR
 |---|---|
 | `-console` | the node prints the admin key on its console |
 
+#### janusctl access rescue
+
+An hour's admin certificate of the node's own CA, from the rescue code its console shows - a node started with a rescue volume (image rescue-volume).
+
+```text
+janusctl access rescue [-endpoint HOST[:9505]] [-code CODE] [-pairing HOST:PORT] [-name NAME] DIR
+```
+
+| Flag | |
+|---|---|
+| `-endpoint HOST[:9505]` | the node's API |
+| `-code CODE` | the rescue code its console shows |
+| `-pairing HOST:PORT` | its rescue window (default: the endpoint's host, port 9506) |
+| `-name NAME` | who you are - the certificate is rescue:NAME |
+
 ## Cluster
 
 ### janusctl cluster
@@ -1925,6 +1940,19 @@ janusctl image seed-network [-config FILE] DISK
 | Flag | |
 |---|---|
 | `-config FILE` | the configuration (JSON) |
+
+#### janusctl image rescue-volume
+
+A rescue volume: attached at a boot, the node opens a rescue window (access rescue).
+
+```text
+janusctl image rescue-volume [-fat] [-skip-firewall] OUT
+```
+
+| Flag | |
+|---|---|
+| `-fat` | a FAT disk image (a USB stick, a disk) - an ISO by default (a CD-ROM) |
+| `-skip-firewall` | the node doesn't apply its saved firewall ruleset that boot |
 
 ## Shell
 

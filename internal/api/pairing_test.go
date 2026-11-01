@@ -2,8 +2,14 @@ package api
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"net"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +28,12 @@ import (
 // pairingNode is a node's pairing window on a real TLS listener: its
 // address, its code, its window, its fleet and its CA.
 func pairingNode(t *testing.T) (string, pairing.Code, *pairing.Window, *pki.Fleet, *pki.CA) {
+	t.Helper()
+	return pairingServer(t, nil)
+}
+
+// pairingServer is pairingNode, its Pairing changed by set first.
+func pairingServer(t *testing.T, set func(*Pairing)) (string, pairing.Code, *pairing.Window, *pki.Fleet, *pki.CA) {
 	t.Helper()
 	ca, err := pki.NewCA("node")
 	if err != nil {
@@ -45,7 +57,11 @@ func pairingNode(t *testing.T) (string, pairing.Code, *pairing.Window, *pki.Flee
 		t.Fatal(err)
 	}
 	srv := grpc.NewServer(grpc.Creds(credentials.NewTLS(pairing.ServerTLS(leaf))), grpc.UnaryInterceptor(PairingInterceptor))
-	janusv1alpha1.RegisterPairingServiceServer(srv, &Pairing{Window: w, Access: &Access{Fleet: fleet, Local: pki.NewLocal(ca)}})
+	p := &Pairing{Window: w, Access: &Access{Fleet: fleet, Local: pki.NewLocal(ca)}}
+	if set != nil {
+		set(p)
+	}
+	janusv1alpha1.RegisterPairingServiceServer(srv, p)
 	go func() { _ = srv.Serve(lis) }()
 	t.Cleanup(srv.Stop)
 	return lis.Addr().String(), code, w, fleet, ca
@@ -161,5 +177,91 @@ func TestPairingTries(t *testing.T) {
 	}
 	if fleet.Root() != nil || w.Closed() == "" {
 		t.Error("the window isn't closed, or a fleet was taken")
+	}
+}
+
+func rescueKey(t *testing.T) []byte {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})
+}
+
+// TestRescue: only a rescue volume's window gives a certificate; a
+// wrong secret counts; a bad name or key leaves the window open; the
+// right call gets an hour's os:admin certificate of the node's CA,
+// named rescue:<name>, even on a node trusting a fleet - the window
+// closes, OnRescue is called, the same call again gets the same answer,
+// another is refused.
+func TestRescue(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	pub := rescueKey(t)
+
+	addr, code, _, _, _ := pairingNode(t)
+	if _, _, err := pairing.Rescue(ctx, addr, code.String(), pub, "bob"); status.Code(err) != codes.FailedPrecondition || !strings.Contains(err.Error(), "no rescue volume") {
+		t.Fatalf("a pairing window: %v", err)
+	}
+
+	rescued := 0
+	addr, code, w, fleet, ca := pairingServer(t, func(p *Pairing) {
+		p.RescueVolume = true
+		p.OnRescue = func() { rescued++ }
+	})
+	rootPEM, bundle := testFleet(t)
+	if err := fleet.Set(rootPEM, bundle); err != nil {
+		t.Fatal(err)
+	}
+	wrong := pairing.Code{Prefix: code.Prefix, Secret: code.Secret ^ 1}
+	if _, _, err := pairing.Rescue(ctx, addr, wrong.String(), pub, "bob"); status.Code(err) != codes.PermissionDenied || !strings.Contains(err.Error(), "4 tries left") {
+		t.Fatalf("a wrong secret: %v", err)
+	}
+	for _, c := range []struct {
+		pub  []byte
+		name string
+	}{{pub, ""}, {pub, "bob smith"}, {pub, "-bob"}, {[]byte("not a key"), "bob"}} {
+		if _, _, err := pairing.Rescue(ctx, addr, code.String(), c.pub, c.name); status.Code(err) != codes.InvalidArgument {
+			t.Errorf("name %q: %v", c.name, err)
+		}
+	}
+	if w.Closed() != "" || rescued != 0 {
+		t.Fatal("a refused call closed the window")
+	}
+
+	resp, gotCA, err := pairing.Rescue(ctx, addr, code.String(), pub, "bob")
+	if err != nil {
+		t.Fatalf("rescue: %v", err)
+	}
+	if !gotCA.Equal(ca.Cert) {
+		t.Error("another CA")
+	}
+	b, _ := pem.Decode(resp.GetCert())
+	cert, err := x509.ParseCertificate(b.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cert.Subject.CommonName != "rescue:bob" || !slices.Equal(cert.Subject.Organization, []string{pki.RoleAdmin}) || cert.CheckSignatureFrom(ca.Cert) != nil {
+		t.Errorf("the certificate: %s %v", cert.Subject.CommonName, cert.Subject.Organization)
+	}
+	if left := time.Until(cert.NotAfter); left > pairing.RescueValidity || left < pairing.RescueValidity-time.Minute {
+		t.Errorf("valid %s more", left)
+	}
+	if w.Closed() != "rescued" || rescued != 1 {
+		t.Errorf("after: window %q, OnRescue %d", w.Closed(), rescued)
+	}
+	if again, _, err := pairing.Rescue(ctx, addr, code.String(), pub, "bob"); err != nil || string(again.GetCert()) != string(resp.GetCert()) {
+		t.Errorf("the same call again: %v", err)
+	}
+	if _, _, err := pairing.Rescue(ctx, addr, code.String(), rescueKey(t), "eve"); status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("another call after: %v", err)
+	}
+	if rescued != 1 {
+		t.Errorf("OnRescue called %d times", rescued)
 	}
 }

@@ -169,7 +169,8 @@ var Domain = map[string]string{
 	"ClusterService/TLSTicketKeysRotate": DomainSystem,
 
 	// The node given a fleet, as TrustSet does.
-	"PairingService/Pair": DomainSystem,
+	"PairingService/Pair":   DomainSystem,
+	"PairingService/Rescue": DomainSystem,
 }
 
 // DomainOf is method's domain ("Service/Method" or its full name):

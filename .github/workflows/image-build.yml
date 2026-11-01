@@ -912,6 +912,14 @@ jobs:
       - name: Firewall - nftables ruleset on trial, live sets
         run: make qemu-firewall-test
 
+      # The rescue volume (JANUSRESCUE, docs/guide/recovery.md): a node
+      # whose fleet is lost, behind a firewall, started with one - init
+      # finds it, the code its console shows gives an hour's admin
+      # certificate of its own CA, once a boot; its saved ruleset left out
+      # when the volume says so. See hack/qemu-rescue-test.sh.
+      - name: The rescue volume (janusctl access rescue)
+        run: make qemu-rescue-test
+
       # VRRP (keepalived extension) with two real enforcing nodes on a
       # shared LAN: master/backup, failover when HAProxy stops answering and
       # when a node goes away, failback. See hack/qemu-vrrp-test.sh.

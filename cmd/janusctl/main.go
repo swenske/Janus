@@ -144,6 +144,13 @@ func main() {
 		echo()
 		runFleet(*ctxFlag, args[1:])
 		return
+	case "access":
+		// A rescue window takes no certificate: nothing to dial with.
+		if len(args) > 1 && args[1] == "rescue" {
+			echo()
+			accessRescue(args[2:])
+			return
+		}
 	case "cluster":
 		// The orchestrator's commands reach the fleet's nodes themselves.
 		if len(args) > 1 && clusterCtlVerbs[args[1]] {
@@ -896,6 +903,8 @@ func runImage(ctxName string, args []string) {
 	}
 
 	switch sub := args[0]; sub {
+	case "rescue-volume":
+		imageRescueVolume(args[1:])
 	case "seed-controller":
 		fs := flag.NewFlagSet("image seed-controller", flag.ExitOnError)
 		controllerAddress := fs.String("controller-address", "", "address of a Controller (Janus Controller's node self-registration port, see dashboard/backend/register.go) for the node to announce itself to on first boot - required")

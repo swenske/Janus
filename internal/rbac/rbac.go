@@ -182,7 +182,8 @@ var Required = map[string][]string{
 	// its own port, its own server, the code's secret checked by the
 	// call. On the API's port it's never served - this pseudo-role,
 	// which no certificate carries, keeps it shut there too.
-	"/janus.v1alpha1.PairingService/Pair": pairingCode,
+	"/janus.v1alpha1.PairingService/Pair":   pairingCode,
+	"/janus.v1alpha1.PairingService/Rescue": pairingCode,
 }
 
 // pairingCode is the pairing window's pseudo-role: never in a

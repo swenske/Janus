@@ -55,7 +55,7 @@ GEN_DIR := gen
 	disk-image qemu-ab-boot-test uki-image qemu-uefi-boot-test \
 	qemu-uefi-ab-boot-test qemu-lifecycle-rollback-test qemu-secureboot-test \
 	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test qemu-lifecycle-upgrade-variant-test qemu-lifecycle-upgrade-from-release-test release-bundle release-images release-image-files qemu-orchestrator-test \
-	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-probe-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-fleetctl-test qemu-pairing-test qemu-cluster-test qemu-state-migrate-test qemu-controller-cluster-test qemu-clusterctl-test qemu-cluster-upgrade-test qemu-cluster-upgrade-bgp-test qemu-cluster-handoff-test qemu-controller-cluster-upgrade-test qemu-self-register-fleet-test qemu-self-register-enroll-test qemu-self-register-legacy-test qemu-network-config-test qemu-dhcp-test \
+	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-probe-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-fleetctl-test qemu-pairing-test qemu-rescue-test qemu-cluster-test qemu-state-migrate-test qemu-controller-cluster-test qemu-clusterctl-test qemu-cluster-upgrade-test qemu-cluster-upgrade-bgp-test qemu-cluster-handoff-test qemu-controller-cluster-upgrade-test qemu-self-register-fleet-test qemu-self-register-enroll-test qemu-self-register-legacy-test qemu-network-config-test qemu-dhcp-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build dashboard-bin \
 	qemu-dashboard-test dashboard-image controller-self-update-test controller-libvirt-test controller-sso-test terraform-provider-build terraform-provider-dist terraform-provider-dist-test terraform-provider-test routeros-hook-test local-dev-image ca-certificates seed-controller-test \
@@ -1376,6 +1376,15 @@ qemu-fleetctl-test: build disk-image
 # closing the window -, provisioned nodes opening none.
 qemu-pairing-test: build disk-image
 	./hack/qemu-pairing-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
+
+# The rescue volume (docs/guide/recovery.md): a node whose fleet is lost,
+# behind a firewall, started with a JANUSRESCUE volume - its console's
+# code gives an hour's admin certificate of its own CA, once a boot.
+# The nftables image: the volume's -skip-firewall is part of it.
+qemu-rescue-test: SCHEMATIC = hack/testdata/schematic-firewall.json
+qemu-rescue-test: build extension-nftables-amd64
+	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)
+	./hack/qemu-rescue-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
 
 # A cluster of three real enforcing nodes (ClusterService, docs/cluster.md):
 # the peers section janusd generates, stick tables replicated over mTLS

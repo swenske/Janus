@@ -181,6 +181,7 @@ Controller is gone and no backup restores it
 |---|---|---|
 | a machine (laptop, CI) | its issuing CA's key - certificates up to its limit (an operator's CI: no admin) | `fleet issuer revoke` + `fleet sync` from another machine |
 | every machine | nothing on the nodes | `fleet recover -kit`, then `adopt -kit` each node |
+| every machine and the kit | the way into the nodes | each node's [rescue volume](guide/recovery.md#neither), at its console: an hour's admin certificate of its own CA, then `access trust-reset` and a new fleet |
 | the kit, not its passphrase | an encrypted file | nothing - keep them apart |
 | the kit and its passphrase | the fleet: whoever has both can sign a bundle | `janusctl access trust-reset` on each node with its own CA's credential, then a new fleet |
 | a node's own admin credential | the way into that node | `janusctl access rotate-ca` (or the node page's Access) |
