@@ -23,9 +23,10 @@ it from an emulated USB stick and installs a virtio-scsi disk.
 
 Deliberately ephemeral (no A/B slots, no persistent STATE partition) -
 this is a throwaway live environment, not a final installed system. It
-boots straight to a running `janusd` (mTLS, prints its bootstrap CA/
-admin creds to the console once, same as every other first boot in
-this project), which an operator then drives remotely - e.g.
+boots straight to a running `janusd` (mTLS, a new CA each boot and a
+pairing code on the console - `janusctl fleet adopt -code` or the
+Controller's Add node takes it in), which an operator then drives
+remotely - e.g.
 `janusctl lifecycle install <target-disk> <bundle-dir>` - to actually
 install Janus onto a real, separate target disk.
 

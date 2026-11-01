@@ -34,9 +34,9 @@ node's own credentials or a fleet certificate.
 With `-identity` on both ends, the new node takes the old one's CA and
 keys. It is then the old node to everything that knows it: the
 Controller (which pins the CA), your janusctl contexts, the credentials
-the old node issued, your monitoring's certificate checks. The new
-node's own first-boot credentials stop working once it restarts into
-the old state - use the old node's from then on.
+the old node issued, your monitoring's certificate checks. A
+certificate of the new node's own CA - a rescue certificate - stops
+working once it restarts into the old state; the fleet's keep working.
 
 Without `-identity`, the new node keeps its own CA: it is a new node,
 with the old one's configuration. The Controller sees a new node to

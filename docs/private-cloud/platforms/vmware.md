@@ -67,7 +67,7 @@ govc vm.power -on lb1
 - **Firmware**: EFI, Secure Boot off - VMware's keys don't include the
   Janus release certificate ([Secure Boot](../../guide/secure-boot.md)).
 - **A serial port** to a file or a named pipe helps: the node's console
-  - its first boot's credentials, its registration's messages - is on
+  - its CA's fingerprint, its registration's messages - is on
   the screen and on the serial port.
 
 In the vSphere Client: a new virtual machine with "Other Linux

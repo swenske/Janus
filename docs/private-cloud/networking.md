@@ -136,6 +136,7 @@ A node:
 | Port | Who reaches it | What |
 |---|---|---|
 | 9505/tcp | The Controller, admins (`janusctl`) | The node's API: gRPC with mutual TLS, every call's role checked |
+| 9506/tcp | The Controller, admins (`janusctl`) | The pairing window: only while the node trusts nothing yet, or a [rescue volume](../guide/recovery.md#neither) is attached - one call, with the code on its console ([trust](../internals/trust.md#the-pairing-window)) |
 | 10056/tcp | Prometheus | The Janus exporter - plain HTTP, no authentication: restrict it |
 | 10057/tcp | The other members of its cluster | HAProxy's peers listener, mutual TLS on the member certificates ([cluster.md](../cluster.md)); on 127.0.0.1 alone for a node in no cluster |
 | 9100/tcp | Prometheus | node_exporter, with its extension - plain HTTP, no authentication |

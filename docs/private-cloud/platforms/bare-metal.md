@@ -77,15 +77,16 @@ whatever order the kernel finds them in.
   partition the installer runs from.
 
 The installer is a temporary Janus with the release's signed bundle on
-the stick. It gets an address by DHCP and prints, on its console - the
-screen and the serial port - its address and a temporary admin
-certificate. Copy them (`ca.crt`, `admin.crt`, `admin.key`): they drive
-this installation only.
+the stick. It gets an address by DHCP and shows, on its console - the
+screen and the serial port - its address and a pairing code, a new one
+at each boot. On the Controller, **Add node** with that code, named
+`installer`: it drives this installation only.
 
 ## 4. Install
 
 ```sh
-CTL="janusctl -endpoint <installer-address>:9505 -ca ca.crt -cert admin.crt -key admin.key"
+janusctl login -controller controller.example.net:8080 -controller-ca controller-ca.crt
+CTL="janusctl -n installer"
 $CTL system info                       # the disks the machine has
 $CTL lifecycle install \
   -controller-address controller.example.net:8443 -controller-ca controller-ca.crt \
@@ -101,21 +102,20 @@ $CTL lifecycle install \
 - The bundle's signature is checked whatever `-sha256` says; `-sha256`
   checks it's the release you meant.
 - It ends with `[done 100%]`: the disk has both system slots, its STATE
-  with the Controller, the token and the network.
+  with the Controller, the token and the network. Remove the
+  `installer` node from the Controller.
 
 ## 5. First boot
 
 Power off, remove the stick, boot from the disk. On its first boot the
-node makes its own certificates - its admin credential printed once on
-the console: keep it, or let it go -, applies its network, and registers
-with the Controller on the token: it's admitted at once, labelled
-`rack=r12`.
+node makes its own CA and server certificate, applies its network, and
+registers with the Controller on the token: it's admitted at once,
+labelled `rack=r12`.
 
 Then its HAProxy configuration - with `janusctl`, from your workstation
 signed in to the Controller:
 
 ```sh
-janusctl login -controller controller.example.net:8080 -controller-ca controller-ca.crt
 janusctl -n lb1 haproxy apply-config examples/haproxy/web.cfg
 ```
 

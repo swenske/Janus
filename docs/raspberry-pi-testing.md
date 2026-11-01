@@ -100,20 +100,18 @@ pins is the only way to see what's actually happening:
    firmware partition is being read at all.
 2. On the serial console: UEFI firmware messages, then the Linux
    kernel's own boot log, then `JANUS_INIT_BOOT_OK`.
-3. `janusd` prints its bootstrapped PKI **once** - the CA certificate
-   and an initial admin client certificate/key. **Copy these out of
-   the console immediately** - there's no shell to retrieve them
-   later (same as every other first Janus boot, see the project's own
-   `CLAUDE.md`).
+3. `janusd` shows a one-time pairing code on the console - the banner's
+   `pairing` line, and `pairing: code ...` - a new one at each boot
+   until the board trusts a fleet.
 4. The board should pick up a DHCP address on its wired Ethernet port.
-   From another machine on the same network:
+   From another machine on the same network, a fleet of janusctl's own
+   ([fleet-without-controller.md](fleet-without-controller.md)) takes
+   it in with that code:
 
    ```sh
-   mkdir /tmp/janus-pi4-pki
-   # paste the CA cert / admin cert / admin key printed on the console
-   # into ca.crt / admin.crt / admin.key under that directory
-   bin/janusctl -ca /tmp/janus-pi4-pki/ca.crt -cert /tmp/janus-pi4-pki/admin.crt \
-     -key /tmp/janus-pi4-pki/admin.key -addr <pi4-ip>:9505 version
+   bin/janusctl -context pi fleet init -name pi -yes /tmp/janus-pi-kit.age   # once
+   bin/janusctl fleet adopt pi4 -endpoint <pi4-ip> -code <CODE>
+   bin/janusctl -n pi4 version
    ```
 
    A real response here (kernel version, active slot, etc.) is the

@@ -7,7 +7,7 @@ roles - made here with openssl, or by any PKI that meets them.
 Every call to a node is a TLS 1.3 connection both sides authenticate.
 A node accepts a client certificate from two places:
 
-- **its own CA**, made on its first boot - its first-boot admin
+- **its own CA**, made on its first boot - a rescue volume's
   certificate comes from it. Each node has its own: an orchestrator
   doesn't use it;
 - **its fleet**: a root the node pins once, and the issuing CAs a

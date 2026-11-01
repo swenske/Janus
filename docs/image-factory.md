@@ -97,7 +97,7 @@ than the defaults; Raspberry Pi images come with the defaults - and are
 ### The console
 
 A node's console is the screen and the serial port (`console=tty0
-console=ttyS0`): the first boot's credentials, janusd's log and a share
+console=ttyS0`): the pairing code, janusd's log and a share
 of the services' output show on both, and a hypervisor's serial console
 is how an operator - and the Controller, for its own machines - reads a
 node that can't be reached otherwise. An emulated serial port costs CPU

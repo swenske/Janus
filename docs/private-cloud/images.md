@@ -91,8 +91,8 @@ how the factory builds an image.
   of traffic. Without `maxconn` in its configuration, HAProxy sizes its
   tables for about 262000 connections (around 50 MB of memory): see
   [connections and memory](../haproxy-config.md#connections-and-memory).
-- **A serial port** is worth adding: the node's console - its first
-  boot's credentials, its registration's errors - is on both the screen
+- **A serial port** is worth adding: the node's console - its CA's
+  fingerprint, its pairing code, its registration's errors - is on both the screen
   and the serial port, and the serial one is easier to read and copy
   from.
 - **Network interfaces**: virtio, VMware's vmxnet3, Intel's and

@@ -43,11 +43,12 @@ sequenceDiagram
 ```
 
 1. **The node's identity is made on the node.** Its certificate
-   authority, its API's server certificate and an admin certificate are
-   created on the first boot, on STATE. The admin certificate and key
-   are printed on the console **once** - the way in when nothing else
-   works: keep them somewhere safe, or let them go, since the fleet's
-   certificates replace them for everyday use.
+   authority and its API's server certificate are created on the first
+   boot, on STATE; the console shows the CA's fingerprint. No key ever
+   goes to the console. A node given neither a Controller nor a fleet
+   shows a one-time **pairing code** instead: `janusctl fleet adopt -code`
+   or the Controller's **Add node** takes it into a fleet
+   ([trust](../internals/trust.md#the-pairing-window)).
 2. **The network comes first**: a static configuration from the
    volume, or DHCP - its lease renewed
    ([network configuration](../network-configuration.md)).
