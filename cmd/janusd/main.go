@@ -756,7 +756,12 @@ func main() {
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr, ACME: acmeMgr, History: haproxyHistory})
 	janusv1alpha1.RegisterAccessServiceServer(srv, &api.Access{Fleet: fleet, Local: local, ServerCert: serverCert, Console: os.Stderr})
 	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc, Firewall: fwMgr, VRRP: vrrpMgr, HAProxyHealthy: gateHealthy, BGP: bgpMgr, Consul: consulMgr, ConsulRegistrar: consulReg, Services: extMgr})
-	janusv1alpha1.RegisterClusterServiceServer(srv, &api.Cluster{Store: clusterStore, PeersFile: peersFile, HAProxy: haproxyMgr, LocalIPs: pki.LocalIPs, VRRP: vrrpMgr, BGP: bgpMgr, ACME: acmeMgr, ACMECertDir: acme.CertDir})
+	clusterAPI := &api.Cluster{Store: clusterStore, PeersFile: peersFile, HAProxy: haproxyMgr, LocalIPs: pki.LocalIPs, VRRP: vrrpMgr, BGP: bgpMgr, ACME: acmeMgr, ACMECertDir: acme.CertDir}
+	if *manageHost {
+		// The connection handoff writes nftables tables: only on a node.
+		clusterAPI.Handoff = api.NewHandoff(clusterAPI)
+	}
+	janusv1alpha1.RegisterClusterServiceServer(srv, clusterAPI)
 
 	log.Printf("janusd %s listening on %s (mTLS required)", version, *addr)
 	if *manageHost {

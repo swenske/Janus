@@ -21,6 +21,7 @@ import (
 	"github.com/swenske/Janus/internal/bgp"
 	"github.com/swenske/Janus/internal/cluster"
 	"github.com/swenske/Janus/internal/events"
+	"github.com/swenske/Janus/internal/handoff"
 	"github.com/swenske/Janus/internal/haproxy"
 	"github.com/swenske/Janus/internal/vrrp"
 )
@@ -45,6 +46,9 @@ type Cluster struct {
 	// is where this node's are, for ClusterExport.
 	ACME        *acme.Manager
 	ACMECertDir string
+	// Handoff copies other members' connections to them (ClusterHandoff,
+	// NewHandoff); nil: this janusd doesn't manage its host.
+	Handoff *handoff.Manager
 }
 
 // ClusterDrain takes the member out of service: unhealthy to keepalived
@@ -343,6 +347,20 @@ func (c *Cluster) info() *janusv1alpha1.ClusterInfo {
 	info.Drained = c.Store.Drained()
 	if t := c.Store.UndrainedAt(); !t.IsZero() {
 		info.UndrainedUnix = t.Unix()
+	}
+	info.HandoffUnavailable = c.handoffUnavailable()
+	if c.Handoff != nil {
+		for _, h := range c.Handoff.List() {
+			info.Handoffs = append(info.Handoffs, handoffState(h))
+		}
+		if refuse, hold := c.Handoff.GuardsUntil(); !refuse.IsZero() || !hold.IsZero() {
+			if !refuse.IsZero() {
+				info.HandoffRefuseUntilUnix = refuse.Unix()
+			}
+			if !hold.IsZero() {
+				info.HandoffHoldUntilUnix = hold.Unix()
+			}
+		}
 	}
 	m := c.Store.Membership()
 	if m == nil {

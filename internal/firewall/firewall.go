@@ -55,6 +55,52 @@ const (
 	maxRulesetBytes = 1 << 20
 )
 
+// Reserved, when set, is the document of the tables janusd keeps itself
+// beside the ruleset - the cluster's connection handoff
+// (internal/handoff). The ruleset is applied with "flush ruleset", which
+// drops every table: the document is applied after it, in the same
+// transaction.
+var Reserved func() string
+
+// ReservedTables are the table names a ruleset may not use.
+var ReservedTables = regexp.MustCompile(`\bjanus_handoff\b`)
+
+// nftMu orders the ruleset's replacements and the reserved tables'.
+var nftMu sync.Mutex
+
+// ApplyReserved replaces janusd's own tables with doc - whose own
+// statements say which tables it replaces -, never while a ruleset is
+// being applied.
+func ApplyReserved(doc string) error {
+	nftMu.Lock()
+	defer nftMu.Unlock()
+	if _, stderr, err := run(doc, "-f", "-"); err != nil {
+		return fmt.Errorf("nft: %s", strings.Join(errorLines(stderr, ""), "; "))
+	}
+	return nil
+}
+
+// CheckReserved checks doc against the kernel without applying it.
+func CheckReserved(doc string) error {
+	if _, stderr, err := run(doc, "--check", "-f", "-"); err != nil {
+		return fmt.Errorf("nft: %s", strings.Join(errorLines(stderr, ""), "; "))
+	}
+	return nil
+}
+
+// ListReserved is `nft --json list table FAMILY NAME`; a missing table:
+// nil, no error.
+func ListReserved(family, name string) ([]byte, error) {
+	out, stderr, err := run("", "--json", "list", "table", family, name)
+	if err != nil {
+		if strings.Contains(stderr, "No such file or directory") {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("nft: %s", strings.TrimSpace(stderr))
+	}
+	return []byte(out), nil
+}
+
 // ErrNotAvailable means the image doesn't have the nftables extension.
 var ErrNotAvailable = errors.New("nftables isn't in this node's image - optional modules are chosen when the image is built")
 
@@ -121,6 +167,9 @@ func Check(ruleset string) ([]string, error) {
 	if len(ruleset) > maxRulesetBytes {
 		return []string{fmt.Sprintf("the ruleset is over %d bytes", maxRulesetBytes)}, errors.New("invalid ruleset")
 	}
+	if ReservedTables.MatchString(ruleset) {
+		return []string{"janus_handoff is janusd's own table name (the cluster's connection handoff): call yours otherwise"}, errors.New("invalid ruleset")
+	}
 	return runDocument(ruleset, true)
 }
 
@@ -152,6 +201,14 @@ func runDocument(ruleset string, check bool) ([]string, error) {
 	args := []string{"-f", "-"}
 	if check {
 		args = []string{"--check", "-f", "-"}
+	} else {
+		// janusd's own tables come back with it, in the same
+		// transaction.
+		nftMu.Lock()
+		defer nftMu.Unlock()
+		if Reserved != nil {
+			wrapper += Reserved()
+		}
 	}
 	_, stderr, err := run(wrapper, args...)
 	if err != nil {

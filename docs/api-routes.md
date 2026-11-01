@@ -209,6 +209,8 @@ way. HAProxy runs with it as a second `-f` and `-L <member name>`.
 | `ClusterUndrain` | | ✅ | Back in service (admin) |
 | `ClusterPull` | server | ✅ | Fetch another member's secrets over mTLS - the member certificates on both ends, the cluster's CA vouching for each: HAProxy's uploaded certificates, its files, the letsencrypt extension's certificates, the TLS ticket key ring - and install them (admin). Names in the progress, never content |
 | `ClusterExport` | server | ✅ | Serves `ClusterPull`: a tar of the items. Only a member certificate of this node's own cluster opens it - no user role does |
+| `ClusterFlows` | server | ✅ | This member's open TCP connections on the addresses asked for (the cluster's shared ones), and where its peers copy their packets to. Serves `ClusterHandoff`: only a member certificate of this node's own cluster opens it |
+| `ClusterHandoff` | unary | ✅ | Copy another member's connections to it - read from it every few seconds, its packets duplicated by nftables (`dup`) - or stop; refuse new connections, or hold the packets of unknown ones, for a while (admin). Needs the nftables extension and a kernel with nft's dup |
 | `TLSTicketKeysRotate` | | ✅ | Add a key to the TLS ticket key ring (`haproxy/cluster/tls-ticket-keys`, three keys, made at first boot) and hand it to HAProxy without a reload (`set ssl tls-key`); the other members pull the ring afterwards, so a session resumes on any of them (admin) |
 
 ## Deliberately not present

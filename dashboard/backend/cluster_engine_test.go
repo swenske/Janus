@@ -55,6 +55,12 @@ type fakeMember struct {
 	// addrs: the addresses on its interfaces besides its member address
 	// (a link-local one, as a router's IPv6 route names).
 	addrs []netip.Addr
+	// noHandoff: why it can't hand connections over (ClusterInfo);
+	// flows: its open connections, counted down by each ClusterHandoff
+	// reading them (they end); handoffs: whose it copies, until when.
+	noHandoff string
+	flows     int
+	handoffs  map[string]time.Time
 }
 
 // clusterFake answers the cluster engine for every node, and keeps what
@@ -215,12 +221,56 @@ func (f *clusterFake) ClusterGet(_ context.Context, m clusters.Member) (*janusv1
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if fm.info == nil {
-		return &janusv1alpha1.ClusterInfo{Drained: fm.drained, UndrainedUnix: fm.undrained}, nil
+		return &janusv1alpha1.ClusterInfo{Drained: fm.drained, UndrainedUnix: fm.undrained, HandoffUnavailable: fm.noHandoff}, nil
 	}
 	info := proto.Clone(fm.info).(*janusv1alpha1.ClusterInfo)
 	info.MemberCertNotAfterUnix = f.notAfter.Unix()
-	info.Drained, info.UndrainedUnix = fm.drained, fm.undrained
+	info.Drained, info.UndrainedUnix, info.HandoffUnavailable = fm.drained, fm.undrained, fm.noHandoff
 	return info, nil
+}
+
+func (f *clusterFake) ClusterHandoff(_ context.Context, m clusters.Member, req *janusv1alpha1.ClusterHandoffRequest) (*janusv1alpha1.ClusterHandoffResponse, error) {
+	owner := req.GetOwner()
+	detail := owner
+	switch {
+	case req.GetStop() && owner == "":
+		detail = "guards stop"
+	case req.GetStop():
+		detail += " stop"
+	case req.GetRefuseSeconds() > 0:
+		detail = strings.TrimSpace("refuse " + owner)
+	case req.GetHoldSeconds() > 0:
+		detail = "hold " + owner
+	}
+	if err := f.call(m, "ClusterHandoff", detail); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	fm := f.nodes[m.Name]
+	if fm.handoffs == nil {
+		fm.handoffs = map[string]time.Time{}
+	}
+	if req.GetStop() {
+		delete(fm.handoffs, owner)
+		return &janusv1alpha1.ClusterHandoffResponse{State: &janusv1alpha1.ClusterHandoffState{Owner: owner}}, nil
+	}
+	if fm.noHandoff != "" {
+		return nil, errors.New(fm.noHandoff)
+	}
+	if len(req.GetAddresses()) == 0 {
+		return nil, errors.New("no address")
+	}
+	if owner == "" {
+		return &janusv1alpha1.ClusterHandoffResponse{}, nil
+	}
+	of := f.nodes[owner]
+	fm.handoffs[owner] = time.Now().Add(time.Duration(req.GetSeconds()) * time.Second)
+	n := of.flows
+	if of.drained && of.flows > 0 {
+		of.flows-- // a drained member's connections end, one a reading
+	}
+	return &janusv1alpha1.ClusterHandoffResponse{State: &janusv1alpha1.ClusterHandoffState{Owner: owner, Flows: uint32(n), UntilUnix: fm.handoffs[owner].Unix()}}, nil
 }
 
 func (f *clusterFake) ClusterSet(_ context.Context, m clusters.Member, req *janusv1alpha1.ClusterSetRequest) (*janusv1alpha1.ClusterInfo, error) {
@@ -1221,6 +1271,22 @@ func TestClusterLetsEncrypt(t *testing.T) {
 	}) {
 		t.Errorf("told the others while lb-1 hadn't its tables: %v", calls)
 	}
+}
+
+// Prefixes: its addrs as a host's (/32, /128), its member address in a
+// /24 - and 10.0.2.15/24, what every QEMU guest has on its user-mode NIC.
+func (f *clusterFake) Prefixes(_ context.Context, m clusters.Member) ([]netip.Prefix, error) {
+	if err := f.call(m, "Prefixes", ""); err != nil {
+		return nil, err
+	}
+	var out []netip.Prefix
+	for _, a := range f.node(m).addrs {
+		out = append(out, netip.PrefixFrom(a, a.BitLen()))
+	}
+	if a, err := netip.ParseAddr(m.Address); err == nil {
+		out = append(out, netip.PrefixFrom(a, 24))
+	}
+	return append(out, netip.MustParsePrefix("10.0.2.15/24")), nil
 }
 
 func (f *clusterFake) Addresses(_ context.Context, m clusters.Member) ([]netip.Addr, error) {

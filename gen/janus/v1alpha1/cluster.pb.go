@@ -194,8 +194,18 @@ type ClusterInfo struct {
 	// from a drain a reboot ended - a release that kept no drain across one
 	// (0).
 	UndrainedUnix int64 `protobuf:"varint,18,opt,name=undrained_unix,json=undrainedUnix,proto3" json:"undrained_unix,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Why this node can't hand connections over (ClusterHandoff): no
+	// nftables extension, a kernel without nft's dup statement, a janusd
+	// that doesn't manage its host; empty: it can.
+	HandoffUnavailable string `protobuf:"bytes,19,opt,name=handoff_unavailable,json=handoffUnavailable,proto3" json:"handoff_unavailable,omitempty"`
+	// The handoffs in effect: whose connections this node copies to them.
+	Handoffs []*ClusterHandoffState `protobuf:"bytes,20,rep,name=handoffs,proto3" json:"handoffs,omitempty"`
+	// When the handoff's hold and refusal end (ClusterHandoffRequest); 0:
+	// none in effect.
+	HandoffHoldUntilUnix   int64 `protobuf:"varint,21,opt,name=handoff_hold_until_unix,json=handoffHoldUntilUnix,proto3" json:"handoff_hold_until_unix,omitempty"`
+	HandoffRefuseUntilUnix int64 `protobuf:"varint,22,opt,name=handoff_refuse_until_unix,json=handoffRefuseUntilUnix,proto3" json:"handoff_refuse_until_unix,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *ClusterInfo) Reset() {
@@ -354,6 +364,404 @@ func (x *ClusterInfo) GetUndrainedUnix() int64 {
 	return 0
 }
 
+func (x *ClusterInfo) GetHandoffUnavailable() string {
+	if x != nil {
+		return x.HandoffUnavailable
+	}
+	return ""
+}
+
+func (x *ClusterInfo) GetHandoffs() []*ClusterHandoffState {
+	if x != nil {
+		return x.Handoffs
+	}
+	return nil
+}
+
+func (x *ClusterInfo) GetHandoffHoldUntilUnix() int64 {
+	if x != nil {
+		return x.HandoffHoldUntilUnix
+	}
+	return 0
+}
+
+func (x *ClusterInfo) GetHandoffRefuseUntilUnix() int64 {
+	if x != nil {
+		return x.HandoffRefuseUntilUnix
+	}
+	return 0
+}
+
+type ClusterFlowsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The local addresses whose connections are listed; at least one.
+	Addresses     []string `protobuf:"bytes,1,rep,name=addresses,proto3" json:"addresses,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClusterFlowsRequest) Reset() {
+	*x = ClusterFlowsRequest{}
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClusterFlowsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClusterFlowsRequest) ProtoMessage() {}
+
+func (x *ClusterFlowsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClusterFlowsRequest.ProtoReflect.Descriptor instead.
+func (*ClusterFlowsRequest) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ClusterFlowsRequest) GetAddresses() []string {
+	if x != nil {
+		return x.Addresses
+	}
+	return nil
+}
+
+type ClusterFlowsChunk struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The connections, back to back, big endian: the remote address and
+	// port, then the local address and port - 12 bytes each for IPv4, 36
+	// for IPv6.
+	Flows4 []byte `protobuf:"bytes,1,opt,name=flows4,proto3" json:"flows4,omitempty"`
+	Flows6 []byte `protobuf:"bytes,2,opt,name=flows6,proto3" json:"flows6,omitempty"`
+	// Where a peer copies their packets to - this member's own address on
+	// the link that holds the addresses asked for, one per family (an IPv6
+	// one may be link-local); empty: none in that family. In the first
+	// chunk only.
+	Reach4        string `protobuf:"bytes,3,opt,name=reach4,proto3" json:"reach4,omitempty"`
+	Reach6        string `protobuf:"bytes,4,opt,name=reach6,proto3" json:"reach6,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClusterFlowsChunk) Reset() {
+	*x = ClusterFlowsChunk{}
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClusterFlowsChunk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClusterFlowsChunk) ProtoMessage() {}
+
+func (x *ClusterFlowsChunk) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClusterFlowsChunk.ProtoReflect.Descriptor instead.
+func (*ClusterFlowsChunk) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ClusterFlowsChunk) GetFlows4() []byte {
+	if x != nil {
+		return x.Flows4
+	}
+	return nil
+}
+
+func (x *ClusterFlowsChunk) GetFlows6() []byte {
+	if x != nil {
+		return x.Flows6
+	}
+	return nil
+}
+
+func (x *ClusterFlowsChunk) GetReach4() string {
+	if x != nil {
+		return x.Reach4
+	}
+	return ""
+}
+
+func (x *ClusterFlowsChunk) GetReach6() string {
+	if x != nil {
+		return x.Reach6
+	}
+	return ""
+}
+
+type ClusterHandoffRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The member whose connections are copied to it; empty with
+	// hold_seconds or refuse_seconds alone.
+	Owner string `protobuf:"bytes,1,opt,name=owner,proto3" json:"owner,omitempty"`
+	// The addresses the connections are on - addresses this node holds too.
+	Addresses []string `protobuf:"bytes,2,rep,name=addresses,proto3" json:"addresses,omitempty"`
+	// How long the copies last, from now: 1 to 86400.
+	Seconds uint32 `protobuf:"varint,3,opt,name=seconds,proto3" json:"seconds,omitempty"`
+	// Ends the handoff to owner now - owner empty: the hold and the
+	// refusal (the other fields unused).
+	Stop bool `protobuf:"varint,4,opt,name=stop,proto3" json:"stop,omitempty"`
+	// For that long, the packets of TCP connections on the addresses this
+	// member has no trace of - not its own, tracked from their SYN, nor
+	// ones it copies - are dropped rather than reset: their senders send
+	// them again, and a reading copies them meanwhile. For a member back
+	// from a reboot, whose readings of the others' connections lag behind
+	// the router sending it part of them. At most 3600.
+	HoldSeconds uint32 `protobuf:"varint,5,opt,name=hold_seconds,json=holdSeconds,proto3" json:"hold_seconds,omitempty"`
+	// For that long, new connections' SYNs on the addresses are dropped:
+	// their senders try again a second later - by then on another member.
+	// For a member about to be drained, whose connections the others read
+	// once it takes no new one. At most 3600.
+	RefuseSeconds uint32 `protobuf:"varint,6,opt,name=refuse_seconds,json=refuseSeconds,proto3" json:"refuse_seconds,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClusterHandoffRequest) Reset() {
+	*x = ClusterHandoffRequest{}
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClusterHandoffRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClusterHandoffRequest) ProtoMessage() {}
+
+func (x *ClusterHandoffRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClusterHandoffRequest.ProtoReflect.Descriptor instead.
+func (*ClusterHandoffRequest) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ClusterHandoffRequest) GetOwner() string {
+	if x != nil {
+		return x.Owner
+	}
+	return ""
+}
+
+func (x *ClusterHandoffRequest) GetAddresses() []string {
+	if x != nil {
+		return x.Addresses
+	}
+	return nil
+}
+
+func (x *ClusterHandoffRequest) GetSeconds() uint32 {
+	if x != nil {
+		return x.Seconds
+	}
+	return 0
+}
+
+func (x *ClusterHandoffRequest) GetStop() bool {
+	if x != nil {
+		return x.Stop
+	}
+	return false
+}
+
+func (x *ClusterHandoffRequest) GetHoldSeconds() uint32 {
+	if x != nil {
+		return x.HoldSeconds
+	}
+	return 0
+}
+
+func (x *ClusterHandoffRequest) GetRefuseSeconds() uint32 {
+	if x != nil {
+		return x.RefuseSeconds
+	}
+	return 0
+}
+
+type ClusterHandoffResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// owner's handoff, when one was named.
+	State *ClusterHandoffState `protobuf:"bytes,1,opt,name=state,proto3" json:"state,omitempty"`
+	// When the hold and the refusal end; 0: none.
+	HoldUntilUnix   int64 `protobuf:"varint,2,opt,name=hold_until_unix,json=holdUntilUnix,proto3" json:"hold_until_unix,omitempty"`
+	RefuseUntilUnix int64 `protobuf:"varint,3,opt,name=refuse_until_unix,json=refuseUntilUnix,proto3" json:"refuse_until_unix,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ClusterHandoffResponse) Reset() {
+	*x = ClusterHandoffResponse{}
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClusterHandoffResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClusterHandoffResponse) ProtoMessage() {}
+
+func (x *ClusterHandoffResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClusterHandoffResponse.ProtoReflect.Descriptor instead.
+func (*ClusterHandoffResponse) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ClusterHandoffResponse) GetState() *ClusterHandoffState {
+	if x != nil {
+		return x.State
+	}
+	return nil
+}
+
+func (x *ClusterHandoffResponse) GetHoldUntilUnix() int64 {
+	if x != nil {
+		return x.HoldUntilUnix
+	}
+	return 0
+}
+
+func (x *ClusterHandoffResponse) GetRefuseUntilUnix() int64 {
+	if x != nil {
+		return x.RefuseUntilUnix
+	}
+	return 0
+}
+
+type ClusterHandoffState struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Owner string                 `protobuf:"bytes,1,opt,name=owner,proto3" json:"owner,omitempty"`
+	// The connections copied to it, as last read from it.
+	Flows     uint32 `protobuf:"varint,2,opt,name=flows,proto3" json:"flows,omitempty"`
+	UntilUnix int64  `protobuf:"varint,3,opt,name=until_unix,json=untilUnix,proto3" json:"until_unix,omitempty"`
+	// When its connections were last read; the last reading's failure
+	// (the copies then follow the reading before it).
+	ReadUnix int64  `protobuf:"varint,4,opt,name=read_unix,json=readUnix,proto3" json:"read_unix,omitempty"`
+	Error    string `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`
+	// Packets copied to it since the handoff began.
+	Packets       uint64 `protobuf:"varint,6,opt,name=packets,proto3" json:"packets,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClusterHandoffState) Reset() {
+	*x = ClusterHandoffState{}
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClusterHandoffState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClusterHandoffState) ProtoMessage() {}
+
+func (x *ClusterHandoffState) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClusterHandoffState.ProtoReflect.Descriptor instead.
+func (*ClusterHandoffState) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ClusterHandoffState) GetOwner() string {
+	if x != nil {
+		return x.Owner
+	}
+	return ""
+}
+
+func (x *ClusterHandoffState) GetFlows() uint32 {
+	if x != nil {
+		return x.Flows
+	}
+	return 0
+}
+
+func (x *ClusterHandoffState) GetUntilUnix() int64 {
+	if x != nil {
+		return x.UntilUnix
+	}
+	return 0
+}
+
+func (x *ClusterHandoffState) GetReadUnix() int64 {
+	if x != nil {
+		return x.ReadUnix
+	}
+	return 0
+}
+
+func (x *ClusterHandoffState) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *ClusterHandoffState) GetPackets() uint64 {
+	if x != nil {
+		return x.Packets
+	}
+	return 0
+}
+
 type ClusterSetRequest struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	Id         string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -389,7 +797,7 @@ type ClusterSetRequest struct {
 
 func (x *ClusterSetRequest) Reset() {
 	*x = ClusterSetRequest{}
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[2]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -401,7 +809,7 @@ func (x *ClusterSetRequest) String() string {
 func (*ClusterSetRequest) ProtoMessage() {}
 
 func (x *ClusterSetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[2]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -414,7 +822,7 @@ func (x *ClusterSetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClusterSetRequest.ProtoReflect.Descriptor instead.
 func (*ClusterSetRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{2}
+	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ClusterSetRequest) GetId() string {
@@ -510,7 +918,7 @@ type ClusterReleaseRequest struct {
 
 func (x *ClusterReleaseRequest) Reset() {
 	*x = ClusterReleaseRequest{}
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[3]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -522,7 +930,7 @@ func (x *ClusterReleaseRequest) String() string {
 func (*ClusterReleaseRequest) ProtoMessage() {}
 
 func (x *ClusterReleaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[3]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -535,7 +943,7 @@ func (x *ClusterReleaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClusterReleaseRequest.ProtoReflect.Descriptor instead.
 func (*ClusterReleaseRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{3}
+	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ClusterReleaseRequest) GetDomains() []string {
@@ -563,7 +971,7 @@ type ClusterStatusResponse struct {
 
 func (x *ClusterStatusResponse) Reset() {
 	*x = ClusterStatusResponse{}
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[4]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -575,7 +983,7 @@ func (x *ClusterStatusResponse) String() string {
 func (*ClusterStatusResponse) ProtoMessage() {}
 
 func (x *ClusterStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[4]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -588,7 +996,7 @@ func (x *ClusterStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClusterStatusResponse.ProtoReflect.Descriptor instead.
 func (*ClusterStatusResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{4}
+	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ClusterStatusResponse) GetInfo() *ClusterInfo {
@@ -644,7 +1052,7 @@ type ClusterPeer struct {
 
 func (x *ClusterPeer) Reset() {
 	*x = ClusterPeer{}
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[5]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -656,7 +1064,7 @@ func (x *ClusterPeer) String() string {
 func (*ClusterPeer) ProtoMessage() {}
 
 func (x *ClusterPeer) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[5]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -669,7 +1077,7 @@ func (x *ClusterPeer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClusterPeer.ProtoReflect.Descriptor instead.
 func (*ClusterPeer) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{5}
+	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ClusterPeer) GetName() string {
@@ -777,7 +1185,7 @@ type ClusterPeerTable struct {
 
 func (x *ClusterPeerTable) Reset() {
 	*x = ClusterPeerTable{}
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[6]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -789,7 +1197,7 @@ func (x *ClusterPeerTable) String() string {
 func (*ClusterPeerTable) ProtoMessage() {}
 
 func (x *ClusterPeerTable) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[6]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -802,7 +1210,7 @@ func (x *ClusterPeerTable) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClusterPeerTable.ProtoReflect.Descriptor instead.
 func (*ClusterPeerTable) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{6}
+	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ClusterPeerTable) GetName() string {
@@ -872,7 +1280,7 @@ type ClusterDrainRequest struct {
 
 func (x *ClusterDrainRequest) Reset() {
 	*x = ClusterDrainRequest{}
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[7]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -884,7 +1292,7 @@ func (x *ClusterDrainRequest) String() string {
 func (*ClusterDrainRequest) ProtoMessage() {}
 
 func (x *ClusterDrainRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[7]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -897,7 +1305,7 @@ func (x *ClusterDrainRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClusterDrainRequest.ProtoReflect.Descriptor instead.
 func (*ClusterDrainRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{7}
+	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ClusterDrainRequest) GetTimeoutSeconds() uint32 {
@@ -923,7 +1331,7 @@ type ClusterDrainProgress struct {
 
 func (x *ClusterDrainProgress) Reset() {
 	*x = ClusterDrainProgress{}
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[8]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -935,7 +1343,7 @@ func (x *ClusterDrainProgress) String() string {
 func (*ClusterDrainProgress) ProtoMessage() {}
 
 func (x *ClusterDrainProgress) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[8]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -948,7 +1356,7 @@ func (x *ClusterDrainProgress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClusterDrainProgress.ProtoReflect.Descriptor instead.
 func (*ClusterDrainProgress) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{8}
+	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ClusterDrainProgress) GetStage() string {
@@ -998,7 +1406,7 @@ type ClusterPullRequest struct {
 
 func (x *ClusterPullRequest) Reset() {
 	*x = ClusterPullRequest{}
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[9]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1010,7 +1418,7 @@ func (x *ClusterPullRequest) String() string {
 func (*ClusterPullRequest) ProtoMessage() {}
 
 func (x *ClusterPullRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[9]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1023,7 +1431,7 @@ func (x *ClusterPullRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClusterPullRequest.ProtoReflect.Descriptor instead.
 func (*ClusterPullRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{9}
+	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ClusterPullRequest) GetFrom() string {
@@ -1053,7 +1461,7 @@ type ClusterPullProgress struct {
 
 func (x *ClusterPullProgress) Reset() {
 	*x = ClusterPullProgress{}
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[10]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1065,7 +1473,7 @@ func (x *ClusterPullProgress) String() string {
 func (*ClusterPullProgress) ProtoMessage() {}
 
 func (x *ClusterPullProgress) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[10]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1078,7 +1486,7 @@ func (x *ClusterPullProgress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClusterPullProgress.ProtoReflect.Descriptor instead.
 func (*ClusterPullProgress) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{10}
+	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ClusterPullProgress) GetItem() ClusterItem {
@@ -1119,7 +1527,7 @@ type ClusterExportRequest struct {
 
 func (x *ClusterExportRequest) Reset() {
 	*x = ClusterExportRequest{}
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[11]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1131,7 +1539,7 @@ func (x *ClusterExportRequest) String() string {
 func (*ClusterExportRequest) ProtoMessage() {}
 
 func (x *ClusterExportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[11]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1144,7 +1552,7 @@ func (x *ClusterExportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClusterExportRequest.ProtoReflect.Descriptor instead.
 func (*ClusterExportRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{11}
+	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ClusterExportRequest) GetItems() []ClusterItem {
@@ -1167,7 +1575,7 @@ type TLSTicketKeysRotateRequest struct {
 
 func (x *TLSTicketKeysRotateRequest) Reset() {
 	*x = TLSTicketKeysRotateRequest{}
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[12]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1179,7 +1587,7 @@ func (x *TLSTicketKeysRotateRequest) String() string {
 func (*TLSTicketKeysRotateRequest) ProtoMessage() {}
 
 func (x *TLSTicketKeysRotateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[12]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1192,7 +1600,7 @@ func (x *TLSTicketKeysRotateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TLSTicketKeysRotateRequest.ProtoReflect.Descriptor instead.
 func (*TLSTicketKeysRotateRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{12}
+	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *TLSTicketKeysRotateRequest) GetRenew() bool {
@@ -1220,7 +1628,7 @@ type TLSTicketKeysState struct {
 
 func (x *TLSTicketKeysState) Reset() {
 	*x = TLSTicketKeysState{}
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[13]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1232,7 +1640,7 @@ func (x *TLSTicketKeysState) String() string {
 func (*TLSTicketKeysState) ProtoMessage() {}
 
 func (x *TLSTicketKeysState) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[13]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1245,7 +1653,7 @@ func (x *TLSTicketKeysState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TLSTicketKeysState.ProtoReflect.Descriptor instead.
 func (*TLSTicketKeysState) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{13}
+	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *TLSTicketKeysState) GetKeys() uint32 {
@@ -1285,7 +1693,7 @@ const file_janus_v1alpha1_cluster_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x1f\n" +
 	"\vapi_address\x18\x03 \x01(\tR\n" +
-	"apiAddress\"\x8b\x05\n" +
+	"apiAddress\"\xef\x06\n" +
 	"\vClusterInfo\x12\x16\n" +
 	"\x06member\x18\x01 \x01(\bR\x06member\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x12\n" +
@@ -1308,7 +1716,37 @@ const file_janus_v1alpha1_cluster_proto_rawDesc = "" +
 	"\badvisory\x18\x0f \x01(\bR\badvisory\x12!\n" +
 	"\facme_orderer\x18\x10 \x01(\tR\vacmeOrderer\x12'\n" +
 	"\x0facme_thumbprint\x18\x11 \x01(\tR\x0eacmeThumbprint\x12%\n" +
-	"\x0eundrained_unix\x18\x12 \x01(\x03R\rundrainedUnix\"\x8b\x03\n" +
+	"\x0eundrained_unix\x18\x12 \x01(\x03R\rundrainedUnix\x12/\n" +
+	"\x13handoff_unavailable\x18\x13 \x01(\tR\x12handoffUnavailable\x12?\n" +
+	"\bhandoffs\x18\x14 \x03(\v2#.janus.v1alpha1.ClusterHandoffStateR\bhandoffs\x125\n" +
+	"\x17handoff_hold_until_unix\x18\x15 \x01(\x03R\x14handoffHoldUntilUnix\x129\n" +
+	"\x19handoff_refuse_until_unix\x18\x16 \x01(\x03R\x16handoffRefuseUntilUnix\"3\n" +
+	"\x13ClusterFlowsRequest\x12\x1c\n" +
+	"\taddresses\x18\x01 \x03(\tR\taddresses\"s\n" +
+	"\x11ClusterFlowsChunk\x12\x16\n" +
+	"\x06flows4\x18\x01 \x01(\fR\x06flows4\x12\x16\n" +
+	"\x06flows6\x18\x02 \x01(\fR\x06flows6\x12\x16\n" +
+	"\x06reach4\x18\x03 \x01(\tR\x06reach4\x12\x16\n" +
+	"\x06reach6\x18\x04 \x01(\tR\x06reach6\"\xc3\x01\n" +
+	"\x15ClusterHandoffRequest\x12\x14\n" +
+	"\x05owner\x18\x01 \x01(\tR\x05owner\x12\x1c\n" +
+	"\taddresses\x18\x02 \x03(\tR\taddresses\x12\x18\n" +
+	"\aseconds\x18\x03 \x01(\rR\aseconds\x12\x12\n" +
+	"\x04stop\x18\x04 \x01(\bR\x04stop\x12!\n" +
+	"\fhold_seconds\x18\x05 \x01(\rR\vholdSeconds\x12%\n" +
+	"\x0erefuse_seconds\x18\x06 \x01(\rR\rrefuseSeconds\"\xa7\x01\n" +
+	"\x16ClusterHandoffResponse\x129\n" +
+	"\x05state\x18\x01 \x01(\v2#.janus.v1alpha1.ClusterHandoffStateR\x05state\x12&\n" +
+	"\x0fhold_until_unix\x18\x02 \x01(\x03R\rholdUntilUnix\x12*\n" +
+	"\x11refuse_until_unix\x18\x03 \x01(\x03R\x0frefuseUntilUnix\"\xad\x01\n" +
+	"\x13ClusterHandoffState\x12\x14\n" +
+	"\x05owner\x18\x01 \x01(\tR\x05owner\x12\x14\n" +
+	"\x05flows\x18\x02 \x01(\rR\x05flows\x12\x1d\n" +
+	"\n" +
+	"until_unix\x18\x03 \x01(\x03R\tuntilUnix\x12\x1b\n" +
+	"\tread_unix\x18\x04 \x01(\x03R\breadUnix\x12\x14\n" +
+	"\x05error\x18\x05 \x01(\tR\x05error\x12\x18\n" +
+	"\apackets\x18\x06 \x01(\x04R\apackets\"\x8b\x03\n" +
 	"\x11ClusterSetRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
@@ -1391,7 +1829,7 @@ const file_janus_v1alpha1_cluster_proto_rawDesc = "" +
 	"\x12CLUSTER_ITEM_FILES\x10\x02\x12\x1b\n" +
 	"\x17CLUSTER_ITEM_ACME_CERTS\x10\x03\x12 \n" +
 	"\x1cCLUSTER_ITEM_TLS_TICKET_KEYS\x10\x04\x12\x1c\n" +
-	"\x18CLUSTER_ITEM_ACME_CONFIG\x10\x052\xc0\x06\n" +
+	"\x18CLUSTER_ITEM_ACME_CONFIG\x10\x052\xfb\a\n" +
 	"\x0eClusterService\x12A\n" +
 	"\n" +
 	"ClusterGet\x12\x16.google.protobuf.Empty\x1a\x1b.janus.v1alpha1.ClusterInfo\x12L\n" +
@@ -1403,7 +1841,9 @@ const file_janus_v1alpha1_cluster_proto_rawDesc = "" +
 	"\fClusterDrain\x12#.janus.v1alpha1.ClusterDrainRequest\x1a$.janus.v1alpha1.ClusterDrainProgress0\x01\x12E\n" +
 	"\x0eClusterUndrain\x12\x16.google.protobuf.Empty\x1a\x1b.janus.v1alpha1.ClusterInfo\x12X\n" +
 	"\vClusterPull\x12\".janus.v1alpha1.ClusterPullRequest\x1a#.janus.v1alpha1.ClusterPullProgress0\x01\x12M\n" +
-	"\rClusterExport\x12$.janus.v1alpha1.ClusterExportRequest\x1a\x14.janus.v1alpha1.Data0\x01\x12e\n" +
+	"\rClusterExport\x12$.janus.v1alpha1.ClusterExportRequest\x1a\x14.janus.v1alpha1.Data0\x01\x12X\n" +
+	"\fClusterFlows\x12#.janus.v1alpha1.ClusterFlowsRequest\x1a!.janus.v1alpha1.ClusterFlowsChunk0\x01\x12_\n" +
+	"\x0eClusterHandoff\x12%.janus.v1alpha1.ClusterHandoffRequest\x1a&.janus.v1alpha1.ClusterHandoffResponse\x12e\n" +
 	"\x13TLSTicketKeysRotate\x12*.janus.v1alpha1.TLSTicketKeysRotateRequest\x1a\".janus.v1alpha1.TLSTicketKeysStateB;Z9github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1b\x06proto3"
 
 var (
@@ -1419,61 +1859,72 @@ func file_janus_v1alpha1_cluster_proto_rawDescGZIP() []byte {
 }
 
 var file_janus_v1alpha1_cluster_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_janus_v1alpha1_cluster_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_janus_v1alpha1_cluster_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_janus_v1alpha1_cluster_proto_goTypes = []any{
 	(ClusterItem)(0),                   // 0: janus.v1alpha1.ClusterItem
 	(*ClusterMember)(nil),              // 1: janus.v1alpha1.ClusterMember
 	(*ClusterInfo)(nil),                // 2: janus.v1alpha1.ClusterInfo
-	(*ClusterSetRequest)(nil),          // 3: janus.v1alpha1.ClusterSetRequest
-	(*ClusterReleaseRequest)(nil),      // 4: janus.v1alpha1.ClusterReleaseRequest
-	(*ClusterStatusResponse)(nil),      // 5: janus.v1alpha1.ClusterStatusResponse
-	(*ClusterPeer)(nil),                // 6: janus.v1alpha1.ClusterPeer
-	(*ClusterPeerTable)(nil),           // 7: janus.v1alpha1.ClusterPeerTable
-	(*ClusterDrainRequest)(nil),        // 8: janus.v1alpha1.ClusterDrainRequest
-	(*ClusterDrainProgress)(nil),       // 9: janus.v1alpha1.ClusterDrainProgress
-	(*ClusterPullRequest)(nil),         // 10: janus.v1alpha1.ClusterPullRequest
-	(*ClusterPullProgress)(nil),        // 11: janus.v1alpha1.ClusterPullProgress
-	(*ClusterExportRequest)(nil),       // 12: janus.v1alpha1.ClusterExportRequest
-	(*TLSTicketKeysRotateRequest)(nil), // 13: janus.v1alpha1.TLSTicketKeysRotateRequest
-	(*TLSTicketKeysState)(nil),         // 14: janus.v1alpha1.TLSTicketKeysState
-	(*emptypb.Empty)(nil),              // 15: google.protobuf.Empty
-	(*Data)(nil),                       // 16: janus.v1alpha1.Data
+	(*ClusterFlowsRequest)(nil),        // 3: janus.v1alpha1.ClusterFlowsRequest
+	(*ClusterFlowsChunk)(nil),          // 4: janus.v1alpha1.ClusterFlowsChunk
+	(*ClusterHandoffRequest)(nil),      // 5: janus.v1alpha1.ClusterHandoffRequest
+	(*ClusterHandoffResponse)(nil),     // 6: janus.v1alpha1.ClusterHandoffResponse
+	(*ClusterHandoffState)(nil),        // 7: janus.v1alpha1.ClusterHandoffState
+	(*ClusterSetRequest)(nil),          // 8: janus.v1alpha1.ClusterSetRequest
+	(*ClusterReleaseRequest)(nil),      // 9: janus.v1alpha1.ClusterReleaseRequest
+	(*ClusterStatusResponse)(nil),      // 10: janus.v1alpha1.ClusterStatusResponse
+	(*ClusterPeer)(nil),                // 11: janus.v1alpha1.ClusterPeer
+	(*ClusterPeerTable)(nil),           // 12: janus.v1alpha1.ClusterPeerTable
+	(*ClusterDrainRequest)(nil),        // 13: janus.v1alpha1.ClusterDrainRequest
+	(*ClusterDrainProgress)(nil),       // 14: janus.v1alpha1.ClusterDrainProgress
+	(*ClusterPullRequest)(nil),         // 15: janus.v1alpha1.ClusterPullRequest
+	(*ClusterPullProgress)(nil),        // 16: janus.v1alpha1.ClusterPullProgress
+	(*ClusterExportRequest)(nil),       // 17: janus.v1alpha1.ClusterExportRequest
+	(*TLSTicketKeysRotateRequest)(nil), // 18: janus.v1alpha1.TLSTicketKeysRotateRequest
+	(*TLSTicketKeysState)(nil),         // 19: janus.v1alpha1.TLSTicketKeysState
+	(*emptypb.Empty)(nil),              // 20: google.protobuf.Empty
+	(*Data)(nil),                       // 21: janus.v1alpha1.Data
 }
 var file_janus_v1alpha1_cluster_proto_depIdxs = []int32{
 	1,  // 0: janus.v1alpha1.ClusterInfo.members:type_name -> janus.v1alpha1.ClusterMember
-	14, // 1: janus.v1alpha1.ClusterInfo.tls_ticket_keys:type_name -> janus.v1alpha1.TLSTicketKeysState
-	1,  // 2: janus.v1alpha1.ClusterSetRequest.members:type_name -> janus.v1alpha1.ClusterMember
-	2,  // 3: janus.v1alpha1.ClusterStatusResponse.info:type_name -> janus.v1alpha1.ClusterInfo
-	6,  // 4: janus.v1alpha1.ClusterStatusResponse.peers:type_name -> janus.v1alpha1.ClusterPeer
-	7,  // 5: janus.v1alpha1.ClusterPeer.tables:type_name -> janus.v1alpha1.ClusterPeerTable
-	0,  // 6: janus.v1alpha1.ClusterPullRequest.items:type_name -> janus.v1alpha1.ClusterItem
-	0,  // 7: janus.v1alpha1.ClusterPullProgress.item:type_name -> janus.v1alpha1.ClusterItem
-	0,  // 8: janus.v1alpha1.ClusterExportRequest.items:type_name -> janus.v1alpha1.ClusterItem
-	15, // 9: janus.v1alpha1.ClusterService.ClusterGet:input_type -> google.protobuf.Empty
-	3,  // 10: janus.v1alpha1.ClusterService.ClusterSet:input_type -> janus.v1alpha1.ClusterSetRequest
-	15, // 11: janus.v1alpha1.ClusterService.ClusterLeave:input_type -> google.protobuf.Empty
-	4,  // 12: janus.v1alpha1.ClusterService.ClusterRelease:input_type -> janus.v1alpha1.ClusterReleaseRequest
-	15, // 13: janus.v1alpha1.ClusterService.ClusterStatus:input_type -> google.protobuf.Empty
-	8,  // 14: janus.v1alpha1.ClusterService.ClusterDrain:input_type -> janus.v1alpha1.ClusterDrainRequest
-	15, // 15: janus.v1alpha1.ClusterService.ClusterUndrain:input_type -> google.protobuf.Empty
-	10, // 16: janus.v1alpha1.ClusterService.ClusterPull:input_type -> janus.v1alpha1.ClusterPullRequest
-	12, // 17: janus.v1alpha1.ClusterService.ClusterExport:input_type -> janus.v1alpha1.ClusterExportRequest
-	13, // 18: janus.v1alpha1.ClusterService.TLSTicketKeysRotate:input_type -> janus.v1alpha1.TLSTicketKeysRotateRequest
-	2,  // 19: janus.v1alpha1.ClusterService.ClusterGet:output_type -> janus.v1alpha1.ClusterInfo
-	2,  // 20: janus.v1alpha1.ClusterService.ClusterSet:output_type -> janus.v1alpha1.ClusterInfo
-	2,  // 21: janus.v1alpha1.ClusterService.ClusterLeave:output_type -> janus.v1alpha1.ClusterInfo
-	2,  // 22: janus.v1alpha1.ClusterService.ClusterRelease:output_type -> janus.v1alpha1.ClusterInfo
-	5,  // 23: janus.v1alpha1.ClusterService.ClusterStatus:output_type -> janus.v1alpha1.ClusterStatusResponse
-	9,  // 24: janus.v1alpha1.ClusterService.ClusterDrain:output_type -> janus.v1alpha1.ClusterDrainProgress
-	2,  // 25: janus.v1alpha1.ClusterService.ClusterUndrain:output_type -> janus.v1alpha1.ClusterInfo
-	11, // 26: janus.v1alpha1.ClusterService.ClusterPull:output_type -> janus.v1alpha1.ClusterPullProgress
-	16, // 27: janus.v1alpha1.ClusterService.ClusterExport:output_type -> janus.v1alpha1.Data
-	14, // 28: janus.v1alpha1.ClusterService.TLSTicketKeysRotate:output_type -> janus.v1alpha1.TLSTicketKeysState
-	19, // [19:29] is the sub-list for method output_type
-	9,  // [9:19] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	19, // 1: janus.v1alpha1.ClusterInfo.tls_ticket_keys:type_name -> janus.v1alpha1.TLSTicketKeysState
+	7,  // 2: janus.v1alpha1.ClusterInfo.handoffs:type_name -> janus.v1alpha1.ClusterHandoffState
+	7,  // 3: janus.v1alpha1.ClusterHandoffResponse.state:type_name -> janus.v1alpha1.ClusterHandoffState
+	1,  // 4: janus.v1alpha1.ClusterSetRequest.members:type_name -> janus.v1alpha1.ClusterMember
+	2,  // 5: janus.v1alpha1.ClusterStatusResponse.info:type_name -> janus.v1alpha1.ClusterInfo
+	11, // 6: janus.v1alpha1.ClusterStatusResponse.peers:type_name -> janus.v1alpha1.ClusterPeer
+	12, // 7: janus.v1alpha1.ClusterPeer.tables:type_name -> janus.v1alpha1.ClusterPeerTable
+	0,  // 8: janus.v1alpha1.ClusterPullRequest.items:type_name -> janus.v1alpha1.ClusterItem
+	0,  // 9: janus.v1alpha1.ClusterPullProgress.item:type_name -> janus.v1alpha1.ClusterItem
+	0,  // 10: janus.v1alpha1.ClusterExportRequest.items:type_name -> janus.v1alpha1.ClusterItem
+	20, // 11: janus.v1alpha1.ClusterService.ClusterGet:input_type -> google.protobuf.Empty
+	8,  // 12: janus.v1alpha1.ClusterService.ClusterSet:input_type -> janus.v1alpha1.ClusterSetRequest
+	20, // 13: janus.v1alpha1.ClusterService.ClusterLeave:input_type -> google.protobuf.Empty
+	9,  // 14: janus.v1alpha1.ClusterService.ClusterRelease:input_type -> janus.v1alpha1.ClusterReleaseRequest
+	20, // 15: janus.v1alpha1.ClusterService.ClusterStatus:input_type -> google.protobuf.Empty
+	13, // 16: janus.v1alpha1.ClusterService.ClusterDrain:input_type -> janus.v1alpha1.ClusterDrainRequest
+	20, // 17: janus.v1alpha1.ClusterService.ClusterUndrain:input_type -> google.protobuf.Empty
+	15, // 18: janus.v1alpha1.ClusterService.ClusterPull:input_type -> janus.v1alpha1.ClusterPullRequest
+	17, // 19: janus.v1alpha1.ClusterService.ClusterExport:input_type -> janus.v1alpha1.ClusterExportRequest
+	3,  // 20: janus.v1alpha1.ClusterService.ClusterFlows:input_type -> janus.v1alpha1.ClusterFlowsRequest
+	5,  // 21: janus.v1alpha1.ClusterService.ClusterHandoff:input_type -> janus.v1alpha1.ClusterHandoffRequest
+	18, // 22: janus.v1alpha1.ClusterService.TLSTicketKeysRotate:input_type -> janus.v1alpha1.TLSTicketKeysRotateRequest
+	2,  // 23: janus.v1alpha1.ClusterService.ClusterGet:output_type -> janus.v1alpha1.ClusterInfo
+	2,  // 24: janus.v1alpha1.ClusterService.ClusterSet:output_type -> janus.v1alpha1.ClusterInfo
+	2,  // 25: janus.v1alpha1.ClusterService.ClusterLeave:output_type -> janus.v1alpha1.ClusterInfo
+	2,  // 26: janus.v1alpha1.ClusterService.ClusterRelease:output_type -> janus.v1alpha1.ClusterInfo
+	10, // 27: janus.v1alpha1.ClusterService.ClusterStatus:output_type -> janus.v1alpha1.ClusterStatusResponse
+	14, // 28: janus.v1alpha1.ClusterService.ClusterDrain:output_type -> janus.v1alpha1.ClusterDrainProgress
+	2,  // 29: janus.v1alpha1.ClusterService.ClusterUndrain:output_type -> janus.v1alpha1.ClusterInfo
+	16, // 30: janus.v1alpha1.ClusterService.ClusterPull:output_type -> janus.v1alpha1.ClusterPullProgress
+	21, // 31: janus.v1alpha1.ClusterService.ClusterExport:output_type -> janus.v1alpha1.Data
+	4,  // 32: janus.v1alpha1.ClusterService.ClusterFlows:output_type -> janus.v1alpha1.ClusterFlowsChunk
+	6,  // 33: janus.v1alpha1.ClusterService.ClusterHandoff:output_type -> janus.v1alpha1.ClusterHandoffResponse
+	19, // 34: janus.v1alpha1.ClusterService.TLSTicketKeysRotate:output_type -> janus.v1alpha1.TLSTicketKeysState
+	23, // [23:35] is the sub-list for method output_type
+	11, // [11:23] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_janus_v1alpha1_cluster_proto_init() }
@@ -1488,7 +1939,7 @@ func file_janus_v1alpha1_cluster_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_janus_v1alpha1_cluster_proto_rawDesc), len(file_janus_v1alpha1_cluster_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   14,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

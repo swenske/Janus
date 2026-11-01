@@ -51,7 +51,22 @@ type UpgradeOptions struct {
 	BackTimeout time.Duration
 	// Poll is how often a member coming back is asked; 0: 2 seconds.
 	Poll time.Duration
+	// WaitBalancer: the balancer in front is asked too (BalancerSees) -
+	// every other member in service before one goes, the member out of
+	// it once drained, back in it once undrained - the next member left
+	// alone until it is. The cluster's hook must be able to say
+	// (Cluster.CanConfirm).
+	WaitBalancer bool
+	// Settle: a pause once a member is back in service, before the next
+	// one goes - its clients settled on it; 0: none.
+	Settle time.Duration
+	// Handoff: a member's connections are handed over while it is out
+	// and once it is back (handoff.go); nil: they are cut.
+	Handoff *HandoffOptions
 }
+
+// MaxSettle bounds UpgradeOptions.Settle.
+const MaxSettle = 30 * time.Minute
 
 // UpgradeTimeout is how long a member has to come back from its update
 // by default: the machines' own update timeout.
@@ -63,6 +78,9 @@ const (
 	StageUpdating = "updating"
 	StageBooting  = "rebooting"
 	StageLearning = "learning tables"
+	// StageHandingOver: drained, it serves its connections, the others
+	// copying them to it, until they end or the grace runs out.
+	StageHandingOver = "handing over"
 )
 
 // RevertedError: a member's node reverted to its previous release - its
@@ -93,6 +111,45 @@ func (e *NotBackError) Unwrap() error { return e.Err }
 // update's target.
 func (o UpgradeOptions) OnTarget(v *janusv1alpha1.VersionResponse) bool {
 	return v.GetVersion() == o.Release && (o.Schematic == "" || v.GetSchematicId() == o.Schematic)
+}
+
+// check refuses what cluster c can't do of o.
+func (o UpgradeOptions) check(c *Cluster) error {
+	if o.WaitBalancer {
+		if why, ok := c.CanConfirm(); !ok {
+			return fmt.Errorf("waiting for the balancer: %s", why)
+		}
+	}
+	if o.Settle < 0 || o.Settle > MaxSettle {
+		return fmt.Errorf("the pause between members: 0 to %s", MaxSettle)
+	}
+	if o.Handoff != nil {
+		return o.Handoff.check()
+	}
+	return nil
+}
+
+// describe is o's choices, for the journal's first line.
+func (o UpgradeOptions) describe(c *Cluster) string {
+	var parts []string
+	if o.WaitBalancer {
+		how, _ := c.CanConfirm()
+		parts = append(parts, "the balancer asked ("+how+")")
+	}
+	if o.Settle > 0 {
+		parts = append(parts, "a pause of "+o.Settle.String()+" between members")
+	}
+	if h := o.Handoff; h != nil {
+		var addrs []string
+		for _, a := range h.addrs {
+			addrs = append(addrs, a.String())
+		}
+		parts = append(parts, fmt.Sprintf("connections on %s handed over (a grace of %s, copied back for %s)", strings.Join(addrs, ", "), h.Grace, h.keep()))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " - " + strings.Join(parts, ", ")
 }
 
 // UpgradeOrder is the order cluster c's members are updated in: names'
@@ -192,6 +249,18 @@ func (e *Engine) Upgrade(ctx context.Context, id string, opts UpgradeOptions, ac
 	if len(c.Members) < 2 {
 		return fmt.Errorf("cluster %s has one member: its traffic would have nowhere to go while it updates - update its node on its own, or add a member first", c.Name)
 	}
+	if err := opts.check(c); err != nil {
+		return err
+	}
+	if opts.Handoff != nil {
+		addrs, why := e.HandoffReady(ctx, c)
+		if why != "" {
+			return fmt.Errorf("handing connections over: %s", why)
+		}
+		h := *opts.Handoff
+		h.addrs = addrs
+		opts.Handoff = &h
+	}
 	order, err := e.UpgradeOrder(ctx, c, opts.Members)
 	if err != nil {
 		return err
@@ -200,10 +269,16 @@ func (e *Engine) Upgrade(ctx context.Context, id string, opts UpgradeOptions, ac
 	for _, m := range order {
 		names = append(names, m.Name)
 	}
-	e.Journal(id, actor, "upgrade", "", 0, "updating %s to Janus %s, one at a time: %s", c.Name, opts.Release, strings.Join(names, ", "))
+	e.Journal(id, actor, "upgrade", "", 0, "updating %s to Janus %s, one at a time: %s%s", c.Name, opts.Release, strings.Join(names, ", "), opts.describe(c))
 	updated := 0
 	for _, m := range order {
-		done, err := e.upgradeMember(ctx, c, m, opts, actor)
+		// The pause is owed once a member was updated, before the next
+		// one that will be.
+		var pause time.Duration
+		if updated > 0 {
+			pause = opts.Settle
+		}
+		done, err := e.upgradeMember(ctx, c, m, opts, pause, actor)
 		e.setStage(id, m.Name, "")
 		if opts.Done != nil && (done || err != nil) {
 			opts.Done(m, err)
@@ -225,8 +300,9 @@ func (e *Engine) Upgrade(ctx context.Context, id string, opts UpgradeOptions, ac
 	return nil
 }
 
-// upgradeMember updates member m; done: it was updated (not skipped).
-func (e *Engine) upgradeMember(ctx context.Context, c *Cluster, m Member, opts UpgradeOptions, actor string) (done bool, err error) {
+// upgradeMember updates member m, after a pause when one is owed; done:
+// it was updated (not skipped).
+func (e *Engine) upgradeMember(ctx context.Context, c *Cluster, m Member, opts UpgradeOptions, pause time.Duration, actor string) (done bool, err error) {
 	v0, err := e.Nodes.Version(ctx, m)
 	if err != nil {
 		return false, fmt.Errorf("%s doesn't answer: %v", m.Name, err)
@@ -234,6 +310,14 @@ func (e *Engine) upgradeMember(ctx context.Context, c *Cluster, m Member, opts U
 	if opts.OnTarget(v0) {
 		e.Journal(c.ID, actor, "upgrade", m.Name, 0, "%s runs Janus %s already: skipped", m.Name, opts.Release)
 		return false, nil
+	}
+	if pause > 0 {
+		e.Journal(c.ID, actor, "upgrade", m.Name, 0, "a pause of %s before %s goes", pause, m.Name)
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(pause):
+		}
 	}
 	// Healthy first - given a moment: the member updated before may
 	// still be acknowledging its tables' last updates.
@@ -249,17 +333,60 @@ func (e *Engine) upgradeMember(ctx context.Context, c *Cluster, m Member, opts U
 			return false, fmt.Errorf("not updating %s: %v - still in service on Janus %s", m.Name, err, v0.GetVersion())
 		}
 	}
+	// Its connections handed over first: the others copy them to it once
+	// the router sends them their packets.
+	// It takes no new connection - their senders try again a second
+	// later, by then elsewhere - and the others read its connections.
+	h := opts.Handoff
+	if h != nil {
+		if err := e.refuseNew(ctx, m, h.addrs, HandoffRefuse); err != nil {
+			return false, fmt.Errorf("not updating %s: refusing new connections: %v - still in service on Janus %s", m.Name, err, v0.GetVersion())
+		}
+		n, by, err := e.handOut(ctx, c, m, h.addrs, h.Grace+5*time.Minute)
+		if err != nil {
+			e.stopHandOut(ctx, c, m, actor)
+			_ = e.refuseNew(ctx, m, h.addrs, 0)
+			return false, fmt.Errorf("not updating %s: handing its connections over: %v - still in service on Janus %s", m.Name, err, v0.GetVersion())
+		}
+		e.Journal(c.ID, actor, "handoff", m.Name, 0, "%s copy %s's connections to it while it is out - %d now", strings.Join(by, ", "), m.Name, n)
+	}
+	// undo: the handoff's part of a member left in service.
+	undo := func() {
+		if h != nil {
+			e.stopHandOut(ctx, c, m, actor)
+			_ = e.refuseNew(ctx, m, h.addrs, 0)
+		}
+	}
 	// Out of service first: the balancer told, then its virtual IPs and
 	// routes moved; its connections finish.
 	e.setStage(c.ID, m.Name, StageDraining)
 	if err := e.Drain(ctx, c.ID, m.Name, actor); err != nil {
+		undo()
 		return false, fmt.Errorf("%s didn't drain: %v", m.Name, err)
+	}
+	if opts.WaitBalancer {
+		// Its traffic gone from the balancer before its node reboots.
+		if err := e.waitBalancer(ctx, c, m.Name, false, opts.Poll, actor); err != nil {
+			undo()
+			if uerr := e.Undrain(ctx, c.ID, m.Name, actor); uerr != nil {
+				return false, fmt.Errorf("not updating %s: %v; and back in service: %v", m.Name, err, uerr)
+			}
+			return false, fmt.Errorf("not updating %s: %v - back in service on Janus %s", m.Name, err, v0.GetVersion())
+		}
+	}
+	// Out, it serves its connections until they end - the grace at most.
+	if h != nil {
+		e.setStage(c.ID, m.Name, StageHandingOver)
+		if err := e.graceWait(ctx, c, m, h, actor); err != nil {
+			return false, err
+		}
 	}
 	e.setStage(c.ID, m.Name, StageUpdating)
 	e.Journal(c.ID, actor, "upgrade", m.Name, 0, "%s updating from Janus %s (slot %s) to %s", m.Name, v0.GetVersion(), v0.GetActiveSlot(), opts.Release)
 	said, err := opts.Update(ctx, m)
 	if err != nil {
 		// Its slots weren't switched: it serves on as it was.
+		undo()
 		if uerr := e.Undrain(ctx, c.ID, m.Name, actor); uerr != nil {
 			return false, fmt.Errorf("%s's update failed: %v; and back in service: %v", m.Name, err, uerr)
 		}
@@ -274,10 +401,23 @@ func (e *Engine) upgradeMember(ctx context.Context, c *Cluster, m Member, opts U
 	if err != nil {
 		return false, err
 	}
+	// Its connections ended with its reboot: the others copy them no more.
+	if h != nil {
+		e.stopHandOut(ctx, c, m, actor)
+	}
 	// Back: in service once its tables are learnt.
 	e.setStage(c.ID, m.Name, StageLearning)
 	if err := e.waitLearnt(ctx, c, m, actor); err != nil {
 		return false, fmt.Errorf("%s: %v - it stays drained", m.Name, err)
+	}
+	// It copies the others' connections to them once the router sends it
+	// part of their packets.
+	if h != nil {
+		if got, err := e.handIn(ctx, c, m, h.addrs, h.keep(), true); err != nil {
+			e.Journal(c.ID, actor, "handoff", m.Name, 0, "%v - their connections the router moves to it are reset", err)
+		} else {
+			e.Journal(c.ID, actor, "handoff", m.Name, 0, "%s copies the others' connections to them for %s: %s", m.Name, h.keep(), strings.Join(got, ", "))
+		}
 	}
 	if err := e.Undrain(ctx, c.ID, m.Name, actor); err != nil {
 		return false, fmt.Errorf("%s back in service: %v", m.Name, err)
@@ -286,6 +426,19 @@ func (e *Engine) upgradeMember(ctx context.Context, c *Cluster, m Member, opts U
 	// member goes out of service only then.
 	if err := e.waitAnnouncing(ctx, c, m, opts, actor); err != nil {
 		return false, err
+	}
+	// And the balancer sends it traffic again, when it is asked.
+	if opts.WaitBalancer {
+		if err := e.waitBalancer(ctx, c, m.Name, true, opts.Poll, actor); err != nil {
+			return false, fmt.Errorf("%s is back in service, but %v - the next members left alone", m.Name, err)
+		}
+	}
+	// The connections the others took meanwhile, read again now that the
+	// router spreads them.
+	if h != nil {
+		if _, err := e.handIn(ctx, c, m, h.addrs, h.keep(), false); err != nil {
+			e.Journal(c.ID, actor, "handoff", m.Name, 0, "%v", err)
+		}
 	}
 	if !opts.OnTarget(v) {
 		return false, &RevertedError{Member: m.Name, Release: opts.Release, Running: v.GetVersion()}
@@ -457,6 +610,9 @@ func (e *Engine) waitHealthy(ctx context.Context, c *Cluster, m Member, opts Upg
 	deadline := time.Now().Add(timeout)
 	for {
 		err := e.UpgradeCheck(ctx, c, m)
+		if err == nil && opts.WaitBalancer {
+			err = e.balancerHasOthers(ctx, c, m.Name)
+		}
 		if err == nil || time.Now().After(deadline) {
 			return err
 		}

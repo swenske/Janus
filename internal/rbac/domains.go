@@ -164,6 +164,8 @@ var Domain = map[string]string{
 	"ClusterService/ClusterUndrain":      DomainSystem,
 	"ClusterService/ClusterPull":         DomainSystem,
 	"ClusterService/ClusterExport":       DomainSystem,
+	"ClusterService/ClusterFlows":        DomainSystem,
+	"ClusterService/ClusterHandoff":      DomainSystem,
 	"ClusterService/TLSTicketKeysRotate": DomainSystem,
 }
 

@@ -174,6 +174,8 @@ var Required = map[string][]string{
 	"/janus.v1alpha1.ClusterService/ClusterUndrain":      adminOnly,
 	"/janus.v1alpha1.ClusterService/ClusterPull":         adminOnly, // brings another member's secrets onto this node
 	"/janus.v1alpha1.ClusterService/ClusterExport":       clusterMembers,
+	"/janus.v1alpha1.ClusterService/ClusterFlows":        clusterMembers, // a member's connections, for the others' handoff
+	"/janus.v1alpha1.ClusterService/ClusterHandoff":      adminOnly,      // copies another member's packets to it
 	"/janus.v1alpha1.ClusterService/TLSTicketKeysRotate": adminOnly,
 }
 

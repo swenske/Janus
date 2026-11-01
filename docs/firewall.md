@@ -46,8 +46,17 @@ can't name them (its C library knows the common ones only); service names
 The kernel has nf_tables for `inet`, `ip`, `ip6` and `netdev`, with
 connection tracking, NAT (`masquerade`, `redirect`, `snat`, `dnat`),
 `log`, `reject`, `limit`, `quota`, `ct count`, `fib`, `numgen`/`jhash`,
-`synproxy`, and `socket`/`tproxy` for HAProxy's transparent proxying. No
-iptables.
+`synproxy`, `socket`/`tproxy` for HAProxy's transparent proxying, and
+`dup`. No iptables.
+
+A cluster member's [connection handoff](guide/clusters.md#handing-connections-over)
+keeps tables of its own beside the ruleset, `janus_handoff` in the `ip`
+and `ip6` families: janusd puts them back each time it applies a
+ruleset, in the same transaction, so a ruleset can't use that name. The
+packets it copies to another member leave with the client's source
+address, untracked (`ct state untracked`): a ruleset that filters what
+leaves the node must let them go - one that filters what comes in, like
+the one above, needs nothing.
 
 ## Applying: on trial
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
@@ -44,6 +45,76 @@ type clusterUpgradeRequest struct {
 	// RebootMode: "kexec" or "firmware"; empty: a machine's own update
 	// reboot mode, the firmware for any other node.
 	RebootMode string `json:"reboot_mode,omitempty"`
+	// WaitBalancer: the balancer in front is asked too - a member goes
+	// once it has the others in service and only after it has the one
+	// before back (GET .../upgrade-options says whether it can say).
+	WaitBalancer bool `json:"wait_balancer,omitempty"`
+	// SettleSeconds: a pause once a member is back, before the next one
+	// goes.
+	SettleSeconds int `json:"settle_seconds,omitempty"`
+	// Handoff: the members hand their connections over - an anycast
+	// cluster whose every member can (GET .../upgrade-options).
+	Handoff *clusterHandoffRequest `json:"handoff,omitempty"`
+}
+
+// clusterHandoffRequest is an update's handoff: GraceSeconds (0: 120)
+// a drained member serves its connections at most before its update,
+// KeepSeconds (0: an hour) a member back copies the others' to them.
+type clusterHandoffRequest struct {
+	GraceSeconds int `json:"grace_seconds,omitempty"`
+	KeepSeconds  int `json:"keep_seconds,omitempty"`
+}
+
+// upgradeOptions is GET /api/clusters/{id}/upgrade-options: what an
+// update of the cluster may ask for, or why not.
+type upgradeOptions struct {
+	WaitBalancer upgradeOption `json:"wait_balancer"`
+	Handoff      handoffOption `json:"handoff"`
+	MaxSettle    int           `json:"max_settle_seconds"`
+}
+
+type upgradeOption struct {
+	Available bool `json:"available"`
+	// How: what is asked; Why: why it can't be.
+	How string `json:"how,omitempty"`
+	Why string `json:"why,omitempty"`
+}
+
+type handoffOption struct {
+	upgradeOption
+	Addresses    []string `json:"addresses,omitempty"`
+	GraceSeconds int      `json:"grace_seconds"`
+	KeepSeconds  int      `json:"keep_seconds"`
+	MaxGrace     int      `json:"max_grace_seconds"`
+	MaxKeep      int      `json:"max_keep_seconds"`
+}
+
+func (a *app) handleClusterUpgradeOptions(w http.ResponseWriter, r *http.Request) {
+	c, ok := a.clusterOr404(w, r)
+	if !ok {
+		return
+	}
+	var out upgradeOptions
+	out.MaxSettle = int(clusters.MaxSettle.Seconds())
+	if how, ok := c.CanConfirm(); ok {
+		out.WaitBalancer = upgradeOption{Available: true, How: how}
+	} else {
+		out.WaitBalancer = upgradeOption{Why: how}
+	}
+	ctx, cancel := context.WithTimeout(nodeproxy.ForCluster(r.Context(), c.ID), 30*time.Second)
+	defer cancel()
+	addrs, why := a.clusters.HandoffReady(ctx, c)
+	h := handoffOption{upgradeOption: upgradeOption{Available: why == "", Why: why},
+		GraceSeconds: int(clusters.DefaultHandoffGrace.Seconds()), KeepSeconds: int(clusters.DefaultHandoffKeep.Seconds()),
+		MaxGrace: int(clusters.MaxHandoffGrace.Seconds()), MaxKeep: int(clusters.MaxHandoffKeep.Seconds())}
+	for _, ad := range addrs {
+		h.Addresses = append(h.Addresses, ad.String())
+	}
+	if h.Available {
+		h.How = "The others copy a member's connections on " + strings.Join(h.Addresses, ", ") + " to it while it is out, and it copies theirs once back"
+	}
+	out.Handoff = h
+	writeJSON(w, http.StatusOK, out)
 }
 
 // The engine's waits (vars: the tests shorten them).
@@ -95,6 +166,30 @@ func (a *app) planClusterUpgrade(ctx context.Context, c *clusters.Cluster, req c
 	case "", "firmware", "kexec":
 	default:
 		return nil, badRequest("reboot_mode %q: firmware or kexec", req.RebootMode)
+	}
+	if req.WaitBalancer {
+		if why, ok := c.CanConfirm(); !ok {
+			return nil, badRequest("wait_balancer: %s", why)
+		}
+	}
+	if settle := time.Duration(req.SettleSeconds) * time.Second; settle < 0 || settle > clusters.MaxSettle {
+		return nil, badRequest("settle_seconds: 0 to %d", int(clusters.MaxSettle.Seconds()))
+	}
+	var handoff *clusters.HandoffOptions
+	if h := req.Handoff; h != nil {
+		handoff = &clusters.HandoffOptions{Grace: time.Duration(h.GraceSeconds) * time.Second, Keep: time.Duration(h.KeepSeconds) * time.Second}
+		if handoff.Grace == 0 {
+			handoff.Grace = clusters.DefaultHandoffGrace
+		}
+		if handoff.Grace < 0 || handoff.Grace > clusters.MaxHandoffGrace {
+			return nil, badRequest("handoff.grace_seconds: 1 to %d", int(clusters.MaxHandoffGrace.Seconds()))
+		}
+		if handoff.Keep < 0 || handoff.Keep > clusters.MaxHandoffKeep {
+			return nil, badRequest("handoff.keep_seconds: 0 to %d", int(clusters.MaxHandoffKeep.Seconds()))
+		}
+		if _, why := a.clusters.HandoffReady(ctx, c); why != "" {
+			return nil, badRequest("handoff: %s", why)
+		}
 	}
 	order, err := a.clusters.UpgradeOrder(ctx, c, req.Members)
 	if err != nil {
@@ -185,6 +280,8 @@ func (a *app) planClusterUpgrade(ctx context.Context, c *clusters.Cluster, req c
 	}
 	p.opts.Release, p.opts.Schematic = req.Version, shared
 	p.opts.Poll, p.opts.BackTimeout = clusterUpgradePoll, clusterUpgradeBack
+	p.opts.WaitBalancer, p.opts.Settle = req.WaitBalancer, time.Duration(req.SettleSeconds)*time.Second
+	p.opts.Handoff = handoff
 	return p, nil
 }
 

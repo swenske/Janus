@@ -627,8 +627,12 @@ of a fleet without a Controller):
    on the old member, which streams until `VRRPStatus` shows its
    instances in BACKUP and `BGPStatus` its protocols down: the traffic
    moves **once**, from the old member to the replacement or a peer,
-   whose tables are full. The old member's HAProxy keeps serving its
-   established connections.
+   whose tables are full. The old member's HAProxy keeps serving what
+   still reaches it - with a virtual IP or an anycast address, its
+   established connections' packets now reach the others, which reset
+   them: an in-place update can hand them over
+   ([Handing connections over](guide/clusters.md#handing-connections-over)),
+   a recycle doesn't yet.
 4. **Remove it**: `ClusterSet` on the remaining members without it
    (each waits for its tables again), `ClusterLeave` on the old
    member, which stays drained until it reboots. The Controller then

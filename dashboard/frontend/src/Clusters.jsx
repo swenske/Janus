@@ -721,6 +721,7 @@ function Balancer({ cluster, disabled, reload }) {
     table: b?.routing_table || 'main',
     check: !!b?.check_gateway,
     readOnly: !!b?.read_only,
+    confirm: !!b?.confirm,
   })
   const [error, setError] = useState(null)
   const formROS = form.kind === 'routeros'
@@ -750,6 +751,8 @@ function Balancer({ cluster, disabled, reload }) {
             check_gateway: !form.readOnly && form.check,
             read_only: form.readOnly,
           })
+        } else if (form.confirm) {
+          body.confirm = true
         }
         if (form.secret !== '') body.secret = form.secret
         return postJSON(`/api/clusters/${cluster.id}/balancer`, body, 'PUT')
@@ -816,6 +819,7 @@ function Balancer({ cluster, disabled, reload }) {
                 <dt>Calls</dt>
                 <dd>
                   {b.has_secret ? 'signed' : 'not signed'}, {trust}, the drain {b.drain_delay_seconds ? `${b.drain_delay_seconds} s after it is told` : 'once it answers'}
+                  {b.confirm ? '; it answers check calls - an update can wait for it' : ''}
                 </dd>
               </>
             )}
@@ -893,6 +897,12 @@ function Balancer({ cluster, disabled, reload }) {
                     Read only - the members announce the prefixes over BGP: read the routes, write none
                   </label>
                 </div>
+              )}
+              {!formROS && (
+                <label className="row small">
+                  <input type="checkbox" checked={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.checked })} />
+                  It answers check calls (<span className="mono">{'{"in_service": true|false}'}</span>) - an update can wait for it to take a member back
+                </label>
               )}
               <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 <label className="field">
@@ -1246,9 +1256,26 @@ function UpdateCluster({ cluster, latest, onDone, reload }) {
   const [kernel, setKernel] = useState('')
   const [error, setError] = useState(null)
   const [busy, run] = useAction()
+  // What this cluster allows while its members change (GET
+  // .../upgrade-options): each option greyed out with why when it can't.
+  const [opts, setOpts] = useState(null)
+  const [waitBalancer, setWaitBalancer] = useState(false)
+  const [settle, setSettle] = useState(0)
+  const [handoff, setHandoff] = useState(false)
+  const [grace, setGrace] = useState(120)
   useEffect(() => {
     call('/api/catalog').then(setCatalog, () => setCatalog({}))
   }, [])
+  useEffect(() => {
+    call(`/api/clusters/${cluster.id}/upgrade-options`).then(
+      (o) => {
+        setOpts(o)
+        setWaitBalancer(!!o?.wait_balancer?.available)
+        setGrace(o?.handoff?.grace_seconds || 120)
+      },
+      (err) => setOpts({ error: err?.message || String(err) }),
+    )
+  }, [cluster.id])
   const target = version.trim() || latest
   const rows = upgradeRows(cluster, target)
   const chosen = rows.filter((r) => !skip.includes(r.name))
@@ -1268,6 +1295,13 @@ function UpdateCluster({ cluster, latest, onDone, reload }) {
               {toUpdate.map((r) => r.name).join(', ')}, one at a time - a VRRP cluster’s MASTER last: each is drained, its traffic moving to the others, updates itself and
               reboots{kexec ? ' through kexec' : ''}, then comes back into service once it runs {target} on its other slot and has learnt its stick tables.
             </p>
+            {handoff && (
+              <p>
+                Its open connections are handed over: the others copy them to it while it is out, it serves them until they end - {grace} s at most - before it reboots;
+                back, it copies theirs to them.
+              </p>
+            )}
+            {waitBalancer && <p>The next member goes only once the balancer has the one before back in service.</p>}
             <p>A member whose new release doesn’t confirm healthy goes back to its previous one by itself, and the update stops there.</p>
           </>
         ),
@@ -1279,6 +1313,9 @@ function UpdateCluster({ cluster, latest, onDone, reload }) {
     const body = { version: target }
     if (skip.length) body.members = chosen.map((r) => r.name)
     if (kexec) body.reboot_mode = 'kexec'
+    if (waitBalancer) body.wait_balancer = true
+    if (Number(settle) > 0) body.settle_seconds = Number(settle)
+    if (handoff) body.handoff = { grace_seconds: Number(grace) || 120 }
     if (newImage) {
       body.new_image = true
       body.extensions = exts
@@ -1382,6 +1419,17 @@ function UpdateCluster({ cluster, latest, onDone, reload }) {
             )}
           </div>
         )}
+        <UpdateTraffic
+          opts={opts}
+          waitBalancer={waitBalancer}
+          setWaitBalancer={setWaitBalancer}
+          settle={settle}
+          setSettle={setSettle}
+          handoff={handoff}
+          setHandoff={setHandoff}
+          grace={grace}
+          setGrace={setGrace}
+        />
         <p className="small muted">
           One member at a time, a VRRP cluster’s MASTER last: drained - the balancer in front told first -, its node’s own update, back on its other slot within 20 minutes,
           its stick tables learnt, back in service. The first failure stops the update: a member that reverted serves on its previous release, one not back stays drained.
@@ -1399,6 +1447,56 @@ function UpdateCluster({ cluster, latest, onDone, reload }) {
         </div>
       </form>
     </Card>
+  )
+}
+
+// UpdateTraffic is an update's choices for the traffic while the members
+// change (docs/guide/clusters.md "Updating a cluster"): wait for the
+// balancer, a pause between members, the connections handed over - an
+// option the cluster can't have is greyed out, and says why.
+function UpdateTraffic({ opts, waitBalancer, setWaitBalancer, settle, setSettle, handoff, setHandoff, grace, setGrace }) {
+  if (opts === null) {
+    return (
+      <span className="muted small">
+        <Loader2 size={13} className="spin" /> checking what this cluster allows while its members change…
+      </span>
+    )
+  }
+  if (opts.error) return <span className="muted small">The options while the members change can’t be read: {opts.error}</span>
+  const wb = opts.wait_balancer || {}
+  const ho = opts.handoff || {}
+  return (
+    <div className="stack update-traffic">
+      <span className="field-label">While the members change</span>
+      <div>
+        <label className="check small">
+          <input type="checkbox" checked={waitBalancer} disabled={!wb.available} onChange={(e) => setWaitBalancer(e.target.checked)} /> Wait for the balancer to take each
+          member back before the next one goes
+        </label>
+        <div className="small muted option-why">{wb.available ? `It is asked: ${wb.how}.` : `Not available: ${wb.why}.`}</div>
+      </div>
+      <div>
+        <label className="check small">
+          <input type="checkbox" checked={handoff} disabled={!ho.available} onChange={(e) => setHandoff(e.target.checked)} /> Hand the open connections over - a member’s
+          connections keep working while it is out, and the others’ once it is back
+        </label>
+        <div className="small muted option-why">
+          {ho.available ? `${ho.how}.` : `Not available: ${ho.why}`}
+        </div>
+      </div>
+      <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        {handoff && (
+          <label className="field">
+            <span>Grace (s) - a drained member serves its connections at most</span>
+            <input type="number" min="1" max={ho.max_grace_seconds || 3600} value={grace} onChange={(e) => setGrace(e.target.value)} />
+          </label>
+        )}
+        <label className="field">
+          <span>Pause between members (s)</span>
+          <input type="number" min="0" max={opts.max_settle_seconds || 1800} value={settle} onChange={(e) => setSettle(e.target.value)} />
+        </label>
+      </div>
+    </div>
   )
 }
 

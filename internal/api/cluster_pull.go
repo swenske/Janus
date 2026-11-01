@@ -4,15 +4,12 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"log"
-	"net"
 	"os"
 	"path"
 	"path/filepath"
@@ -20,9 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
@@ -171,22 +166,10 @@ func (c *Cluster) ClusterPull(req *janusv1alpha1.ClusterPullRequest, stream janu
 	if from == nil || from.Name == m.Member {
 		return status.Errorf(codes.InvalidArgument, "%q isn't another member of the cluster", req.GetFrom())
 	}
-	cert := c.Store.MemberTLSCertificate()
-	if cert == nil {
+	if c.Store.MemberTLSCertificate() == nil {
 		return status.Error(codes.FailedPrecondition, "this node has no member certificate")
 	}
-	addr := from.API
-	if addr == "" {
-		addr = net.JoinHostPort(from.Address, "9505")
-	}
-	pool := x509.NewCertPool()
-	for _, ca := range c.Store.CAs() {
-		pool.AddCert(ca)
-	}
-	// The source presents its member certificate for its own name: the
-	// cluster's CA vouches for both ends.
-	creds := credentials.NewTLS(&tls.Config{Certificates: []tls.Certificate{*cert}, RootCAs: pool, ServerName: from.Name, MinVersion: tls.VersionTLS13})
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(creds))
+	conn, err := c.dialMember(from)
 	if err != nil {
 		return status.Errorf(codes.Internal, "dial %s: %v", from.Name, err)
 	}

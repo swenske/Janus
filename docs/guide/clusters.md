@@ -374,7 +374,10 @@ own [A/B update](updates.md):
    moves (a factory it reaches through the cluster's address).
 2. The member is **drained**: the [balancer](#a-balancer-in-front) told
    first and its drain delay waited, then its virtual IPs and routes
-   move to the others. Its established connections finish.
+   move to the others. It serves what still reaches it - but with a
+   virtual IP or an anycast address, the packets of its established
+   connections now reach the others, which reset them, unless they are
+   [handed over](#handing-connections-over).
 3. Its node **updates itself**: the release's bundle - the image
    factory's for the member's image -, checked by the node, confirmed
    only once HAProxy is healthy on the new slot, reverted otherwise. It
@@ -411,6 +414,103 @@ kernel track as they update - a member's image then differs from the
 others' until the update ends. Each step goes in the cluster's journal
 (`upgrade`).
 
+### While the members change
+
+The **Update** dialog has three choices for the traffic; one the
+cluster can't have is greyed out, and says why:
+
+- **Wait for the balancer** to take each member back before the next
+  one goes. A member's node saying it announces its routes again - or
+  is undrained - isn't the router or the load balancer in front acting
+  on it. When the cluster's [balancer hook](#a-balancer-in-front) can
+  say, it is asked too ([Waiting for the balancer](#waiting-for-the-balancer)):
+  every other member in service before one goes, the member out of it
+  once drained - before its node reboots -, back in it once undrained -
+  before the next one goes. Each wait lasts two minutes at most; then
+  the update stops there, the members after it left alone.
+- **A pause between members**: once a member is back in service, the
+  next one waits that long - its clients settled on it. Up to 30
+  minutes.
+- **Hand the open connections over**: a member's connections keep
+  working while it is out, and the others' once it is back
+  ([Handing connections over](#handing-connections-over)).
+
+### Handing connections over
+
+In a cluster whose members all hold the service addresses - an anycast
+address announced over BGP, a router's ECMP routes -, the router spreads
+the connections over the members by a hash of their addresses and
+ports. An established connection lives on the member that accepted it.
+Take a member out and the router sends its connections' packets to the
+others, which have no such connection and reset it. Bring it back and
+the hash sends part of the connections opened meanwhile to it, reset
+in turn. An HTTP client opens another connection and nobody notices.
+A long-lived one - a WebSocket, a download, a streamed response, a
+Syncthing relay session - is cut, two or three times in an update.
+
+With the handoff, a member copies the packets of another member's
+connections to it - nftables' `dup`, to that member's own address on
+the link - and drops its own copy: the member that has the connection
+answers, straight to the client. For each member, in turn:
+
+1. It **refuses new connections** for a moment: their SYNs are dropped,
+   and their senders try again a second later - by then on another
+   member. Then the others **read its connections**.
+2. It is drained. The router now sends its connections' packets to the
+   others, which **copy them to it**. It serves them until they end, or
+   until the **grace** runs out (2 minutes by default, up to an hour).
+   The others read its connections again every few seconds. The update
+   goes on as soon as it has none left.
+3. It updates and reboots: the connections still open then are cut.
+   One that never ends is cut once, not two or three times.
+4. Back, before it is undrained, it **reads the others' connections and
+   copies their packets to them** - an hour by default -, and for two
+   minutes it **holds** what it has no trace of: a packet of a
+   connection opened elsewhere while the router was taking it back is
+   dropped, not reset - its sender sends it again, and the next reading
+   copies it.
+
+It takes, on **every member**:
+
+- the [nftables extension](../firewall.md) in its image - the
+  copies are nftables rules, whether or not the node has a firewall;
+- a release whose kernel can copy packets - from the one that brought
+  the handoff;
+- the **same service addresses**: a VRRP cluster can't - its virtual IP
+  moves with its connections' packets, and the member left out no
+  longer has it.
+
+The dialog says which is missing, member by member. On a node,
+`janusctl cluster get` says whether it can (`Handoff: unavailable -
+...`) and what it does: the members whose connections it copies, how
+many, the packets copied so far, a refusal or a hold in effect.
+
+Mind:
+
+- A firewall ruleset that **filters what leaves the node** must let the
+  copies out: they leave with the client's source address and the
+  service address as destination, untracked by conntrack (`ct state
+  untracked`). A ruleset that filters only what comes in needs nothing.
+  The handoff's tables are named `janus_handoff`: a ruleset can't use
+  the name.
+- A member reads another's connections over the cluster's own mTLS -
+  member certificates, as for the [keys](#certificates-and-keys) -:
+  addresses and ports, never what goes through them.
+- The copies cost a lookup per packet on the service addresses while a
+  handoff lasts, and the readings a list of every connection every few
+  seconds (every 30 seconds after the first two minutes).
+
+### Waiting for the balancer
+
+A **RouterOS** hook is read: the router's routes to the service
+prefixes, each member's role - in service when every prefix's route
+through it is active (`multipath` or `master`). A **webhook** is asked,
+when it says it can answer (*It answers check calls*, `"confirm": true`):
+a `POST` like the others, `event` `check` and `member` the one asked
+about. It changes nothing; the receiver answers `200` and
+`{"in_service": true}` when it sends that member traffic now, `false`
+otherwise - anything else is an error, asked again.
+
 Update in place or [recycle](#recycling-a-member)? Update in place keeps
 whatever points at a member - firewall rules, NAT, DHCP reservations,
 monitoring, inventories - and needs no room for one more machine.
@@ -422,7 +522,11 @@ name, or updated in place.
 
 Through the API: `POST /api/clusters/{id}/upgrade` `{"version":
 "v2026.10.29"}` - `members`, `new_image` with `extensions`, `haproxy`,
-`kernel`, and `reboot_mode` (`kexec`) when you need them. A member that
+`kernel`, and `reboot_mode` (`kexec`) when you need them;
+`wait_balancer` (`true`), `settle_seconds` and `handoff`
+(`{"grace_seconds": 120, "keep_seconds": 3600}`, both optional) for the
+traffic - `GET /api/clusters/{id}/upgrade-options` says which the
+cluster can have, and why not. A member that
 is one of the Controller's machines goes through the machine's own
 update, so its record - and a Terraform plan - follow. `PATCH
 /api/machines/{id}` with a new version or image on a cluster's member
@@ -434,6 +538,8 @@ Without a Controller:
 janusctl cluster upgrade edge v2026.10.29     # the release's own image
 janusctl cluster upgrade edge https://bundles.example.net/janus/ \
   -members lb-2,lb-1 -kexec                   # a bundle of your own
+janusctl cluster upgrade edge v2026.10.29 \
+  -handoff -handoff-grace 5m -wait-balancer   # connections handed over
 ```
 
 ## Recycling a member
@@ -551,7 +657,10 @@ before it stops. The cluster's **balancer hook** tells it: the cluster's
   ```
 
   `event` is `in`, `out` (`member` names the one) or `sync` - the list
-  again: the hook saved, a member gone, a call that had failed.
+  again: the hook saved, a member gone, a call that had failed. With
+  *It answers check calls* (`"confirm": true`), also `check`: a
+  question an update asks ([Waiting for the
+  balancer](#waiting-for-the-balancer)).
   `address` is the one the members reach each other on; a member's
   template variables come along, for an address or a weight of your
   own (`public_address=...`).
