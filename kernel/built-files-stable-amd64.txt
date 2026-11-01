@@ -3930,9 +3930,11 @@ include/net/netdev_rx_queue.h
 include/net/netevent.h
 include/net/netfilter/ipv4/nf_conntrack_ipv4.h
 include/net/netfilter/ipv4/nf_defrag_ipv4.h
+include/net/netfilter/ipv4/nf_dup_ipv4.h
 include/net/netfilter/ipv4/nf_reject.h
 include/net/netfilter/ipv6/nf_conntrack_ipv6.h
 include/net/netfilter/ipv6/nf_defrag_ipv6.h
+include/net/netfilter/ipv6/nf_dup_ipv6.h
 include/net/netfilter/ipv6/nf_reject.h
 include/net/netfilter/nf_conntrack.h
 include/net/netfilter/nf_conntrack_acct.h
@@ -5346,9 +5348,11 @@ net/ipv4/ipconfig.c
 net/ipv4/metrics.c
 net/ipv4/netfilter.c
 net/ipv4/netfilter/nf_defrag_ipv4.c
+net/ipv4/netfilter/nf_dup_ipv4.c
 net/ipv4/netfilter/nf_reject_ipv4.c
 net/ipv4/netfilter/nf_socket_ipv4.c
 net/ipv4/netfilter/nf_tproxy_ipv4.c
+net/ipv4/netfilter/nft_dup_ipv4.c
 net/ipv4/netfilter/nft_fib_ipv4.c
 net/ipv4/netfilter/nft_reject_ipv4.c
 net/ipv4/netlink.c
@@ -5410,9 +5414,11 @@ net/ipv6/ndisc.c
 net/ipv6/netfilter.c
 net/ipv6/netfilter/nf_conntrack_reasm.c
 net/ipv6/netfilter/nf_defrag_ipv6_hooks.c
+net/ipv6/netfilter/nf_dup_ipv6.c
 net/ipv6/netfilter/nf_reject_ipv6.c
 net/ipv6/netfilter/nf_socket_ipv6.c
 net/ipv6/netfilter/nf_tproxy_ipv6.c
+net/ipv6/netfilter/nft_dup_ipv6.c
 net/ipv6/netfilter/nft_fib_ipv6.c
 net/ipv6/netfilter/nft_reject_ipv6.c
 net/ipv6/output_core.c

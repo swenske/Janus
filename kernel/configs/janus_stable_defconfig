@@ -275,6 +275,15 @@
 #   CONFIG_MHP_DEFAULT_ONLINE_TYPE_ONLINE_AUTO=y
 #   CONFIG_ACPI_HOTPLUG_MEMORY=y CONFIG_VIRTIO_MEM=y
 #
+# Cluster connection handoff (2026-11-01): a member in service copies the
+# packets of a drained member's open connections to it (nft's dup
+# statement, internal/handoff), so they keep working after its routes
+# are withdrawn - what an anycast cluster's router would otherwise send
+# to a member that resets them. `scripts/config --enable` NFT_DUP_IPV4
+# and NFT_DUP_IPV6, olddefconfig: the full resolved diff is those two
+# plus NF_DUP_IPV4 and NF_DUP_IPV6, which they select.
+#   CONFIG_NFT_DUP_IPV4=y CONFIG_NFT_DUP_IPV6=y
+#
 # Deliberately the FULL resolved config (every symbol explicit), not a
 # compact savedefconfig diff: a diff format resolves unlisted symbols
 # against the kernel's own defconfig-derived defaults, which would
@@ -1386,10 +1395,10 @@ CONFIG_NF_SOCKET_IPV4=y
 CONFIG_NF_TPROXY_IPV4=y
 CONFIG_NF_TABLES_IPV4=y
 CONFIG_NFT_REJECT_IPV4=y
-# CONFIG_NFT_DUP_IPV4 is not set
+CONFIG_NFT_DUP_IPV4=y
 CONFIG_NFT_FIB_IPV4=y
 # CONFIG_NF_TABLES_ARP is not set
-# CONFIG_NF_DUP_IPV4 is not set
+CONFIG_NF_DUP_IPV4=y
 # CONFIG_NF_LOG_ARP is not set
 # CONFIG_NF_LOG_IPV4 is not set
 CONFIG_NF_REJECT_IPV4=y
@@ -1403,9 +1412,9 @@ CONFIG_NF_SOCKET_IPV6=y
 CONFIG_NF_TPROXY_IPV6=y
 CONFIG_NF_TABLES_IPV6=y
 CONFIG_NFT_REJECT_IPV6=y
-# CONFIG_NFT_DUP_IPV6 is not set
+CONFIG_NFT_DUP_IPV6=y
 CONFIG_NFT_FIB_IPV6=y
-# CONFIG_NF_DUP_IPV6 is not set
+CONFIG_NF_DUP_IPV6=y
 CONFIG_NF_REJECT_IPV6=y
 # CONFIG_NF_LOG_IPV6 is not set
 # CONFIG_IP6_NF_IPTABLES is not set
