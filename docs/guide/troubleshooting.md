@@ -114,6 +114,8 @@ release refuses ([updating nodes](updates.md#when-an-update-reverted)).
   keep trusting it ([backups](../../dashboard/README.md#backups)); with no
   backup, the fleet's recovery kit brings the nodes under `janusctl`
   ([a fleet without a Controller](../fleet-without-controller.md)).
+  What keeps working meanwhile, and what to check on another host:
+  [when the Controller is down or lost](recovery.md).
 
 ## Worth reporting
 

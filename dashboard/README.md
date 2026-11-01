@@ -648,7 +648,11 @@ docker run --rm -it -v janus-controller-data:/data -v ./backup:/b swenske/janus-
 The passphrase is asked, or read from `JANUS_BACKUP_PASSPHRASE`; the
 master key goes to `JANUS_CONTROLLER_MASTER_KEY_FILE` (or the data
 directory). A changed byte, or a backup another Controller signed, is
-refused.
+refused. Restored on another host, the Controller renews its
+certificate for the host's addresses and gives the nodes using its
+Let's Encrypt relay its new URL; its first start logs what else names
+the old host
+([when the Controller is down or lost](../docs/guide/recovery.md#restore-it)).
 
 | If someone gets... | they have |
 |---|---|

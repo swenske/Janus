@@ -73,6 +73,7 @@ topics:
               - { file: docs/packet-capture.md, label: Packet capture }
               - { file: docs/guide/connectivity-probe.md, label: Connectivity test }
               - { file: docs/guide/troubleshooting.md, label: Troubleshooting }
+              - { file: docs/guide/recovery.md, label: Controller down or lost }
               - { file: docs/guide/diagnostic-bundle.md, label: Diagnostic bundle }
               - { file: SECURITY.md, label: Security policy }
 

@@ -244,6 +244,14 @@ Each node checks the role itself and logs who acted. The configuration
 is `~/.config/janus/janusctl.json` (`JANUSCONFIG` elsewhere), each
 context's key and certificate next to it.
 
+The Controller down, its fleet's recovery kit gets a context going for
+an hour: `janusctl login -kit janus-recovery-kit-....age` signs it a
+certificate with the fleet's root - for its own key, as `kit:<account>`,
+`-role os:admin` by default - and the nodes it listed at the last
+sign-in take it, without the Controller being asked or anything
+changing on them
+([when the Controller is down or lost](guide/recovery.md#the-controller-is-down)).
+
 A node's own certificate still works, and comes first: `janusctl
 -endpoint NODE:9505 -ca ca.crt -cert admin.crt -key admin.key ...` - the
 first-boot admin certificate, the way in when nothing else does.
