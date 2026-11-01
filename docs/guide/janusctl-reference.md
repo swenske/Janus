@@ -34,7 +34,7 @@ janusctl -endpoint HOST:PORT -ca FILE -cert FILE -key FILE COMMAND ...
 Sign in to a Controller: a certificate of its fleet, and its nodes.
 
 ```text
-janusctl login [-context NAME] [-controller HOST[:PORT]] [-controller-ca FILE] [-controller-fingerprint SHA256] [-user NAME] [-ssh-key FILE] [-browser] [-no-open] [-device]
+janusctl login [-context NAME] [-controller HOST[:PORT]] [-controller-ca FILE] [-controller-fingerprint SHA256] [-user NAME] [-ssh-key FILE] [-browser] [-no-open] [-device] [-kit KIT] [-role ROLE]
 ```
 
 Runs on this machine: no node is contacted.
@@ -50,6 +50,8 @@ Runs on this machine: no node is contacted.
 | `-browser` | sign in on the Controller's page, in the browser |
 | `-no-open` | with -browser: only print the page's address |
 | `-device` | sign in on the Controller's page from another machine |
+| `-kit KIT` | the fleet's recovery kit |
+| `-role ROLE` | with -kit: the certificate's role (os:admin) |
 
 ### janusctl context
 

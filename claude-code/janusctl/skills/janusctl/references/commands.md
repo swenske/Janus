@@ -18,7 +18,7 @@ janusctl -endpoint HOST:PORT -ca FILE -cert FILE -key FILE COMMAND ...
 
 ## Sign in
 
-- `janusctl login [-context NAME] [-controller HOST[:PORT]] [-controller-ca FILE] [-controller-fingerprint SHA256] [-user NAME] [-ssh-key FILE] [-browser] [-no-open] [-device]` - **changes** - sign in to a Controller: a certificate of its fleet, and its nodes. Interactive (browser, device code, SSH key passphrase): the user signs in, not the assistant
+- `janusctl login [-context NAME] [-controller HOST[:PORT]] [-controller-ca FILE] [-controller-fingerprint SHA256] [-user NAME] [-ssh-key FILE] [-browser] [-no-open] [-device] [-kit KIT] [-role ROLE]` - **changes** - sign in to a Controller: a certificate of its fleet, and its nodes. Interactive (browser, device code, SSH key passphrase): the user signs in, not the assistant
 - `janusctl context [list | use NAME | delete NAME]` - **changes** - the Controllers and fleets signed in to. List only reads
 - `janusctl nodes` - reads - the context's nodes (refreshed with JANUS_TOKEN)
 

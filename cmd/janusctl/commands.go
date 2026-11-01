@@ -149,6 +149,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 		boolFlag("browser", "sign in on the Controller's page, in the browser"),
 		boolFlag("no-open", "with -browser: only print the page's address"),
 		boolFlag("device", "sign in on the Controller's page from another machine"),
+		kitFlag, valFlag("role", "ROLE", "with -kit: the certificate's role (os:admin)", argRole),
 	}},
 	{name: "context", offline: true, args: "[list | use NAME | delete NAME]", help: "the Controllers and fleets signed in to", pos: []argKind{argContextAction, argContext}},
 	{name: "nodes", offline: true, help: "the context's nodes (refreshed with JANUS_TOKEN)"},
