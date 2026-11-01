@@ -14,8 +14,10 @@ const (
 	caKeyFile      = "ca.key"
 	serverCertFile = "server.crt"
 	serverKeyFile  = "server.key"
-	adminCertFile  = "admin.crt"
-	adminKeyFile   = "admin.key"
+	// A node from before the pairing code: its first boot made and
+	// printed an admin certificate, kept here (rotate.go).
+	adminCertFile = "admin.crt"
+	adminKeyFile  = "admin.key"
 
 	// RoleAdmin can call every RPC. RoleReader can call observability/
 	// status RPCs only (see internal/api/authz.go for the exact split) -
@@ -33,17 +35,12 @@ type Bootstrap struct {
 	CA         *CA
 	ServerCert tls.Certificate
 
-	// AdminIssued is true only when the admin client certificate was
-	// freshly generated this run (first boot ever, or the pki dir was
-	// wiped) - the caller should surface AdminCertPEM/AdminKeyPEM once,
-	// since after this they're only readable from disk (no shell to
-	// retrieve them later on the real target OS - see the "no shell"
-	// design goal in docs/architecture.md). This is the node's bootstrap
-	// trust anchor until Phase 3's Install flow hands out credentials
-	// through a proper side channel.
-	AdminIssued  bool
-	AdminCertPEM []byte
-	AdminKeyPEM  []byte
+	// Generated is true when the CA was made this run: the node's first
+	// boot, or its pki dir was wiped. No admin certificate is made with
+	// it - a node is reached through a fleet it pairs with
+	// (internal/pairing) or was provisioned with; a node from before
+	// keeps the admin.crt its first boot printed.
+	Generated bool
 }
 
 // Bootstrapped reports whether dir already holds a node CA - false on a
@@ -54,8 +51,7 @@ func Bootstrapped(dir string) bool {
 }
 
 // LoadOrBootstrap loads an existing PKI from dir, or generates a brand
-// new CA + server certificate (for hostname/extra SANs) + initial admin
-// client certificate if dir is empty.
+// new CA + server certificate (for hostname/extra SANs) if dir is empty.
 func LoadOrBootstrap(dir, hostname string, extraIPs []net.IP) (*Bootstrap, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("mkdir %s: %w", dir, err)
@@ -147,33 +143,12 @@ func bootstrap(dir, hostname string, extraIPs []net.IP) (*Bootstrap, error) {
 		return nil, err
 	}
 
-	adminCertPEM, adminKeyPEM, err := ca.Issue(IssueOptions{
-		CommonName:  "admin",
-		Roles:       []string{RoleAdmin},
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("issue admin certificate: %w", err)
-	}
-	if err := writeFiles(dir,
-		file{adminCertFile, adminCertPEM, 0o600},
-		file{adminKeyFile, adminKeyPEM, 0o600},
-	); err != nil {
-		return nil, err
-	}
-
 	serverCert, err := tls.X509KeyPair(serverCertPEM, serverKeyPEM)
 	if err != nil {
 		return nil, fmt.Errorf("load freshly-issued server certificate: %w", err)
 	}
 
-	return &Bootstrap{
-		CA:           ca,
-		ServerCert:   serverCert,
-		AdminIssued:  true,
-		AdminCertPEM: adminCertPEM,
-		AdminKeyPEM:  adminKeyPEM,
-	}, nil
+	return &Bootstrap{CA: ca, ServerCert: serverCert, Generated: true}, nil
 }
 
 type file struct {

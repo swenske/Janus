@@ -1,6 +1,9 @@
 package nodeproxy
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
 	"testing"
 
@@ -67,7 +70,11 @@ func TestFollowCA(t *testing.T) {
 	dial("before any rotation")
 	pinned := string(node.CA())
 	for i := 1; i <= 2; i++ {
-		if _, err := sc.Rotate(local, "localhost", nil, nil); err != nil {
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := sc.Rotate(local, "localhost", nil, &key.PublicKey); err != nil {
 			t.Fatal(err)
 		}
 		dial("right after a rotation")

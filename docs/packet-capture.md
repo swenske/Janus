@@ -15,8 +15,7 @@ backends is visible), so read-only `os:reader` certificates are refused.
 Capture HTTP traffic to HAProxy for 30 seconds into a file:
 
 ```sh
-janusctl -endpoint 172.16.1.78:9505 -ca ca.crt -cert admin.crt -key admin.key \
-  system pcap -i eth0 -f 'tcp port 80 or tcp port 443' -duration 30s -o capture.pcap
+janusctl -n edge-1 system pcap -i eth0 -f 'tcp port 80 or tcp port 443' -duration 30s -o capture.pcap
 ```
 
 Watch live in Wireshark (output goes to stdout when `-o` isn't given):

@@ -674,7 +674,8 @@ has its drawer. Its groups:
   update, access (who the node lets in - its fleet's root, bundle and
   issuing CAs, its own CA -; replacing its own CA, the new admin
   credential for a key the browser makes with WebCrypto (P-256, the
-  private half never sent) or printed on the node's console, refused
+  private half never sent) - the only way since the node makes no admin
+  key any more -, refused
   while the Controller holds a credential that CA issued; client
   certificates: role, name, validity - the Controller refuses a
   certificate the node didn't issue as asked, which an older node does),

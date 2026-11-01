@@ -235,14 +235,14 @@ LifecycleService handles installation, upgrade and rollback: writing a new immut
 
 ## AccessService
 
-AccessService: whom a node trusts besides its own certificate authority - its fleet (internal/pki/fleet.go). A node pins its fleet's root once; afterwards it only takes a bundle that root signed, newer than its own, listing the issuing CAs whose client certificates it accepts. Its own CA - the first-boot admin certificate - always lets in.
+AccessService: whom a node trusts besides its own certificate authority - its fleet (internal/pki/fleet.go). A node pins its fleet's root once; afterwards it only takes a bundle that root signed, newer than its own, listing the issuing CAs whose client certificates it accepts. Its own CA - a rescue certificate (PairingService), what LocalCARotate issued, an older node's first-boot admin certificate - always lets in.
 
 | Call | Request → response | Role | Domain | What it does |
 |---|---|---|---|---|
 | `TrustGet` | `Empty` → `TrustState` | `os:reader` | observe | The fleet the node trusts: its root, its bundle. Empty when none. |
 | `TrustSet` | `TrustSetRequest` → `TrustState` | `os:admin` | system | Pins root_cert (the first time; afterwards it must be the same, or left empty) and applies bundle - signed by that root, newer than the node's. The same bundle again changes nothing. |
 | `TrustReset` | `Empty` → `TrustState` | `os:admin` | system | Forgets the fleet: its certificates no longer let anyone in. Only a certificate of the node's own CA may do it - the way back when a fleet is lost, never for the fleet itself. |
-| `LocalCARotate` | `LocalCARotateRequest` → `LocalCARotateResponse` | `os:admin` | system | Replaces the node's own CA: a new CA, server certificate and admin certificate. Every certificate the old CA issued stops working - the first-boot admin one, a Controller's service credential, those GenerateClientConfiguration issued; the fleet's let in as before. With admin_public_key (PKIX, PEM: ECDSA P-256/P-384, Ed25519 or RSA 2048+), the new admin certificate is issued for it, its key never seen by the node; without, the node makes the key and prints both on its console, like at first boot. Clients must verify the node with the new CA (ca_cert) from now on. |
+| `LocalCARotate` | `LocalCARotateRequest` → `LocalCARotateResponse` | `os:admin` | system | Replaces the node's own CA: a new CA, server certificate and admin certificate. Every certificate the old CA issued stops working - a Controller's service credential, those GenerateClientConfiguration or a rescue issued, an older node's first-boot admin one; the fleet's let in as before. The new admin certificate is issued for admin_public_key (required; PKIX, PEM: ECDSA P-256/P-384, Ed25519 or RSA 2048+), its key never seen by the node. Clients must verify the node with the new CA (ca_cert) from now on. |
 
 ## ClusterService
 

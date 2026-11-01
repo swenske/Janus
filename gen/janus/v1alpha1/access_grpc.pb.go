@@ -34,8 +34,9 @@ const (
 // authority - its fleet (internal/pki/fleet.go). A node pins its fleet's
 // root once; afterwards it only takes a bundle that root signed, newer
 // than its own, listing the issuing CAs whose client certificates it
-// accepts. Its own CA - the first-boot admin certificate - always lets
-// in.
+// accepts. Its own CA - a rescue certificate (PairingService), what
+// LocalCARotate issued, an older node's first-boot admin certificate -
+// always lets in.
 type AccessServiceClient interface {
 	// The fleet the node trusts: its root, its bundle. Empty when none.
 	TrustGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*TrustState, error)
@@ -48,14 +49,13 @@ type AccessServiceClient interface {
 	// fleet is lost, never for the fleet itself.
 	TrustReset(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*TrustState, error)
 	// Replaces the node's own CA: a new CA, server certificate and admin
-	// certificate. Every certificate the old CA issued stops working - the
-	// first-boot admin one, a Controller's service credential, those
-	// GenerateClientConfiguration issued; the fleet's let in as before.
-	// With admin_public_key (PKIX, PEM: ECDSA P-256/P-384, Ed25519 or RSA
-	// 2048+), the new admin certificate is issued for it, its key never
-	// seen by the node; without, the node makes the key and prints both on
-	// its console, like at first boot. Clients must verify the node with
-	// the new CA (ca_cert) from now on.
+	// certificate. Every certificate the old CA issued stops working - a
+	// Controller's service credential, those GenerateClientConfiguration
+	// or a rescue issued, an older node's first-boot admin one; the
+	// fleet's let in as before. The new admin certificate is issued for
+	// admin_public_key (required; PKIX, PEM: ECDSA P-256/P-384, Ed25519 or
+	// RSA 2048+), its key never seen by the node. Clients must verify the
+	// node with the new CA (ca_cert) from now on.
 	LocalCARotate(ctx context.Context, in *LocalCARotateRequest, opts ...grpc.CallOption) (*LocalCARotateResponse, error)
 }
 
@@ -115,8 +115,9 @@ func (c *accessServiceClient) LocalCARotate(ctx context.Context, in *LocalCARota
 // authority - its fleet (internal/pki/fleet.go). A node pins its fleet's
 // root once; afterwards it only takes a bundle that root signed, newer
 // than its own, listing the issuing CAs whose client certificates it
-// accepts. Its own CA - the first-boot admin certificate - always lets
-// in.
+// accepts. Its own CA - a rescue certificate (PairingService), what
+// LocalCARotate issued, an older node's first-boot admin certificate -
+// always lets in.
 type AccessServiceServer interface {
 	// The fleet the node trusts: its root, its bundle. Empty when none.
 	TrustGet(context.Context, *emptypb.Empty) (*TrustState, error)
@@ -129,14 +130,13 @@ type AccessServiceServer interface {
 	// fleet is lost, never for the fleet itself.
 	TrustReset(context.Context, *emptypb.Empty) (*TrustState, error)
 	// Replaces the node's own CA: a new CA, server certificate and admin
-	// certificate. Every certificate the old CA issued stops working - the
-	// first-boot admin one, a Controller's service credential, those
-	// GenerateClientConfiguration issued; the fleet's let in as before.
-	// With admin_public_key (PKIX, PEM: ECDSA P-256/P-384, Ed25519 or RSA
-	// 2048+), the new admin certificate is issued for it, its key never
-	// seen by the node; without, the node makes the key and prints both on
-	// its console, like at first boot. Clients must verify the node with
-	// the new CA (ca_cert) from now on.
+	// certificate. Every certificate the old CA issued stops working - a
+	// Controller's service credential, those GenerateClientConfiguration
+	// or a rescue issued, an older node's first-boot admin one; the
+	// fleet's let in as before. The new admin certificate is issued for
+	// admin_public_key (required; PKIX, PEM: ECDSA P-256/P-384, Ed25519 or
+	// RSA 2048+), its key never seen by the node. Clients must verify the
+	// node with the new CA (ca_cert) from now on.
 	LocalCARotate(context.Context, *LocalCARotateRequest) (*LocalCARotateResponse, error)
 	mustEmbedUnimplementedAccessServiceServer()
 }

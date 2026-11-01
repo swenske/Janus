@@ -55,7 +55,8 @@ janusctl's own help wins when they differ: `janusctl help COMMAND`.
 - Paths given to `lifecycle` commands are paths **on the node**.
 - A refusal (`PermissionDenied`) means the certificate's role doesn't
   allow the call: say so. Never work around it with another context,
-  a node's first-boot admin certificate, `-as-user`/`-as-roles` or
+  a certificate of a node's own CA (a rescue certificate, an older
+  node's first-boot admin credential), `-as-user`/`-as-roles` or
   `-endpoint`, unless the user tells you to.
 - Write each janusctl command plainly - `janusctl`, its global flags,
   the command - not inside `sh -c`, a variable or `eval`: the plugin's
@@ -208,9 +209,10 @@ sync.
 
 ## Secrets
 
-- The context's keys (`~/.config/janus/`), a node's first-boot admin
-  credentials, recovery kits and PEM private keys: never print, copy
-  or paste them. Pass files by path.
+- The context's keys (`~/.config/janus/`), a node's own admin
+  credentials (a rescue certificate's key, an older node's first-boot
+  one), pairing and rescue codes, recovery kits and PEM private keys:
+  never print, copy or paste them. Pass files by path.
 - `system state export` writes a node's private keys into a file:
   **critical**, only on request; tell the user where the file is.
 - `pki generate-client-config` issues a credential: only on request.

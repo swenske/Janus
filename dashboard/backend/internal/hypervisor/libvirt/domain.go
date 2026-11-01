@@ -80,7 +80,8 @@ func volumeXML(name string, capacity uint64, format string) string {
 // image/kvm/README.md), the disk on virtio, the NoCloud volume as a
 // SATA CD-ROM (the node scans sr*), virtio NICs, and a serial console
 // on a pty only - deliberately never logged to a file on the host: a
-// node's first boot prints its root admin credential there. The
+// node shows its pairing code there (and one from before the code
+// printed its root admin credential). The
 // qemu-guest-agent channel is harmless without that extension. A
 // scalable machine's size is in size.go.
 //

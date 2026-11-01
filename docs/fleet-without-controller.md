@@ -25,9 +25,10 @@ recovery kit (offline)          root ──signs──> issuing CA "alice-laptop
 - The **bundle** lists the issuing CAs the nodes accept. Taking a
   machine out is a bundle without its issuing CA: once a node has it,
   the machine's certificates stop working there.
-- Each node keeps **its own CA** - the first boot's admin credential,
-  the way in when nothing else works. janusctl pins it to verify the
-  node (its fingerprint is on the node's console).
+- Each node keeps **its own CA**: janusctl pins it to verify the node
+  (its fingerprint is on the node's console), and a [rescue
+  volume](guide/recovery.md#neither) gets an hour's admin certificate of
+  it - the way in when the fleet is lost.
 
 ## Make the fleet
 
@@ -76,9 +77,10 @@ janusctl checks the node's CA against the fingerprint, and the node's
 server certificate against its CA, before it sends anything else; a
 wrong fingerprint is refused. Space, colons and case don't matter.
 
-A node that runs already, without the fleet: adopt it with its first
-boot's admin credential, once - `janusctl fleet adopt edge-2 -endpoint
-192.0.2.11 -ca ca.crt -cert admin.crt -key admin.key`.
+A node that runs already, without the fleet, shows a pairing code
+(below). One from before the pairing code: adopt it with the admin
+credential its first boot printed, once - `janusctl fleet adopt edge-2
+-endpoint 192.0.2.11 -ca ca.crt -cert admin.crt -key admin.key`.
 
 ## Nodes provisioned with nothing: the pairing code
 
@@ -183,8 +185,8 @@ Controller is gone and no backup restores it
 | every machine | nothing on the nodes | `fleet recover -kit`, then `adopt -kit` each node |
 | every machine and the kit | the way into the nodes | each node's [rescue volume](guide/recovery.md#neither), at its console: an hour's admin certificate of its own CA, then `access trust-reset` and a new fleet |
 | the kit, not its passphrase | an encrypted file | nothing - keep them apart |
-| the kit and its passphrase | the fleet: whoever has both can sign a bundle | `janusctl access trust-reset` on each node with its own CA's credential, then a new fleet |
-| a node's own admin credential | the way into that node | `janusctl access rotate-ca` (or the node page's Access) |
+| the kit and its passphrase | the fleet: whoever has both can sign a bundle | `janusctl access trust-reset` on each node with a certificate of its own CA (its [rescue volume](guide/recovery.md#neither)'s), then a new fleet |
+| a certificate of a node's own CA (a rescue certificate, an older node's first-boot admin credential) | the way into that node | `janusctl access rotate-ca` (or the node page's Access) |
 
 ## Clusters
 

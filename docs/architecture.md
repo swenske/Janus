@@ -149,11 +149,13 @@ read the code on its console ([trust](internals/trust.md#the-pairing-window)). E
 node maintains its own self-signed ECDSA P-256 CA (10-year validity),
 and issues itself a server certificate for the gRPC listener - reissued
 whenever the node's addresses or hostname change, and renewed 30 days
-before it expires. On first boot
-it also issues an initial admin client certificate and prints it once
-(there's no shell to retrieve it later; it stays on STATE, out of the
-file API's reach) - the way in when nothing else is set up: a node can
-instead trust its fleet from its first boot (below). `SystemService.
+before it expires. It issues no admin certificate of its own: a node
+joins a fleet - by the pairing window, or provisioned with it from its
+first boot (below) - and a node whose fleet is lost is taken back with a
+rescue volume, an hour's admin certificate of its own CA for whoever
+reads its console ([recovery](guide/recovery.md#neither)). Nodes from
+before the pairing code keep the admin certificate their first boot
+printed. `SystemService.
 GenerateClientConfiguration` issues further client certificates once
 you already have one, named after who they're for (the common name) and
 valid for the time asked - one year at most, no renewal/rotation flow;
@@ -298,11 +300,11 @@ re-signs its bundle above the node's: the way back when every machine,
 or a Controller, is lost.
 
 The node's own CA can be replaced too (`AccessService.LocalCARotate`):
-every certificate it issued stops working - the first-boot admin one, a
-Controller's service credential - while the fleet's keep letting in. The
-new admin certificate is issued for a public key the caller sends (its
-key never seen by the node), or printed on the console like at first
-boot. The old CA cross-signs the new one, and the node serves that
+every certificate it issued stops working - an older node's first-boot
+admin one, a rescue certificate, a Controller's service credential -
+while the fleet's keep letting in. The new admin certificate is issued
+for a public key the caller sends, required: its key is never seen by
+the node. The old CA cross-signs the new one, and the node serves that
 certificate after its server certificate: a client that pinned the old
 CA still verifies the node - the Controller then pins the new one
 (`nodeproxy.followCA`). The new files are
@@ -429,7 +431,7 @@ virtio-scsi, pvscsi, MegaRAID, mpt3sas, SmartPQI; Intel (e1000 to i40e),
 Realtek r8169, Broadcom tg3/bnxt, Mellanox mlx5 and vmxnet3 NICs - none
 needs a firmware file, none is shipped. The console is the screen (EFI
 framebuffer) and the serial port: `rootfs/init` copies userspace output
-- janusd's motd and first-boot credentials included - to `/dev/tty0`,
+- janusd's motd and pairing code included - to `/dev/tty0`,
 best effort, never holding the serial console back; not on an image
 whose console is the screen alone (`"console": "screen"`), where
 `/dev/console` already is the screen. Proven by

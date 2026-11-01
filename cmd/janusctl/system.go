@@ -85,7 +85,7 @@ func runSystemCommand(conn *grpc.ClientConn, cmd string, args []string) bool {
 		check("Reset", err)
 		fmt.Println("node is resetting and rebooting")
 		if *wipeState {
-			fmt.Println("its PKI is gone: a new CA and admin certificate will be printed on its console at the next boot - your current certificates stop working")
+			fmt.Println("its PKI is gone: a new CA at the next boot - and a pairing code on its console, unless a NoCloud volume provisions it again - your current certificates stop working")
 		}
 
 	case "events":

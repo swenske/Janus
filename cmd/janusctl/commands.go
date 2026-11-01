@@ -257,7 +257,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 		{name: "reboot", help: "soft-stop HAProxy, then reboot", flags: []flagDef{boolFlag("powercycle", "a power cycle"), boolFlag("kexec", "jump into the active kernel without the firmware (seconds, not a POST)")}},
 		{name: "shutdown", help: "soft-stop HAProxy, then power off"},
 		{name: "restart", help: "restart janusd only - HAProxy keeps serving"},
-		{name: "reset", help: "wipe the STATE partition and reboot: a new CA on the console", flags: []flagDef{boolFlag("wipe-state", "wipe the persistent STATE partition"), boolFlag("wipe-ephemeral", "wipe ephemeral state")}},
+		{name: "reset", help: "wipe the STATE partition and reboot: a new CA and a pairing code on the console", flags: []flagDef{boolFlag("wipe-state", "wipe the persistent STATE partition"), boolFlag("wipe-ephemeral", "wipe ephemeral state")}},
 	}},
 	{name: "haproxy", group: "⚖️  HAProxy", help: "HAProxy: config, runtime, certificates, files", subs: []*command{
 		{name: "show-info", help: "version, uptime, connections"},
@@ -363,7 +363,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 		{name: "trust", help: "the fleet the node trusts besides its own CA"},
 		{name: "trust-set", args: "BUNDLE", help: "pin the fleet's root and apply a bundle", flags: []flagDef{valFlag("root", "FILE", "the fleet's root (the first time)", argFile)}, pos: []argKind{argFile}, required: 1},
 		{name: "trust-reset", help: "forget the fleet (the node's own CA only)"},
-		{name: "rotate-ca", args: "DIR", help: "replace the node's own CA", flags: []flagDef{boolFlag("console", "the node prints the admin key on its console")}, pos: []argKind{argDir}, required: 1},
+		{name: "rotate-ca", args: "DIR", help: "replace the node's own CA - a new admin certificate for a key made here", pos: []argKind{argDir}, required: 1},
 		{name: "rescue", args: "DIR", help: "an hour's admin certificate of the node's own CA, from the rescue code its console shows - a node started with a rescue volume (image rescue-volume)", flags: []flagDef{
 			valFlag("endpoint", "HOST[:9505]", "the node's API", argNone),
 			valFlag("code", "CODE", "the rescue code its console shows", argNone),
@@ -492,7 +492,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 		}},
 		{name: "adopt", args: "NAME", help: "a node into the fleet", flags: []flagDef{
 			valFlag("endpoint", "HOST:PORT", "the node's API", argNone),
-			valFlag("ca", "FILE", "its first boot's CA (ca.crt)", argFile), valFlag("cert", "FILE", "admin.crt", argFile), valFlag("key", "FILE", "admin.key", argFile),
+			valFlag("ca", "FILE", "with the node's own credential (access rescue's, an older node's first boot): its CA (ca.crt)", argFile), valFlag("cert", "FILE", "admin.crt", argFile), valFlag("key", "FILE", "admin.key", argFile),
 			valFlag("ca-fingerprint", "SHA256", "a node already in the fleet: its CA's SHA-256", argNone), kitFlag,
 			valFlag("code", "CODE", "a node that trusts nothing yet: the pairing code on its console", argNone),
 			valFlag("pairing", "HOST:PORT", "with -code: its pairing window (the endpoint's host, port 9506)", argNone),

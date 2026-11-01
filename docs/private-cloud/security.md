@@ -43,7 +43,9 @@ vulnerability: [security policy](../../SECURITY.md).
 
 | Secret | Where it lives | Guard it |
 |---|---|---|
-| A node's admin certificate and key | Printed once on its console at first boot; on its STATE partition | The way in when nothing else works: keep it offline, or let it go - the fleet's certificates replace it day to day |
+| A node's pairing code | Its console, at a boot while it trusts nothing yet - in memory, good once | Read it where the console is; five wrong codes close the window until the node restarts |
+| A rescue certificate | The machine that asked for it with a [rescue volume](../guide/recovery.md#neither): an hour, the node's own CA | Detach the volume once done - each boot with it opens a window |
+| An older node's admin certificate and key | Printed once on its console at its first boot, before the pairing code; on its STATE partition | The way in when nothing else works: keep it offline, or let it go - the fleet's certificates replace it day to day |
 | A node's certificate authority, server and Let's Encrypt keys, uploaded certificates | Its STATE partition - never served by its API | STATE isn't encrypted: whoever holds a node's disk holds them. Protect the disks and their backups like the node |
 | The fleet's root key | The recovery kit, encrypted with a passphrase - offline | A password manager. Needed only to renew the Controller's issuing CA (every two years - its Fleet card asks 180 days ahead) or recover a Controller |
 | The fleet's issuing key | The Controller's data, sealed with its master key | Keep the master key outside the data volume (`JANUS_CONTROLLER_MASTER_KEY_FILE`): a copy of the data alone opens nothing |
@@ -80,7 +82,8 @@ vulnerability: [security policy](../../SECURITY.md).
 - **To clients**: HAProxy's frontends, and the virtual IP or anycast
   address - nothing else.
 - **To the management network only**: the node's API (9505), its
-  exporters (10056, 9100), and the Controller. The
+  pairing window (9506), its exporters (10056, 9100), and the
+  Controller. The
   [firewall](../firewall.md) extension enforces it on the node itself.
 - **The Controller** never holds a node's admin credential, and a node
   never sends its own anywhere: admitting a node gives it the fleet's

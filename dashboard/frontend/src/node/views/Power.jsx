@@ -42,7 +42,7 @@ const ACTIONS = [
     method: 'SystemService/Reset',
     icon: Eraser,
     title: 'Reset',
-    text: 'Wipes the persistent state - PKI, applied HAProxy config, Controller registration - and reboots. The node generates a new CA and admin certificate, printed once on its console: the Controller and every current certificate lose access to it.',
+    text: 'Wipes the persistent state - PKI, applied HAProxy config, Controller registration - and reboots. The node generates a new CA and, trusting nothing, shows a pairing code on its console: the Controller and every current certificate lose access to it.',
     button: 'Reset…',
     confirm: {
       title: 'Reset this node to its just-installed state?',
@@ -98,8 +98,8 @@ export default function Power() {
       <PageHeader title="Power" subtitle="Restart, reboot, shut down or reset this node" />
       {resetDone && (
         <div className="notice warn" style={{ marginBottom: '1rem' }}>
-          The node is resetting. Its new CA and admin certificate will be printed once on its console: remove it from the Controller's node list and add it again with that
-          certificate (or let it self-register, if it was installed with a Controller address).
+          The node is resetting. It comes back with a new CA and a pairing code on its console: remove it from the Controller&apos;s node list and add it again by that code
+          (or let it self-register, if it was installed with a Controller address).
         </div>
       )}
       {waiting && (

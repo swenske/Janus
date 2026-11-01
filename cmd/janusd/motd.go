@@ -27,7 +27,6 @@ type motdInfo struct {
 	APIAddresses   []string
 	HAProxyVersion string
 	HAProxyRunning bool
-	FirstBoot      bool
 	// CAFingerprint is the SHA-256 of the node's own CA (hex): what
 	// janusctl fleet adopt -ca-fingerprint checks the node against.
 	CAFingerprint string
@@ -94,9 +93,6 @@ func renderMOTD(info motdInfo, color bool) string {
 		"No shell, no SSH: manage this node through",
 		"its API, with janusctl or the Janus Controller.",
 	)
-	if info.FirstBoot {
-		text = append(text, "", paint(ansiOrange, "First boot: the admin credentials are printed above - save them now."))
-	}
 
 	var b strings.Builder
 	b.WriteString("\n")

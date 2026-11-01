@@ -684,7 +684,8 @@ What happens then, followed on the machine's card:
      from an image URL gets it once its node says it runs the extension,
      [applied on demand](#settings-an-earlier-controller-didnt-give).
    - **Console:** a serial console on a pty. Never a log file on the
-     host: a node's first boot prints its admin credential there.
+     host: an older node's first boot printed its admin credential
+     there, and a pairing or rescue code shows there.
    - **Autostart.**
 3. **The node registers.** It presents its token and is admitted at
    once: no approval, and the node is linked to its machine.
@@ -733,7 +734,8 @@ On the machine's card, and on its node's card:
   a node that doesn't answer. A clean reboot or shutdown is on the
   node's own page (Power), through its API.
 - **Console**: the serial console, read-only (a node has no shell),
-  from the moment it's opened. Private keys are hidden: the Controller
+  from the moment it's opened. Private keys are hidden - an older
+  node's first boot printed its admin credential there -: the Controller
   never holds a node's admin credential, even passing through. Every
   page showing it - and the Controller, while a node registers - shares
   one console. A console already open on the host (`virsh console`)
@@ -863,7 +865,8 @@ A node Terraform manages is marked so (`managed_by`) and, by default,
 **Release**, on the card, lifts the lock for a change by hand. Terraform
 then shows that change in its next plan and undoes it on `apply`, and
 locks the node again. The lock is a guardrail in the Controller, not a
-barrier: the node's own admin credential (`janusctl`) goes around it.
+barrier: the fleet's certificates through `janusctl`, or a certificate
+of the node's own CA, go around it.
 The record shows what was done that way.
 
 `PATCH /api/machines/{id}` changes a ready node in place, in the

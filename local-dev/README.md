@@ -50,8 +50,8 @@ others say `pairing: listen on :9506: ... - no pairing window` - give
 each its own with `-pairing-addr :PORT` after the image name.)
 
 PKI and the applied HAProxy config live in the container's own
-filesystem, not a volume - a fresh container means a fresh CA/admin
-cert, same as any other first boot. Mount `/etc/janus/pki` and
+filesystem, not a volume - a fresh container means a fresh CA and a
+new pairing code, same as any other first boot. Mount `/etc/janus/pki` and
 `/etc/haproxy` yourself if you want them to survive a container
 restart:
 
@@ -75,26 +75,17 @@ bin/janusctl fleet adopt local-dev -endpoint 127.0.0.1:9505 -code CODE
 bin/janusctl -n local-dev version
 ```
 
-It also still prints its bootstrapped PKI - a CA cert, an admin cert
-and key - on first run:
-
-```sh
-docker logs janus-local-dev
-# copy the CA cert / admin cert / admin key printed there into local files
-```
-
 Then drive it with `janusctl` exactly as you would a real node:
 
 ```sh
-bin/janusctl -ca ca.crt -cert admin.crt -key admin.key -endpoint 127.0.0.1:9505 version
-bin/janusctl -ca ca.crt -cert admin.crt -key admin.key -endpoint 127.0.0.1:9505 haproxy apply-config myconfig.cfg
+bin/janusctl -n local-dev haproxy apply-config myconfig.cfg
 curl http://127.0.0.1:8080/whatever-your-config-exposes
 ```
 
 ## Verification
 
 Built and run for real before being documented here, not assumed: a
-real container start (PKI bootstrap logged, `haproxy`'s own `[NOTICE]`
+real container start (PKI bootstrap and pairing code logged, `haproxy`'s own `[NOTICE]`
 startup line present), a real `janusctl version` round trip over mTLS,
 and a real `ApplyConfig` call applying a config that uses
 `http-request use-service prometheus-exporter` - the exact config that

@@ -9,7 +9,7 @@ where each one shows.
 
 | What | How |
 |---|---|
-| The console (serial and screen) | The first boot's credentials, the network, registration retries, init's messages - the hypervisor's console, or **Console** on a machine the Controller created |
+| The console (serial and screen) | The CA's fingerprint, the pairing code, the network, registration retries, init's messages - the hypervisor's console, or **Console** on a machine the Controller created |
 | Event log | `janusctl -n lb1 system events` - updates, network and firewall trials, reverts, HAProxy reloads |
 | Services' output | `janusctl -n lb1 system logs -n 100 janusd`, `... haproxy`; `-f` follows |
 | Kernel messages | `janusctl -n lb1 system dmesg` - SELinux denials, OOM kills, drivers |
@@ -108,8 +108,11 @@ release refuses ([updating nodes](updates.md#when-an-update-reverted)).
 
 ## Lost access
 
-- **A node's admin credential, lost**: day to day, the fleet's
-  certificates replace it - from the Controller, or `janusctl login`.
+- **Nothing lets you into a node** - its fleet lost, its Controller
+  gone without a backup: a [rescue volume](recovery.md#neither) at its
+  console gives an hour's admin certificate of its own CA.
+- **A node that trusts nothing yet**: its console shows a pairing code -
+  the Controller's **Add node**, or `janusctl fleet adopt -code`.
 - **The Controller, lost**: restore its backup on a new one - the nodes
   keep trusting it ([backups](../../dashboard/README.md#backups)); with no
   backup, the fleet's recovery kit brings the nodes under `janusctl`

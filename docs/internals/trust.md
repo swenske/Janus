@@ -39,7 +39,7 @@ root, but not a certificate: a list of the issuing CAs nodes accept.
 ```mermaid
 flowchart LR
     accTitle: Who signs each certificate, and where each private key lives
-    accDescr: The fleet's root CA, its key offline in the recovery kit, signs the bundle and the issuing CAs - the Controller's, its key sealed on the Controller, or in a fleet without a Controller one per janusctl machine. The Controller's issuing CA signs the Controller's day-long certificate and its 30-day registration certificate, both kept in its memory, and its users' janusctl certificates, whose keys stay on their machines. Each node's own CA, its key on the node's STATE partition, signs the node's server certificate, its first-boot admin certificate, and the service credential the Controller holds until the node trusts the fleet.
+    accDescr: The fleet's root CA, its key offline in the recovery kit, signs the bundle and the issuing CAs - the Controller's, its key sealed on the Controller, or in a fleet without a Controller one per janusctl machine. The Controller's issuing CA signs the Controller's day-long certificate and its 30-day registration certificate, both kept in its memory, and its users' janusctl certificates, whose keys stay on their machines. Each node's own CA, its key on the node's STATE partition, signs the node's server certificate, the hour-long rescue certificate a rescue volume gives, and the service credential the Controller holds until the node trusts the fleet.
     subgraph offline [Offline - the recovery kit]
         root{{"Fleet root CA<br/>20 years"}}
     end
@@ -58,7 +58,7 @@ flowchart LR
     subgraph node [Each node - STATE pki/]
         nca{{"Node CA<br/>10 years"}}
         srv["Server certificate<br/>a year, renewed"]
-        adm["First-boot admin<br/>a year"]
+        adm["Rescue admin<br/>an hour - a rescue volume"]
     end
     root --> bundle
     root --> ica
@@ -77,7 +77,8 @@ flowchart LR
 | [Node CA](#the-node-ca) | itself | the node's STATE | 10 years | the Controller and janusctl, which pin it |
 | [Server certificate](#the-server-certificate) | the node CA | the node's STATE | a year; renewed 30 days before, and whenever an address or the hostname changes | callers, against the node CA |
 | [Pairing window](#the-pairing-window) | the node CA | the node's memory | until the window closes | janusctl and the Controller, against the code on the console |
-| [First-boot admin](#the-first-boot-admin-certificate) | the node CA | printed on the console once, kept on STATE | a year | the node |
+| [Rescue admin](#the-pairing-window) | the node CA | the caller's machine | an hour | the node |
+| [First-boot admin](#the-first-boot-admin-certificate) | the node CA | nodes from before the pairing code only: printed on the console once, kept on STATE | a year | the node |
 | [Service credential](#service-credentials) | the node CA | the Controller, until the node trusts the fleet | a year | the node |
 | [Cross-signed CA](#the-cross-signed-ca) | the node's previous CA | the new CA's | the new CA's | clients that pinned the previous CA |
 | [Fleet root](#the-fleet-root) | itself | offline, in the recovery kit | 20 years | nodes, which pin it once |
@@ -199,23 +200,27 @@ can't be read through the API, by anyone.
 
 ### The first-boot admin certificate
 
-- **Signed by** the node CA at the first boot: name `admin`, role
-  `os:admin`, client authentication.
-- **Printed once**, with the CA's certificate and the key, on the
-  console - nothing else ever shows it. It also stays on STATE
-  (`pki/admin.crt`, `pki/admin.key`), out of the API's reach.
-- **Lifetime**: a year. The way in when nothing else is set up: a node
-  provisioned with its fleet never needs it.
+- **Gone**: a node's first boot makes its CA and its server certificate,
+  nothing else - no admin certificate, no key on the console. A node
+  that trusts nothing shows a [pairing code](#the-pairing-window)
+  instead; one whose fleet is lost is taken back with a [rescue
+  volume](../guide/recovery.md#neither).
+- **Nodes from before the pairing code** keep theirs: signed by the node
+  CA at their first boot, name `admin`, role `os:admin`, a year, printed
+  once on the console with the CA's certificate and the key, and kept on
+  STATE (`pki/admin.crt`, `pki/admin.key`), out of the API's reach. It
+  still lets in, and such a node opens no pairing window.
 
 ### Service credentials
 
 An `os:admin` client certificate of the node CA, valid a year, for the
 Controller - before the node trusts the fleet:
 
-- **A node added by hand**: the Controller uses the admin credential you
-  give it once, to ask the node for a credential of its own
-  (`GenerateClientConfiguration`, named `janus-controller`). Yours isn't
-  kept.
+- **A node from before the pairing code, added by hand**: the
+  Controller uses the admin credential you give it once, to ask the
+  node for a credential of its own (`GenerateClientConfiguration`,
+  named `janus-controller`). Yours isn't kept. A node added by its
+  pairing code needs none: it trusts the fleet at once.
 - **A node registering with a Controller that has no fleet** (or one
   older than the fleet): the node makes the credential - certificate and
   key - and sends it in its registration. A Controller with a fleet
@@ -362,12 +367,15 @@ by a CA, or through the system's trust store.
   shows - the Controller pairs it ([the pairing
   window](#the-pairing-window)) with its own fleet, set up first, and
   records the CA the window answered with; nothing secret changes hands.
-  A node from before the code is added with its first-boot credential,
-  used once for a service credential of the Controller's own.
+  A node from before the code is added with the admin credential its
+  first boot printed, used once for a service credential of the
+  Controller's own.
 - **Without a Controller**: `janusctl fleet adopt NAME -endpoint ADDR
   -code CODE` pairs a node that trusts nothing yet, with the code its
-  console shows ([the pairing window](#the-pairing-window)); or with its
-  first-boot credential. A node that already lets the machine in - its
+  console shows ([the pairing window](#the-pairing-window)); a node
+  from before the code with the admin credential its first boot
+  printed, or any node with a rescue certificate
+  (`janusctl access rescue`). A node that already lets the machine in - its
   fleet from the first boot, or with the kit - can be adopted with the
   CA fingerprint its console printed instead
   ([a fleet without a Controller](../fleet-without-controller.md)).
@@ -377,8 +385,8 @@ by a CA, or through the system's trust store.
   PKI - the certificate profile and the bundle's format, as a
   specification: [certificates and the fleet](../private-cloud/orchestrator-certificates.md).
 
-A node never sends its first-boot admin credential anywhere, and the
-Controller keeps none of yours.
+A node never sends an admin credential anywhere, and the Controller
+keeps none of yours.
 
 ## Renewal and rotation
 
@@ -388,8 +396,8 @@ Controller keeps none of yours.
   own).
 - **Renewed with the kit**: the Controller's issuing CA (2 years), from
   its Fleet card.
-- **Not renewed**: the node CA (10 years), the first-boot admin
-  certificate and the service credentials (a year), a janusctl
+- **Not renewed**: the node CA (10 years), an older node's first-boot
+  admin certificate and the service credentials (a year), a janusctl
   machine's issuing CA (2 years - a new one with `issuer sign`), the
   fleet root and the Controller's identity CA (20 years).
 
@@ -397,8 +405,9 @@ Controller keeps none of yours.
 
 `janusctl access rotate-ca` (or the node's page), as an admin: the node
 makes a new CA, the [cross-signed CA](#the-cross-signed-ca), a new
-server certificate and a new admin certificate - for a public key you
-give, or printed on the console. It writes them aside first and swaps
+server certificate and a new admin certificate for a public key you
+give - its key made by janusctl or the browser, never by the node, and
+never on the console. It writes them aside first and swaps
 them in at once; a reboot halfway finishes or drops the rotation. The
 previous CA's key is gone: every certificate it signed stops letting in.
 The Controller follows the node's new CA by itself.

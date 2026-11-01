@@ -591,9 +591,9 @@ func adoptBundle(f *localFleet, st *janusv1alpha1.TrustState) (bool, error) {
 func fleetAdopt(globalCtx string, args []string) {
 	fs := flag.NewFlagSet("fleet adopt", flag.ExitOnError)
 	endpoint := fs.String("endpoint", "", "the node's API, HOST[:9505] (required)")
-	caFile := fs.String("ca", "", "with its first boot's admin credential: the node's CA (ca.crt)")
-	certFile := fs.String("cert", "", "with its first boot's admin credential: admin.crt")
-	keyFile := fs.String("key", "", "with its first boot's admin credential: admin.key")
+	caFile := fs.String("ca", "", "with the node's own credential - janusctl access rescue's, or an older node's first boot's: the node's CA (ca.crt)")
+	certFile := fs.String("cert", "", "with the node's own credential: admin.crt")
+	keyFile := fs.String("key", "", "with the node's own credential: admin.key")
 	fingerprint := fs.String("ca-fingerprint", "", "a node already in the fleet: its CA's SHA-256, as its console shows it (\"ca sha256\")")
 	kitPath := fs.String("kit", "", "with -ca-fingerprint: reach the node with a certificate the root signs - its bundle doesn't list this machine yet (janusctl fleet recover) - and make it take this machine's bundle, signed again above its own")
 	code := fs.String("code", "", "a node that trusts nothing yet: the pairing code its console shows (\"pairing\")")
@@ -653,8 +653,9 @@ func fleetAdopt(globalCtx string, args []string) {
 		}
 	}
 	if *caFile != "" {
-		// Its first boot's admin credential: the node's own CA lets it in,
-		// verified against the CA given.
+		// The node's own credential (access rescue's, an older node's
+		// first boot's): its own CA lets it in, verified against the CA
+		// given.
 		conn, err := dial(addr, *caFile, *certFile, *keyFile)
 		if err != nil {
 			log.Fatal(err)
@@ -691,7 +692,7 @@ func fleetAdopt(globalCtx string, args []string) {
 		client = janusv1alpha1.NewAccessServiceClient(conn)
 		st, err := client.TrustGet(c2, &emptypb.Empty{})
 		if err != nil {
-			log.Fatalf("janusctl fleet adopt: %s doesn't let this fleet in (%v) - give it its first boot's admin credential instead (-ca -cert -key)%s", addr, err, map[bool]string{true: "", false: ", or -kit when its bundle doesn't list this machine yet"}[*kitPath != ""])
+			log.Fatalf("janusctl fleet adopt: %s doesn't let this fleet in (%v) - give its own credential instead (-ca -cert -key: janusctl access rescue)%s", addr, err, map[bool]string{true: "", false: ", or -kit when its bundle doesn't list this machine yet"}[*kitPath != ""])
 		}
 		caPEM = st.GetLocalCaCert()
 		mu.Lock()

@@ -944,8 +944,8 @@ Two ways, by where the nodes stand:
   scoped admin certificate of one hour; the old node signing works for
   a node in no fleet too, and its certificate opens one export rather
   than the whole node for an hour.
-- **A janusctl pipe**, for a node in no fleet, driven with the old
-  node's own admin credential:
+- **A janusctl pipe**, for a node in no fleet, driven with a
+  certificate of the old node's own CA:
   `janusctl -n old system state export - | janusctl -n new system state import -`.
   Two mTLS sessions, the operator's machine in between, nothing on
   disk, nothing in the Controller - no different from uploading a

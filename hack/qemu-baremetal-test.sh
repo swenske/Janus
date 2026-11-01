@@ -41,7 +41,7 @@ DASHBOARDD="$(cd "$(dirname "$4")" && pwd)/$(basename "$4")"
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 BASE="${QEMU_BAREMETAL_BASE_PORT:-$((18700 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
-HTTP_PORT=$((BASE)) GRPC_PORT=$((BASE + 1)) DASH_PORT=$((BASE + 2)) REG_PORT=$((BASE + 3))
+HTTP_PORT=$((BASE)) GRPC_PORT=$((BASE + 1)) DASH_PORT=$((BASE + 2)) REG_PORT=$((BASE + 3)) PAIR_PORT=$((BASE + 4))
 TIMEOUT="${QEMU_BAREMETAL_TIMEOUT:-120}"
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
 OVMF_VARS_TEMPLATE="${OVMF_VARS_TEMPLATE:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
@@ -96,8 +96,9 @@ stop() {
   wait "$QEMU_PID" 2>/dev/null || true
   QEMU_PID=""
 }
-# net DEVICE: the NIC, user networking with the HTTP and API ports forwarded.
-net() { echo "-netdev user,id=net0,hostfwd=tcp::$HTTP_PORT-:8080,hostfwd=tcp::$GRPC_PORT-:9505 -device $1,netdev=net0"; }
+# net DEVICE: the NIC, user networking with the HTTP, API and pairing
+# ports forwarded.
+net() { echo "-netdev user,id=net0,hostfwd=tcp::$HTTP_PORT-:8080,hostfwd=tcp::$GRPC_PORT-:9505,hostfwd=tcp::$PAIR_PORT-:9506 -device $1,netdev=net0"; }
 http() { curl -s -m 3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$HTTP_PORT/" || true; }
 wait_up() { # wait_up WHAT: HTTP 200 and janusd listening (after its PKI)
   local deadline=$((SECONDS + TIMEOUT))
@@ -107,17 +108,9 @@ wait_up() { # wait_up WHAT: HTTP 200 and janusd listening (after its PKI)
     sleep 1
   done
 }
-creds() { # creds PREFIX: the first boot's credentials, off the console (the ISO: no STATE)
-  python3 - "$LOG" "$1" <<'PY'
-import re, sys
-log = open(sys.argv[1], errors="replace").read().replace("\r", "")
-pems = re.findall(r"(-----BEGIN ([A-Z ]+)-----.*?-----END \2-----)", log, re.S)
-if len(pems) < 3:
-    sys.exit("only %d PEM blocks on the console" % len(pems))
-for (pem, _), name in zip(pems, ["ca.crt", "admin.crt", "admin.key"]):
-    open(sys.argv[2] + name, "w").write(pem + "\n")
-PY
-}
+# fleetctl ARGS...: janusctl with a fleet of its own (the ISO, no STATE:
+# paired by the code its console shows).
+fleetctl() { JANUSCONFIG="$WORKDIR/janusctl.json" "$CTL" "$@"; }
 ctl() { local p=$1; shift; "$CTL" -endpoint "127.0.0.1:$GRPC_PORT" -ca "${p}ca.crt" -cert "${p}admin.crt" -key "${p}admin.key" "$@"; }
 no_denials() { ! grep -aq "avc:.*denied" "$LOG" || fail "$1: AVC denials: $(grep -a 'avc:.*denied' "$LOG" | head -5)"; }
 wait_pending() { # wait_pending N WHAT
@@ -239,14 +232,22 @@ else
     $(net e1000)
   wait_up "the ISO on USB"
   grep -aq "Kernel command line:.*PARTLABEL=JANUS-ISO-DATA" "$LOG" || fail "the ISO doesn't name its root by its own label"
-  creds "$WORKDIR/i-"
-  mounts="$(ctl "$WORKDIR/i-" system mounts)"
+  code="" deadline=$((SECONDS + 20))
+  while [ -z "$code" ] && [ "$SECONDS" -lt "$deadline" ]; do
+    code="$({ grep -ao 'pairing: code [0-9A-Z-]*' "$LOG" || true; } | tail -1 | awk '{print $3}')"
+    [ -n "$code" ] || sleep 1
+  done
+  [ -n "$code" ] || fail "the ISO shows no pairing code"
+  if grep -aq "PRIVATE KEY" "$LOG"; then fail "a private key on the ISO's console"; fi
+  fleetctl -context bm fleet init -name bm -issuer baremetal-test -user tester -yes "$WORKDIR/kit.age" >/dev/null 2>&1 || fail "fleet init"
+  out="$(fleetctl fleet adopt iso -endpoint "127.0.0.1:$GRPC_PORT" -pairing "127.0.0.1:$PAIR_PORT" -code "$code" 2>&1)" || fail "pairing the ISO: $out"
+  mounts="$(fleetctl -n iso system mounts)"
   iso_disk="$(awk '$3 == "/etc/janus/release" {sub(/[0-9]+$/, "", $1); print $1}' <<<"$mounts")"
   [ -n "$iso_disk" ] || fail "the ISO's bundle isn't mounted: $mounts"
   target=""
   for d in /dev/sda /dev/sdb; do [ "$d" != "$iso_disk" ] && target=$d; done
   echo "  the ISO is $iso_disk, the target $target"
-  out="$(ctl "$WORKDIR/i-" lifecycle install -insecure-skip-signature-check -sha256 "$SHA256" \
+  out="$(fleetctl -n iso lifecycle install -insecure-skip-signature-check -sha256 "$SHA256" \
     -controller-address "$GATEWAY:$REG_PORT" -controller-ca "$CONTROLLER_CA" "$target" /etc/janus/release 2>&1)" \
     || fail "Install: $out"
   grep -q '\[done ' <<<"$out" || fail "Install didn't finish: $out"

@@ -39,7 +39,7 @@ flowchart TB
     s3 --> janusd["janusd, supervised"]
     janusd --> j1["network, clock (NTP)"]
     j1 --> j2[HAProxy]
-    j2 --> j3["PKI: first boot makes the CA and certificates"]
+    j2 --> j3["PKI: first boot makes the CA and its server certificate"]
     j3 --> j4["API: gRPC + mTLS on 9505"]
 ```
 
@@ -70,11 +70,11 @@ flowchart TB
    boots to its API.
 4. **janusd**, supervised by init - restarted if it exits - starts the
    network manager and the clock, then **HAProxy**, then the **PKI**: on
-   a first boot it makes the node's CA, its server certificate and an
-   admin certificate printed on the console once. HAProxy starting
-   before the PKI is deliberate: a node serves its traffic even when
-   something about its certificates needs attention. Then the API on
-   9505, and in the background: confirming a pending update,
+   a first boot it makes the node's CA and its server certificate. HAProxy
+   starting before the PKI is deliberate: a node serves its traffic even
+   when something about its certificates needs attention. Then the API
+   on 9505 - and, on a node that trusts nothing yet, its pairing window
+   on 9506 -, and in the background: confirming a pending update,
    registering with a Controller, the console's banner.
 
 ## An update

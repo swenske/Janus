@@ -9,9 +9,9 @@ import (
 )
 
 // keyRedactor passes a console's output through, replacing every PEM
-// private key block with a notice: a node's first boot prints its root
-// admin credential on its console, and the Controller - which never
-// holds it - mustn't relay it either. It holds back just enough output
+// private key block with a notice: a node from before the pairing code
+// prints its root admin credential on its console at its first boot, and
+// the Controller - which never holds it - mustn't relay it either. It holds back just enough output
 // to recognize a marker cut across two writes.
 type keyRedactor struct {
 	w     io.Writer

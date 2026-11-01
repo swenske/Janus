@@ -642,28 +642,14 @@ func main() {
 	// first-contact.md) - a stable line, unlike the banner's.
 	log.Print(caConsoleLine(pkiBootstrap.CA.Cert.Raw))
 	ship.SetNodeID(pki.Fingerprint(pkiBootstrap.CA.Cert.Raw))
-	if pkiBootstrap.AdminIssued {
-		log.SetOutput(os.Stderr) // console only - see serviceLogs above
-		log.Printf("pki: first boot - generated a new CA and admin client certificate in %s", *pkiDir)
-		// The CA cert isn't secret (it only lets a client verify the
-		// server's identity, not authenticate as anyone) - printed
-		// alongside the admin cert/key anyway, not just left to a
-		// separate STATE-partition extraction, since a console reader
-		// bootstrapping a node needs all three to actually connect
-		// (janusctl's -ca/-cert/-key) and splitting them across two
-		// different recovery paths for one single one-time event was
-		// real friction, not a meaningful security boundary - whoever
-		// can read this console already has the admin cert/key printed
-		// right below, which is the actually sensitive half.
-		log.Printf("pki: CA CERTIFICATE (needed for janusctl's -ca flag):\n%s", pkiBootstrap.CA.CertPEM)
-		log.Printf("pki: ADMIN CERTIFICATE (save this now, it will not be printed again):\n%s%s", pkiBootstrap.AdminCertPEM, pkiBootstrap.AdminKeyPEM)
-		// pkiDir may be the Phase 3 cont'd persistent STATE partition
-		// (see rootfs/init/main.go's mountState) - force these bytes to
-		// the underlying block device now rather than trusting they're
-		// still there if the node loses power before some later,
-		// unrelated sync happens to occur.
+	if pkiBootstrap.Generated {
+		// No admin credential comes with it: the node pairs with a fleet
+		// (its pairing window, below) or was provisioned with one. The
+		// line's start is what tests count first boots by.
+		log.Printf("pki: first boot - generated a new CA in %s", *pkiDir)
+		// pkiDir is on STATE (rootfs/init's mountState): the CA must be on
+		// the disk before anyone pins it, not after some later sync.
 		syscall.Sync()
-		log.SetOutput(captured)
 	}
 
 	lis, err := net.Listen("tcp", *addr)
@@ -767,7 +753,7 @@ func main() {
 	// node, like the configuration itself.
 	haproxyHistory := &haproxy.History{Dir: filepath.Join(filepath.Dir(*haproxyCfg), "history")}
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr, ACME: acmeMgr, History: haproxyHistory})
-	access := &api.Access{Fleet: fleet, Local: local, ServerCert: serverCert, Console: os.Stderr}
+	access := &api.Access{Fleet: fleet, Local: local, ServerCert: serverCert}
 	janusv1alpha1.RegisterAccessServiceServer(srv, access)
 	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc, Firewall: fwMgr, VRRP: vrrpMgr, HAProxyHealthy: gateHealthy, BGP: bgpMgr, Consul: consulMgr, ConsulRegistrar: consulReg, Services: extMgr})
 	clusterAPI := &api.Cluster{Store: clusterStore, PeersFile: peersFile, HAProxy: haproxyMgr, LocalIPs: pki.LocalIPs, VRRP: vrrpMgr, BGP: bgpMgr, ACME: acmeMgr, ACMECertDir: acme.CertDir}
@@ -780,7 +766,7 @@ func main() {
 	// A node that trusts nothing yet: its pairing window, the one way in
 	// without a certificate (internal/pairing).
 	var pw *pairingWindow
-	if pkiBootstrap.AdminIssued {
+	if pkiBootstrap.Generated {
 		markPairing(*pkiDir)
 	}
 	switch a := pairingListen(*pairingAddr, *manageHost); {
@@ -813,7 +799,6 @@ func main() {
 		APIAddresses:   apiAddresses(*addr, pki.LocalIPs()),
 		HAProxyVersion: haproxyVersion,
 		HAProxyRunning: haproxyRunning,
-		FirstBoot:      pkiBootstrap.AdminIssued,
 		CAFingerprint:  pki.Fingerprint(local.CA().Cert.Raw),
 		PairingCode:    pairingCode,
 		RescueUntil:    rescueShown,

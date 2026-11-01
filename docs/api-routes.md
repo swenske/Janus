@@ -13,10 +13,12 @@ Status column: ✅ implemented · ⬜ contract defined, returns
 `codes.Unimplemented` (see `internal/api`).
 
 **mTLS is mandatory on every connection** (`internal/pki`, wired up in
-`cmd/janusd`) - there is no plaintext or unauthenticated mode. A
-node generates its own CA + server certificate + an initial admin client
-certificate on first boot; `GenerateClientConfiguration` issues
-additional client certificates once you already have one. Once it trusts
+`cmd/janusd`) - there is no plaintext or unauthenticated mode, but for
+the pairing window (`PairingService`, its own port, while the node
+trusts nothing or a rescue volume is attached). A node generates its own
+CA + server certificate on first boot - no admin certificate;
+`GenerateClientConfiguration` issues client certificates once you
+already have one. Once it trusts
 a fleet (`AccessService` below), the client certificates of the fleet's
 issuing CAs let in too.
 
@@ -57,7 +59,7 @@ certificate the root signed itself lets in too. Its own CA always does.
 | `TrustGet` | | ✅ | The fleet's root, the bundle (its version, issuing CAs, and the signed bundle itself - `janusctl fleet sync` takes a newer one), and the node's own CA (`local_ca_cert`: what a client of the fleet pins, checked on the fingerprint the console shows) - read-only |
 | `TrustSet` | | ✅ | Pin the root (the first time) and apply a bundle it signed, newer than the node's - admin |
 | `TrustReset` | | ✅ | Forget the fleet - admin, and only with a certificate of the node's own CA |
-| `LocalCARotate` | | ✅ | Replace the node's own CA (admin): new CA, server and admin certificates; every certificate the old CA issued stops working, the fleet's don't. The new admin certificate is issued for the caller's public key (`janusctl access rotate-ca` makes the key locally), or the node makes the key and prints it on its console like at first boot. The new CA comes cross-signed by the old one, served after the server certificate: whoever pinned the old CA still verifies the node, and the Controller pins the new one by itself. Written in two steps on STATE - a power cut leaves the old CA or the new one, whole |
+| `LocalCARotate` | | ✅ | Replace the node's own CA (admin): new CA, server and admin certificates; every certificate the old CA issued stops working, the fleet's don't. The new admin certificate is issued for the caller's public key (`janusctl access rotate-ca` makes the key locally) - required: a call without one is refused. The new CA comes cross-signed by the old one, served after the server certificate: whoever pinned the old CA still verifies the node, and the Controller pins the new one by itself. Written in two steps on STATE - a power cut leaves the old CA or the new one, whole |
 
 ## PairingService
 
@@ -80,7 +82,7 @@ a rescue volume attached ([recovery](guide/recovery.md#neither)).
 | `Reboot` | | ✅ | Soft-stops HAProxy (in-flight connections get 5s), stops the extensions' daemons (BIRD closes its BGP sessions, keepalived sends its priority 0 - keepalived and BIRD last), syncs, reboots - through the firmware (DEFAULT and POWERCYCLE, the same full reboot), or into the active kernel without it (KEXEC: refused, nothing rebooted, when Secure Boot is on and the image isn't signed by Janus) |
 | `Shutdown` | | ✅ | Same graceful stop, then powers off |
 | `Restart` | | ✅ | Restarts `janusd` only: rootfs/init starts it again and it takes the running HAProxy over with a seamless reload - HAProxy keeps serving throughout. Refused when `janusd` is PID 1 (e.g. `local-dev`), where nothing would start it again |
-| `Reset` | | ✅ | `wipe_state` empties the persistent STATE partition (PKI, applied config, Controller registration, pending boot confirmation) and reboots: a new CA/admin certificate is printed on the console, current certificates stop working. A/B slots and ESP untouched. `wipe_ephemeral` alone just reboots (everything ephemeral is tmpfs) |
+| `Reset` | | ✅ | `wipe_state` empties the persistent STATE partition (PKI, applied config, Controller registration, pending boot confirmation) and reboots: a new CA, and - the node trusting nothing - a pairing code on the console; current certificates stop working. A/B slots and ESP untouched. `wipe_ephemeral` alone just reboots (everything ephemeral is tmpfs) |
 | `ApplyConfiguration` | server | ⬜ | Apply declarative config (`internal/config`), auto/no-reboot/reboot/try modes - no declarative machine config model exists yet |
 | `Events` | server | ✅ | Event log (`internal/events`, last 1000): janusd start (its version, slot and boot), HAProxy started/exited (with why: reload, stop, or on its own), config applied/rejected, reloads, server state, maps/ACLs/certificates, stick table entries cleared and sessions ended (`haproxy.table.cleared`, `haproxy.session.shutdown`), services, upgrades (with the release written)/rollbacks/installs, boot confirmation/revert, self-registration, packet captures, connectivity tests (`probe.run`, who ran it), reboot/shutdown/restart/reset, vCPUs and memory plugged in or taken out (`system.cpus_changed` - with whether HAProxy was reloaded -, `system.memory_changed`), OOM kills (`kernel.oom_kill`, the victim), log forwarding configured, a log target failing or working again (`logship.configured`, `logship.failing`, `logship.recovered`). Kept on STATE (`events/events.jsonl`, synced every 5 s and before any reboot): it comes through janusd restarts, reboots and updates, IDs going on; a Reset wipes it. Backlog after `since_id`, then follows |
 | `Dmesg` | server | ✅ | `/dev/kmsg`, formatted like `dmesg`; `follow` keeps streaming. `boot` -1, -2...: a previous boot's, from the LOGS partition (`internal/logvol`) |
