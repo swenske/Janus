@@ -177,7 +177,17 @@ var Required = map[string][]string{
 	"/janus.v1alpha1.ClusterService/ClusterFlows":        clusterMembers, // a member's connections, for the others' handoff
 	"/janus.v1alpha1.ClusterService/ClusterHandoff":      adminOnly,      // copies another member's packets to it
 	"/janus.v1alpha1.ClusterService/TLSTicketKeysRotate": adminOnly,
+
+	// The pairing window (internal/pairing) takes no certificate at all:
+	// its own port, its own server, the code's secret checked by the
+	// call. On the API's port it's never served - this pseudo-role,
+	// which no certificate carries, keeps it shut there too.
+	"/janus.v1alpha1.PairingService/Pair": pairingCode,
 }
+
+// pairingCode is the pairing window's pseudo-role: never in a
+// certificate - the window's own server answers Pair, checking the code.
+var pairingCode = []string{"janus:pairing"}
 
 // RoleClusterMember is the pseudo-role of a cluster member's certificate
 // (pki.RoleClusterMember): the only one ClusterExport takes - checked

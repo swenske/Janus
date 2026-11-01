@@ -36,6 +36,7 @@ func TestRequiredRolesCoversEveryRPC(t *testing.T) {
 	janusv1alpha1.RegisterNetworkServiceServer(srv, &Network{})
 	janusv1alpha1.RegisterAccessServiceServer(srv, &Access{})
 	janusv1alpha1.RegisterClusterServiceServer(srv, &Cluster{})
+	janusv1alpha1.RegisterPairingServiceServer(srv, &Pairing{})
 
 	seen := map[string]bool{}
 	for serviceName, info := range srv.GetServiceInfo() {

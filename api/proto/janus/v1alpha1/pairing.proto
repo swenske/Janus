@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package janus.v1alpha1;
+
+import "janus/v1alpha1/access.proto";
+
+option go_package = "github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1";
+
+// PairingService: a node's pairing window (internal/pairing,
+// docs/internals/trust.md) - the one way in without a client
+// certificate, on its own port (9506), only while the node trusts
+// nothing: no fleet, no Controller. Its console shows a one-time code:
+// its first part names the window's certificate, which the client
+// checks before it sends anything; its second part is a secret the
+// client proves it read there - five wrong ones close the window until
+// the node restarts. The port is never the API's, and closes once the
+// node trusts a fleet.
+service PairingService {
+  // Gives the node a fleet - root_cert and bundle, checked as TrustSet
+  // checks them - when secret is the code's: the node trusts that fleet
+  // from now on, and its pairing window closes. The answer is the
+  // node's own CA, what a client verifies it with from then on.
+  rpc Pair(PairRequest) returns (PairResponse);
+}
+
+message PairRequest {
+  bytes secret = 1; // the code's secret part (pairing.Code.SecretBytes)
+  bytes root_cert = 2; // PEM
+  bytes bundle = 3; // the signed bundle (pki.SignedBundle as JSON)
+}
+
+message PairResponse {
+  bytes ca_cert = 1; // PEM: the node's own CA
+  TrustState trust = 2;
+}
