@@ -287,14 +287,20 @@ cat "$LOG" >> "$WORKDIR/earlier-boots.log"
 : > "$LOG"
 boot
 waitUp
-for want in "line 3: net.ipv4.tcp_syncookies: locked: " "line 4: net.ipv4.conf.all.accept_redirects: locked: " "line 5: kernel.core_pattern: forbidden: " "line 6: net.ipv4.tcp_fin_timeout: the value must be between 30 and 120" 'line 7: not a "name = value" line'; do
-  grep -aqF "init: sysctl: sysctl.d/90-haproxy-tuning.conf ${want}" "$LOG" || fail "the boot didn't refuse: $want"
-done
-grep -aqE "^init: sysctl: CIS .*: 33/33 controls compliant" <(tr -d '\r' < "$LOG") || fail "the benchmark after a tampered file"
-[ "$(value net.core.somaxconn)" = "20000" ] || fail "the tampered file's valid line wasn't applied"
-[ "$(value net.ipv4.tcp_fin_timeout)" = "30" ] || fail "an out-of-bounds line was applied"
+# Each refusal is checked in the history the boot wrote, not line by line
+# on the console: the kernel's own lines land in the middle of init's
+# there ("...accept_redirects: lockISOFS: Unable to identify CD-ROM
+# format." - v2026.11.02-2's first build).
+grep -aqF "init: sysctl: sysctl.d/90-haproxy-tuning.conf line " "$LOG" || fail "the boot's refusals aren't on the console"
 out="$(ctl system sysctl history -n 1)"
 grep -q "boot-refused" <<<"$out" || fail "no boot-refused entry in the history: $out"
+for want in "line 3: locked: " "line 4: locked: " "line 5: forbidden: " "line 6: the value must be between 30 and 120" 'line 7: not a "name = value" line' \
+  "net.ipv4.tcp_syncookies: " "net.ipv4.conf.all.accept_redirects: " "kernel.core_pattern: " "net.ipv4.tcp_fin_timeout: "; do
+  grep -qF "$want" <<<"$out" || fail "the boot didn't refuse: $want - history: $out"
+done
+grep -aqE "init: sysctl: CIS .*: 33/33 controls compliant" <(tr -d '\r' < "$LOG") || fail "the benchmark after a tampered file"
+[ "$(value net.core.somaxconn)" = "20000" ] || fail "the tampered file's valid line wasn't applied"
+[ "$(value net.ipv4.tcp_fin_timeout)" = "30" ] || fail "an out-of-bounds line was applied"
 echo "  ok: a tampered saved file is refused line by line at boot, the benchmark intact"
 
 # --- the history ---
