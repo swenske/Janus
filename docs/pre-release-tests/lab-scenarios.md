@@ -905,6 +905,93 @@ after, and with the name first; `controller-info`'s `address` and the
 Provision panel's *Controller address* (headless Chromium) for each.
 The Compose file is put back after.
 
+### The pairing code
+
+Since v2026.11.02: a throwaway node from the release's image of the
+lab's schematic with **nothing provided** - no NoCloud volume, one NIC
+on DHCP. Its whole serial log: the first-boot line, the `pairing` line
+and banner, no `PRIVATE KEY` and no admin line; port 9506 open and the
+window's certificate (issued by the node's CA). The Controller's Add
+node: a code with one symbol changed (refused, no try spent), a code
+with the right check symbol and a wrong secret (the tries left), the
+right one; the node's page relayed, how long until 9506 closes, the
+node's audit and events, the code looked for in janusd's log. Then the
+nodes updated from the release before and a machine the Controller
+creates: no window, no `pairing` line.
+
+### The rescue volume
+
+Since v2026.11.02, on the throwaway node: `janusctl image
+rescue-volume`, the ISO attached as a CD-ROM on a SATA bus (libvirt's
+SCSI default is an LSI Logic controller the kernel has no driver for),
+the node restarted: init's `rescue` line, the window and its end on the
+console; `janusctl access rescue -name`, the certificate (role, CN,
+issuer, lifetime), calls with it, the window closing; the audit and the
+events naming `rescue:<name>`; detached and restarted: no window.
+
+### A ruleset confirmed before a power cut
+
+Since v2026.11.02, on a node with nftables: a ruleset applied and
+confirmed, the VM destroyed (`virsh destroy`) within a second of the
+confirmation, started again: the firewall's state and the live ruleset.
+Twice, the second with another ruleset - the new one must be the one
+applied.
+
+### The Controller down: `login -kit`
+
+Since v2026.11.02: a lab-only janusctl context (its own `JANUSCONFIG`,
+signed in with a temporary API token, revoked after); the Controller's
+container stopped (outside any measurement); `janusctl login -kit` with
+the fleet's kit and passphrase from the lab's secrets, `-all version`,
+a change on two nodes and their log and audit lines (`kit:<account>`),
+`-role os:reader` refused a change; the Controller started again and
+`janusctl login` as before.
+
+### A restore on another host
+
+Since v2026.11.02 (#474): a Debian VM on the other hypervisor with
+Docker, **its way out to every private network cut first** (nftables: a
+copy of the lab's Controller must not reach its nodes, hypervisors or
+log targets). A new Controller on its own volume; the lab Controller's
+backup (downloaded) and the lab's backup kit sent to its first page's
+restore; the time until it listens again, its `restore:` lines, a
+sign-in with the lab Controller's account; the packets the cut refused.
+Then the copy stopped, its volume deleted, the cut removed.
+
+### A warm standby and its witness
+
+Since v2026.11.02, on that VM with a new volume: the standby paired
+with a token from Settings › High availability (`docker compose run
+--rm ... standby`), started; both Controllers' `/api/ha/active`, the
+standby's page, `dashboardd ha status`, the active's card in headless
+Chromium. **Switch over** from the active's card and back, each timed by
+polling both `/api/ha/active` every 0.5 s; a sign-in and the node pages
+through the new active. The **witness**: a Consul server in a container
+on a third VM (HTTPS, ACLs denying by default, the guide's policy),
+Settings › Consul pointed at it with a selector matching no node; the
+card and the key. A **forced promotion behind a partition**: the link
+between the two Controllers cut both ways by nftables on the standby's
+host, both still reaching the witness; `promote` (refused), `promote
+-force`, how long two actives answer and when the old one steps down
+through the witness, its log line; the link back and the copies. Back
+to the base after: switch over, the standby removed, Consul's settings
+as before. The nodes' janusd start times before and after.
+
+### Cluster updates: waiting for the balancer, the handoff
+
+Since v2026.11.02: `GET /api/clusters/{id}/upgrade-options` on the
+release before and after; an update with the handoff tried on members
+of the release before. A client on the build box holding 40 long
+connections to the anycast address (`longconn.py`: keep-alive, a
+request every 0.5 s, each held 40 s then replaced; a reset, an early
+close, a timeout or a non-200 counts as cut), idle first; then two
+updates in place on another image each (so that there is something to
+update) - without the handoff, then with it and a pause between
+members - under the probes, the router watched; the connections cut,
+the journal, `janusctl cluster get`'s handoff line; the nodes' health
+after. Waiting for the balancer needs a balancer hook (RouterOS
+read-only for the lab's BGP anycast, or a webhook): not set up yet.
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -1070,3 +1157,10 @@ ran:
   contexts; `renew OUT [shots]` (+ `renew.mjs`): the Fleet card's renewal
   in headless Chromium; `u-check` can click a button in a card first
   (v2026.10.31-2).
+- `bare-vm NAME HOST IMAGE create|destroy`: a node with nothing
+  provided (no NoCloud, one DHCP NIC); `longconn.py URL SECONDS [CONNS]
+  [LIFE]`: long keep-alive connections, each one cut printed;
+  `hupgrade NAME BODY [SECONDS]`: the cluster updated with an upgrade
+  body under `longconn.py`, the probes and `rwatch`, its stages and
+  journal; `ctl-login HOST JAR`: a sign-in to a second Controller with
+  the lab's account (v2026.11.02).
