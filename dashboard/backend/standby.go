@@ -263,8 +263,10 @@ func (s *standby) page(w http.ResponseWriter, _ *http.Request) {
 // promote makes this standby the active: the active's last copy - handed
 // over by the active, which steps down, or the last one pulled when the
 // active is gone - restored in the data directory, one epoch above
-// anything seen. The caller then starts the Controller again (or, with
-// none running, the operator does).
+// anything seen, the witness's included - which it claims first (the
+// copy says where it is): without the active's handover, a witness it
+// can't write refuses the promotion unless forced. The caller then
+// starts the Controller again (or, with none running, the operator does).
 func (s *standby) promote(ctx context.Context, force bool) (string, error) {
 	if !s.promoting.CompareAndSwap(false, true) {
 		return "", errors.New("promoting already")
@@ -286,12 +288,13 @@ func (s *standby) promote(ctx context.Context, force bool) (string, error) {
 	var archive []byte
 	var rep ha.Replica
 	how := "handed over by the active"
+	handedOver := false
 	if c := s.ha.Client(); c != nil {
 		hctx, cancel := context.WithTimeout(ctx, time.Minute)
 		data, h, err := c.Do(hctx, http.MethodPost, "/ha/stepdown", nil, ha.MaxReplica)
 		cancel()
 		if err == nil {
-			archive, rep = data, ha.ReplicaFrom(h, time.Now().UTC())
+			archive, rep, handedOver = data, ha.ReplicaFrom(h, time.Now().UTC()), true
 		} else {
 			if merr := ha.MayPromote(pulls.LastContact, time.Now(), force); merr != nil {
 				return "", fmt.Errorf("the active didn't hand over (%v); %w", err, merr)
@@ -309,6 +312,28 @@ func (s *standby) promote(ctx context.Context, force bool) (string, error) {
 		return "", fmt.Errorf("the copy is of version %s, newer than this Controller (%s): update it first", rep.Version, version)
 	}
 	epoch := max(st.Epoch, pulls.PeerEpoch, rep.Epoch) + 1
+	// The witness first, before anything is touched: an active the
+	// promotion couldn't reach learns it there that it's replaced.
+	witness := "no witness"
+	w, err := witnessOfCopy(archive)
+	if err == nil {
+		wctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		var got uint64
+		got, err = s.ha.ClaimWitness(wctx, w, epoch, haName())
+		cancel()
+		if err == nil {
+			epoch, witness = got, "the witness "+w.Where()+" holds it"
+		} else {
+			err = fmt.Errorf("the witness %s: %w", w.Where(), err)
+		}
+	}
+	switch {
+	case errors.Is(err, errNoWitness):
+	case err != nil && !handedOver && !force:
+		return "", fmt.Errorf("%v - the active couldn't learn it's replaced: make sure it's stopped, then promote -force", err)
+	case err != nil:
+		witness = "not written in the witness: " + err.Error()
+	}
 	if err := clearDataDir(s.dataDir, s.masterKeyPath); err != nil {
 		return "", err
 	}
@@ -330,7 +355,7 @@ func (s *standby) promote(ctx context.Context, force bool) (string, error) {
 		return "", err
 	}
 	ok = true
-	return fmt.Sprintf("standby: promoted - the active now, epoch %d, on the copy of %s (%s, version %s, %d files)", epoch, rep.Created.Format(time.RFC3339), how, rep.Version, n), nil
+	return fmt.Sprintf("standby: promoted - the active now, epoch %d (%s), on the copy of %s (%s, version %s, %d files)", epoch, witness, rep.Created.Format(time.RFC3339), how, rep.Version, n), nil
 }
 
 // writable checks path may be written - created if missing.
@@ -496,7 +521,7 @@ func promoteCommand(args []string) {
 	fs := flag.NewFlagSet("promote", flag.ExitOnError)
 	dataDir := fs.String("data-dir", "/data", "the standby's data directory")
 	masterKeyFile := fs.String("master-key-file", envOr("JANUS_CONTROLLER_MASTER_KEY_FILE", ""), "its master key (default: <data-dir>/master.key)")
-	force := fs.Bool("force", false, "take over from the last copy even though the active answered less than 2 minutes ago - it may still run: stop it first")
+	force := fs.Bool("force", false, "take over from the last copy even though the active answered less than 2 minutes ago, or the witness can't be written - it may still run: stop it first")
 	_ = fs.Parse(args)
 	fail := func(err error) {
 		fmt.Fprintln(os.Stderr, "promote:", err)

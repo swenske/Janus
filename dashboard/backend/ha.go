@@ -22,8 +22,8 @@ import (
 // The Controller's warm standby (internal/ha, docs/guide/controller-
 // standby.md), the active's side: the routes its standby calls on the
 // registration port - pairing, its state, a copy, stepping down -, the
-// admins' on the main port, and the loop that watches the peer's epoch.
-// The standby's side is standby.go.
+// admins' on the main port, and the loop that watches the peer's epoch
+// and the witness (witness.go). The standby's side is standby.go.
 
 // haCheckEvery is how often the active asks its standby where it stands:
 // a standby promoted while this one wasn't looking makes it step down.
@@ -42,7 +42,7 @@ func (v *haPeerView) set(st *ha.PeerState, err error) {
 	defer v.mu.Unlock()
 	v.checked, v.state, v.err = time.Now(), st, ""
 	if err != nil {
-		v.err = err.Error()
+		v.state, v.err = nil, err.Error()
 	}
 }
 
@@ -289,6 +289,9 @@ func (a *app) handleHAStatus(w http.ResponseWriter, _ *http.Request) {
 		if v := a.haView.view(); v != nil {
 			out["peer"] = v
 		}
+		if v := a.haWitness.view(); v != nil {
+			out["witness"] = v
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -352,9 +355,9 @@ func (a *app) haClient() *ha.Client {
 
 // --- the active's loop ---
 
-// haLoop asks the standby where it stands every haCheckEvery: one
-// promoted above this Controller's epoch - while this one was cut off -
-// makes it step down.
+// haLoop asks the standby where it stands every haCheckEvery, and reads
+// the witness: one promoted above this Controller's epoch - while this
+// one was cut off from it - makes it step down.
 func (a *app) haLoop(ctx context.Context) {
 	t := time.NewTicker(haCheckEvery)
 	defer t.Stop()
@@ -371,24 +374,26 @@ func (a *app) haLoop(ctx context.Context) {
 		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		st, err := c.State(cctx)
 		cancel()
-		if err != nil {
-			a.haView.set(nil, err)
-			continue
+		a.haView.set(&st, err)
+		if err == nil && ha.StepDown(a.ha.State(), st.Role, st.Epoch) {
+			a.stepDownFor(st, "")
+			return
 		}
-		a.haView.set(&st, nil)
-		own := a.ha.State()
-		if ha.StepDown(own, st.Role, st.Epoch) {
-			a.stepDownFor(st)
+		wctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		above := a.checkWitness(wctx)
+		cancel()
+		if above != nil {
+			a.stepDownFor(*above, "the witness says ")
 			return
 		}
 	}
 }
 
 // stepDownFor makes this Controller its peer's standby: the peer was
-// promoted above it. What it did since its last copy is set aside at
-// its next start (standby.go).
-func (a *app) stepDownFor(peer ha.PeerState) {
-	log.Printf("ha: the peer %s is the active at epoch %d, above this Controller's %d - stepping down, starting again as its standby", peer.Name, peer.Epoch, a.ha.State().Epoch)
+// promoted above it - it says so, or the witness does. What it did since
+// its last copy is set aside at its next start (standby.go).
+func (a *app) stepDownFor(peer ha.PeerState, how string) {
+	log.Printf("ha: %sthe peer %s is the active at epoch %d, above this Controller's %d - stepping down, starting again as its standby", how, peer.Name, peer.Epoch, a.ha.State().Epoch)
 	a.restored.Store(true)
 	if err := a.ha.SetRole(ha.Standby, peer.Epoch); err != nil {
 		log.Fatalf("ha: stepping down: %v - stop this Controller", err)
@@ -398,8 +403,9 @@ func (a *app) stepDownFor(peer ha.PeerState) {
 
 // fencedAtStart reports whether a Controller starting as the active finds
 // its peer active above its epoch - it then starts as the standby, before
-// any loop runs. A peer that doesn't answer leaves it the active.
-func fencedAtStart(s *ha.Store) (ha.PeerState, bool) {
+// any loop runs. A peer that doesn't answer leaves it the active, unless
+// the witness - witness() - says the peer holds an epoch above it.
+func fencedAtStart(s *ha.Store, witness func() (ha.Witness, error)) (ha.PeerState, bool) {
 	st := s.State()
 	c := s.Client()
 	if st.Role != ha.Active || c == nil {
@@ -408,11 +414,27 @@ func fencedAtStart(s *ha.Store) (ha.PeerState, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	peer, err := c.State(ctx)
-	if err != nil {
-		log.Printf("ha: the peer %s doesn't answer (%v) - starting as the active, epoch %d", peerName(st), err, st.Epoch)
+	if err == nil {
+		return peer, ha.StepDown(st, peer.Role, peer.Epoch)
+	}
+	w, werr := witness()
+	if werr != nil {
+		log.Printf("ha: the peer %s doesn't answer (%v), and %v - starting as the active, epoch %d", peerName(st), err, werr, st.Epoch)
 		return ha.PeerState{}, false
 	}
-	return peer, ha.StepDown(st, peer.Role, peer.Epoch)
+	wctx, wcancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer wcancel()
+	above, werr := witnessFenced(wctx, s, w)
+	switch {
+	case werr != nil:
+		log.Printf("ha: the peer %s doesn't answer (%v), nor the witness %s (%v) - starting as the active, epoch %d", peerName(st), err, w.Where(), werr, st.Epoch)
+	case above != nil:
+		log.Printf("ha: the peer %s doesn't answer (%v), but the witness %s says it holds epoch %d", peerName(st), err, w.Where(), above.Epoch)
+		return *above, true
+	default:
+		log.Printf("ha: the peer %s doesn't answer (%v) - the witness %s has none above this Controller: starting as the active, epoch %d", peerName(st), err, w.Where(), st.Epoch)
+	}
+	return ha.PeerState{}, false
 }
 
 // newerThanThis reports whether v is a release newer than this

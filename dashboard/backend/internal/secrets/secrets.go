@@ -69,8 +69,19 @@ func LoadOrCreate(path, dataDir string) (*Key, error) {
 	} else if err != nil {
 		return nil, fmt.Errorf("read the master key: %w", err)
 	}
+	k, err := Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("the master key %s: %w", path, err)
+	}
+	k.Path, k.BesideData = path, beside
+	return k, nil
+}
+
+// Parse is a master key from its bytes - one a copy of a data directory
+// carries (internal/ha); no Path.
+func Parse(raw []byte) (*Key, error) {
 	if len(raw) != keySize {
-		return nil, fmt.Errorf("the master key %s is %d bytes, not %d", path, len(raw), keySize)
+		return nil, fmt.Errorf("%d bytes, not %d", len(raw), keySize)
 	}
 	block, err := aes.NewCipher(raw)
 	if err != nil {
@@ -80,7 +91,7 @@ func LoadOrCreate(path, dataDir string) (*Key, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Key{aead: aead, Path: path, BesideData: beside}, nil
+	return &Key{aead: aead}, nil
 }
 
 // Seal encrypts plaintext for purpose.

@@ -15,7 +15,11 @@
 #      what it held set aside, none of its loops run, and copies B;
 #   6. the switchover from B's page: B hands A its last copy and steps
 #      down, A is the active at epoch 2 with the node B admitted;
-#   7. no AVC denial on the nodes.
+#   7. the witness in a real Consul server (ACLs denying by default): A
+#      keeps it at its epoch; the link between A and B cut, B promoted
+#      with -force claims epoch 3 in it, and A - still running, cut off
+#      from B - steps down through the witness alone;
+#   8. no AVC denial on the nodes.
 #
 # Usage: hack/controller-standby-test.sh <disk.img> <dashboardd-bin>
 set -euo pipefail
@@ -28,6 +32,11 @@ DASHBOARDD="$(realpath "${2:?$usage}")"
 TIMEOUT="${CONTROLLER_STANDBY_TIMEOUT:-120}"
 B="${CONTROLLER_STANDBY_BASE_PORT:-$((19460 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 A_MAIN=$((B + 1)) A_REG=$((B + 2)) B_MAIN=$((B + 3)) B_REG=$((B + 4)) VIP_MAIN=$((B + 5)) VIP_REG=$((B + 6))
+# A and B reach each other through a link that can be cut: LINK_A to A's
+# registration port, LINK_B to B's.
+LINK_A=$((B + 7)) LINK_B=$((B + 8))
+P_CONSUL=$((B + 40)) P_CSERVER=$((B + 41)) P_CSERF=$((B + 42))
+CONSUL_NAME="janus-standby-consul-$B"
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
 OVMF_VARS_TEMPLATE="${OVMF_VARS_TEMPLATE:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
 [ -f "$OVMF_CODE" ] || { echo "OVMF firmware not found at $OVMF_CODE (package: ovmf)" >&2; exit 1; }
@@ -39,6 +48,8 @@ declare -A PID
 cleanup() {
   for p in "${PID[@]}"; do kill "$p" 2>/dev/null || true; done
   for p in "${PID[@]}"; do wait "$p" 2>/dev/null || true; done
+  docker rm -f -v "$CONSUL_NAME" >/dev/null 2>&1 || true
+  if [ -d "$W/consul" ]; then sudo rm -rf "$W/consul"; fi # the image's user owns it now
   rm -rf "$W"
 }
 trap cleanup EXIT
@@ -60,14 +71,24 @@ wait_for() { # wait_for WHAT SECONDS COMMAND...
   done
 }
 
-# --- the VIP: a TCP forwarder to A's or B's ports, by a file ---
+# --- the VIP: a TCP forwarder to A's or B's ports, by a file - A or B;
+# a change closes the connections open to the other. The link between A
+# and B is another: A = connected, B = cut (port 1: refused).
 echo A >"$W/vip"
+echo A >"$W/link"
 cat >"$W/vip.py" <<'EOF'
 import asyncio, sys
-target_file, ports = sys.argv[1], {}
+target_file, ports, open_conns, known = sys.argv[1], {}, set(), {}
 for spec in sys.argv[2:]:
     listen, a, b = (int(p) for p in spec.split(":"))
     ports[listen] = {"A": a, "B": b}
+
+def target():
+    # Read at each connection; empty while echo rewrites it: the last.
+    t = open(target_file).read().strip()
+    if t:
+        known["last"] = t
+    return known.get("last", t)
 
 async def pipe(r, w):
     try:
@@ -81,23 +102,42 @@ async def pipe(r, w):
 
 def handler(listen):
     async def handle(r, w):
-        who = open(target_file).read().strip()
+        who = target()
         try:
             ur, uw = await asyncio.open_connection("127.0.0.1", ports[listen][who])
         except OSError:
             w.close()
             return
-        await asyncio.gather(pipe(r, uw), pipe(ur, w))
+        conn = (w, uw, who)
+        open_conns.add(conn)
+        try:
+            await asyncio.gather(pipe(r, uw), pipe(ur, w))
+        finally:
+            open_conns.discard(conn)
     return handle
+
+async def watch():
+    last = target()
+    while True:
+        await asyncio.sleep(0.3)
+        now = target()
+        if now != last:
+            last = now
+            for w, uw, who in list(open_conns):
+                if who != now:
+                    w.close()
+                    uw.close()
 
 async def main():
     servers = [await asyncio.start_server(handler(p), "0.0.0.0", p) for p in ports]
-    await asyncio.gather(*(s.serve_forever() for s in servers))
+    await asyncio.gather(watch(), *(s.serve_forever() for s in servers))
 
 asyncio.run(main())
 EOF
 python3 "$W/vip.py" "$W/vip" "$VIP_MAIN:$A_MAIN:$B_MAIN" "$VIP_REG:$A_REG:$B_REG" >"$W/vip.log" 2>&1 &
 PID[vip]=$!
+python3 "$W/vip.py" "$W/link" "$LINK_A:$A_REG:1" "$LINK_B:$B_REG:1" >"$W/link.log" 2>&1 &
+PID[link]=$!
 
 ctl_a() { exec "$DASHBOARDD" -addr ":$A_MAIN" -register-addr ":$A_REG" -data-dir "$W/a" -advertise-address "$GATEWAY" -image-factory "" -releases-url "http://127.0.0.1:1/none"; }
 ctl_b() { exec "$DASHBOARDD" -addr ":$B_MAIN" -register-addr ":$B_REG" -data-dir "$W/b" -advertise-address "$GATEWAY" -image-factory "" -releases-url "http://127.0.0.1:1/none"; }
@@ -173,7 +213,7 @@ case "$TOKEN" in janus-standby_*) ;; *) fail "no pairing token: $(cat "$W/token.
 "$DASHBOARDD" standby -data-dir "$W/b" -peer "127.0.0.1:$A_REG" -pair "janus-standby_$(printf '0%.0s' {1..64})_x" -name b -address "127.0.0.1:$B_REG" >"$W/pair-wrong.out" 2>&1 \
   && fail "paired with a token naming another Controller"
 grep -q "isn't the peer paired" "$W/pair-wrong.out" || fail "a token naming another Controller: $(cat "$W/pair-wrong.out")"
-out="$("$DASHBOARDD" standby -data-dir "$W/b" -peer "127.0.0.1:$A_REG" -pair "$TOKEN" -name b -address "127.0.0.1:$B_REG" 2>&1)" || fail "dashboardd standby: $out"
+out="$("$DASHBOARDD" standby -data-dir "$W/b" -peer "127.0.0.1:$LINK_A" -pair "$TOKEN" -name b -address "127.0.0.1:$LINK_B" 2>&1)" || fail "dashboardd standby: $out"
 grep -q "as its standby, epoch 0 - a first copy of" <<<"$out" || fail "dashboardd standby: $out"
 if "$DASHBOARDD" standby -data-dir "$W/c" -peer "127.0.0.1:$A_REG" -pair "$TOKEN" -name c -address "127.0.0.1:1" >"$W/pair-twice.out" 2>&1; then fail "the token paired twice"; fi
 start b
@@ -192,7 +232,8 @@ api "$A_MAIN" "$JAR" POST /api/users "$W/rita.json" | grep -q rita || fail "maki
 printf '{"name":"rack-9","max_uses":1,"expires_in_days":1,"labels":{"rack":"r9"}}' >"$W/enroll.json"
 ENROLL="$(api "$A_MAIN" "$JAR" POST /api/enroll-tokens "$W/enroll.json" | json 'd["token"]')"
 made="$(date -u +%s)"
-copied() { python3 - "$W/b/ha/replica.json" "$made" <<'EOF'
+copied() { # copied [a|b]: the standby copied its active since $made
+  python3 - "$W/${1:-b}/ha/replica.json" "$made" <<'EOF'
 import json, sys, datetime
 p = json.load(open(sys.argv[1]))
 at = datetime.datetime.strptime(p["last"]["at"][:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=datetime.timezone.utc).timestamp()
@@ -262,8 +303,114 @@ grep -q "stepping down for the standby" "$W/b.log" || fail "B didn't step down"
 for n in n1 n2; do wait_for "$n's page doesn't answer through A" 60 page "$VIP_MAIN" "$VJAR" "$n"; done
 echo "  ok: the switchover from B's page - B handed A its last copy and stepped down, A the active at epoch 2 with the node B admitted"
 
-# --- 7. no AVC denial ---
+# --- 7. the witness in Consul: a promotion behind a partition ---
+# A real Consul server, HTTPS, ACLs denying by default; the Controller's
+# token as docs/guide/consul-controller.md has it made, with the key the
+# witness needs.
+mkdir -p "$W/consul"
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 2 -subj "/CN=Consul standby test" \
+  -addext "subjectAltName=IP:127.0.0.1" -keyout "$W/consul/server.key" -out "$W/consul/server.pem" 2>/dev/null
+MGMT="$(cat /proc/sys/kernel/random/uuid)"
+cat >"$W/consul/server.hcl" <<HCL
+datacenter       = "witness"
+node_name        = "witness"
+server           = true
+bootstrap_expect = 1
+data_dir         = "/consul/data"
+bind_addr        = "127.0.0.1"
+client_addr      = "127.0.0.1"
+ports {
+  http     = -1
+  https    = $P_CONSUL
+  dns      = -1
+  grpc     = -1
+  grpc_tls = -1
+  server   = $P_CSERVER
+  serf_lan = $P_CSERF
+  serf_wan = -1
+}
+acl {
+  enabled                  = true
+  default_policy           = "deny"
+  enable_token_persistence = true
+  tokens {
+    initial_management = "$MGMT"
+    agent              = "$MGMT"
+  }
+}
+tls {
+  defaults {
+    cert_file = "/consul/config/server.pem"
+    key_file  = "/consul/config/server.key"
+  }
+  https {
+    verify_incoming = false
+  }
+}
+HCL
+chmod 0755 "$W/consul"
+chmod 0644 "$W/consul"/*
+docker build -q -t janus-consul-server "$(dirname "$0")/consul-server" >/dev/null
+docker rm -f -v "$CONSUL_NAME" >/dev/null 2>&1 || true
+docker run -d --name "$CONSUL_NAME" --network host -v "$W/consul:/consul/config" janus-consul-server agent -config-dir=/consul/config >/dev/null
+consul_api() { # consul_api METHOD PATH [BODY]: with the management token
+  curl -s -m 10 --cacert "$W/consul/server.pem" -H "X-Consul-Token: $MGMT" -X "$1" "https://127.0.0.1:$P_CONSUL$2" ${3:+-d "$3"}
+}
+has_leader() { consul_api GET /v1/status/leader | grep -q "127.0.0.1:$P_CSERVER"; }
+wait_for "the Consul server never elected itself" 60 has_leader
+python3 -c 'import json; print(json.dumps({"Name": "janus-controller", "Rules": """acl = "write"
+keyring = "read"
+operator = "read"
+node_prefix "" { policy = "write" }
+service_prefix "" { policy = "read" }
+agent_prefix "" { policy = "read" }
+key_prefix "janus/controllers/" { policy = "write" }
+"""}))' >"$W/policy.json"
+consul_api PUT /v1/acl/policy "@$W/policy.json" | grep -q '"ID"' || fail "the Controller's Consul policy"
+CTOKEN="$(consul_api PUT /v1/acl/token '{"Description": "janus-controller", "Policies": [{"Name": "janus-controller"}]}' | json 'd["SecretID"]')" ||
+  fail "the Controller's Consul token"
+python3 - "$P_CONSUL" "$W/consul/server.pem" "$CTOKEN" >"$W/consul-settings.json" <<'PY'
+import json, sys
+print(json.dumps({"enabled": True, "address": "https://127.0.0.1:" + sys.argv[1], "tls": {"ca_pem": open(sys.argv[2]).read()}, "token": sys.argv[3],
+                  "selector": "", "services": {"janus": True, "exporters": True, "frontends": True, "urls": True}, "node_meta_from_labels": True}))
+PY
+made="$(date -u +%s)"
+api "$VIP_MAIN" "$VJAR" PUT /api/consul "$W/consul-settings.json" | grep -q '"has_token": *true' || fail "A's Consul settings"
+witness_is() { # witness_is PORT JAR "STATE HOLDER EPOCH"
+  [ "$(api "$1" "$2" GET /api/ha | json '" ".join(str((d.get("witness") or {}).get(k)) for k in ("state", "holder", "epoch"))')" = "$3" ]
+}
+wait_for "A never wrote the witness in Consul: $(api "$VIP_MAIN" "$VJAR" GET /api/ha)" 60 witness_is "$VIP_MAIN" "$VJAR" "ok self 2"
+consul_api GET "/v1/kv/janus/controllers/?recurse" | json '[e["Key"] for e in d]' | grep -q "/witness" || fail "no witness key in Consul"
+wait_for "B never copied A's Consul settings" 30 copied b
+echo "  ok: Consul set up on A - it keeps the witness in Consul's KV at epoch 2; B copied the settings"
+
+# The link cut: A and B can't reach each other; both reach Consul.
+standby_starts="$(grep -c "the standby of" "$W/a.log" || true)"
+echo B >"$W/link"
+out="$("$DASHBOARDD" promote -data-dir "$W/b" 2>&1)" && fail "promoted without -force while A answered seconds ago: $out"
+out="$("$DASHBOARDD" promote -data-dir "$W/b" -force 2>&1)" || fail "promote -force behind the partition: $out"
+grep -q "epoch 3 (the witness consul https://127.0.0.1:$P_CONSUL key janus/controllers/" <<<"$out" || fail "promote -force: $out"
+b_active() { [ "$(active_code "$B_MAIN")" = 200 ]; }
+wait_for "B never came back as the active" 60 b_active
+a_replaced() { [ "$(active_code "$A_MAIN")" = 503 ]; }
+wait_for "A, cut off from B, never stepped down through the witness" 60 a_replaced
+grep -q "ha: the witness says the peer .* is the active at epoch 3" "$W/a.log" || fail "A doesn't say the witness made it step down"
+a_standby_again() { [ "$(grep -c "the standby of" "$W/a.log" || true)" -gt "$standby_starts" ]; }
+wait_for "A never started again as B's standby" 30 a_standby_again
+consul_api GET "/v1/kv/janus/controllers/?recurse" | json '[json.loads(__import__("base64").b64decode(e["Value"]))["epoch"] for e in d]' | grep -qx "\[3\]" ||
+  fail "the witness in Consul: $(consul_api GET "/v1/kv/janus/controllers/?recurse")"
+echo B >"$W/vip"
+BJAR="$W/b.jar"
+signs_in "$VIP_MAIN" "$BJAR" || fail "signing in on B after the forced promotion"
+wait_for "B doesn't hold the witness: $(api "$VIP_MAIN" "$BJAR" GET /api/ha)" 60 witness_is "$VIP_MAIN" "$BJAR" "ok self 3"
+# The link back: A, B's standby, copies it.
+made="$(date -u +%s)"
+echo A >"$W/link"
+wait_for "A never copied B once the link was back" 30 copied a
+echo "  ok: the link cut, promote refused without -force; -force made B the active at epoch 3 in the witness, and A - cut off from B - stepped down through it; the link back, A copies B"
+
+# --- 8. no AVC denial ---
 for n in n1 n2 n3; do
   if grep -a "avc:.*denied" "$W/$n.console"; then fail "AVC denials on $n"; fi
 done
-echo "Controller standby test OK: pairing, copies, a forced promotion behind a VIP, the old active fenced at its start, a switchover back - real enforcing nodes, zero AVC denials"
+echo "Controller standby test OK: pairing, copies, a forced promotion behind a VIP, the old active fenced at its start, a switchover back, a forced promotion behind a partition fencing the old active through the witness in Consul - real enforcing nodes, zero AVC denials"

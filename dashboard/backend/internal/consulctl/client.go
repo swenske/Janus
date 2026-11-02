@@ -442,3 +442,38 @@ func (c *Client) Test(ctx context.Context) (Cluster, []Check) {
 	add("members", err, fmt.Sprintf("%d in the LAN pool", len(members)))
 	return cl, checks
 }
+
+// kvEntry is one key as /v1/kv answers it.
+type kvEntry struct {
+	Value       []byte `json:"Value"` // base64 in JSON
+	ModifyIndex uint64 `json:"ModifyIndex"`
+}
+
+// KVGet reads key - a plain path, letters, digits, '-', '_', '/' -
+// consistently (through the leader), its ModifyIndex the version a
+// KVPutCAS over it names. ErrNoKey when there's none.
+func (c *Client) KVGet(ctx context.Context, key string) ([]byte, uint64, error) {
+	var out []kvEntry
+	if err := c.do(ctx, http.MethodGet, "/v1/kv/"+key+"?consistent", nil, &out); err != nil {
+		var ae *APIError
+		if errors.As(err, &ae) && ae.Status == http.StatusNotFound {
+			return nil, 0, ErrNoKey
+		}
+		return nil, 0, err
+	}
+	if len(out) == 0 {
+		return nil, 0, ErrNoKey
+	}
+	return out[0].Value, out[0].ModifyIndex, nil
+}
+
+// ErrNoKey: the KV holds no such key.
+var ErrNoKey = errors.New("no such key")
+
+// KVPutCAS writes value at key if its ModifyIndex is still index - 0:
+// only where there's none. False: another write came first.
+func (c *Client) KVPutCAS(ctx context.Context, key string, value json.RawMessage, index uint64) (bool, error) {
+	var ok bool
+	err := c.do(ctx, http.MethodPut, fmt.Sprintf("/v1/kv/%s?cas=%d", key, index), value, &ok)
+	return ok, err
+}

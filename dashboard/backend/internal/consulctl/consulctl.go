@@ -48,7 +48,9 @@ type Settings struct {
 	// Token is the Controller's own (secret): acl = "write" (the nodes'
 	// tokens and their policy), keyring = "read" (the gossip key),
 	// operator = "read", node_prefix "" write (deregistering a node
-	// removed), service_prefix and agent_prefix "" read.
+	// removed), service_prefix and agent_prefix "" read; with a warm
+	// standby, key_prefix "janus/controllers/" write (its witness,
+	// internal/ha).
 	Token string `json:"token,omitempty"`
 	// RPCCAPEM is the CA of the servers' RPC certificates, given to the
 	// nodes: their agents verify the servers with it and get their own
@@ -230,6 +232,25 @@ func Open(dir string, key Sealer) (*Store, error) {
 		s.sealed.Tokens = map[string]*NodeToken{}
 	}
 	return s, nil
+}
+
+// SettingsFrom are the settings a state.json holds - read from a copy of
+// a data directory, key the master key it carries: where a standby
+// being promoted finds the witness (internal/ha).
+func SettingsFrom(stateJSON []byte, key Sealer) (Settings, error) {
+	var st stateFile
+	if err := json.Unmarshal(stateJSON, &st); err != nil {
+		return Settings{}, fmt.Errorf("consul state: %w", err)
+	}
+	plain, err := key.Open(st.Sealed, purpose)
+	if err != nil {
+		return Settings{}, fmt.Errorf("consul state: %w", err)
+	}
+	var sealed sealedState
+	if err := json.Unmarshal(plain, &sealed); err != nil {
+		return Settings{}, fmt.Errorf("consul state: %w", err)
+	}
+	return sealed.Settings, nil
 }
 
 // Settings are the settings, the token included.

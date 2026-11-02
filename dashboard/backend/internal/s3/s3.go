@@ -1,7 +1,7 @@
-// Package s3 is the little of S3's API the Controller's backups need -
-// put, get, list and delete an object - signed with AWS Signature
-// Version 4: AWS, MinIO, Garage, Ceph, Backblaze B2, Cloudflare R2,
-// versitygw... alike.
+// Package s3 is the little of S3's API the Controller's backups and its
+// warm standby's witness need - put (conditionally too), get, list and
+// delete an object - signed with AWS Signature Version 4: AWS, MinIO,
+// Garage, Ceph, Backblaze B2, Cloudflare R2, versitygw... alike.
 package s3
 
 import (
@@ -74,6 +74,15 @@ func (e *Error) Error() string {
 func IsNotFound(err error) bool {
 	var e *Error
 	return errors.As(err, &e) && e.Status == http.StatusNotFound
+}
+
+// IsPreconditionFailed reports whether err is a conditional write that
+// lost: the object isn't the one If-Match named, or exists against
+// If-None-Match - 412, or AWS's 409 ConditionalRequestConflict while
+// another conditional write to it is under way.
+func IsPreconditionFailed(err error) bool {
+	var e *Error
+	return errors.As(err, &e) && (e.Status == http.StatusPreconditionFailed || (e.Status == http.StatusConflict && e.Code == "ConditionalRequestConflict"))
 }
 
 // IsAccessDenied reports whether err is a refusal - write-only
@@ -239,21 +248,53 @@ func (c *Client) Put(ctx context.Context, key string, body []byte, contentType s
 	return nil
 }
 
+// Condition makes a Put conditional: IfMatch puts only over the object
+// whose ETag it is, IfNoneMatch only where there's none. A service that
+// doesn't do conditional writes may answer 501 - or ignore them.
+type Condition struct {
+	IfMatch     string
+	IfNoneMatch bool
+}
+
+// PutIf writes key under cond: IsPreconditionFailed when it lost.
+func (c *Client) PutIf(ctx context.Context, key string, body []byte, contentType string, cond Condition) error {
+	h := map[string]string{"Content-Type": contentType}
+	if cond.IfMatch != "" {
+		h["If-Match"] = cond.IfMatch
+	}
+	if cond.IfNoneMatch {
+		h["If-None-Match"] = "*"
+	}
+	resp, err := c.do(ctx, http.MethodPut, key, nil, body, h)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	return nil
+}
+
 // Get reads key, MaxObject at most.
 func (c *Client) Get(ctx context.Context, key string) ([]byte, error) {
+	data, _, err := c.GetETag(ctx, key)
+	return data, err
+}
+
+// GetETag reads key, MaxObject at most, and its ETag - what a PutIf over
+// it names.
+func (c *Client) GetETag(ctx context.Context, key string) ([]byte, string, error) {
 	resp, err := c.do(ctx, http.MethodGet, key, nil, nil, nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, MaxObject+1))
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if len(data) > MaxObject {
-		return nil, fmt.Errorf("%s is larger than %d bytes", key, MaxObject)
+		return nil, "", fmt.Errorf("%s is larger than %d bytes", key, MaxObject)
 	}
-	return data, nil
+	return data, resp.Header.Get("ETag"), nil
 }
 
 // Delete removes key.
