@@ -31,6 +31,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/ha"
 	"github.com/swenske/Janus/dashboard/backend/internal/identity"
 	"github.com/swenske/Janus/dashboard/backend/internal/s3"
+	"github.com/swenske/Janus/dashboard/backend/internal/secrets"
 )
 
 // Restoring a backup: on a new Controller - before its first account, from
@@ -311,6 +312,10 @@ func (a *app) handleRestore(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "restoring: "+err.Error()+" - the data directory may be half restored: empty it before trying again")
 		return
 	}
+	if err := resealHA(a.ha, a.masterKeyPath, a.dataDir); err != nil {
+		writeError(w, http.StatusInternalServerError, "restored, but "+err.Error())
+		return
+	}
 	if err := noteRestored(a.dataDir, m); err != nil {
 		log.Printf("restore: %v", err)
 	}
@@ -324,6 +329,25 @@ func (a *app) handleRestore(w http.ResponseWriter, r *http.Request) {
 		f.Flush()
 	}
 	go restartSelf()
+}
+
+// resealHA seals the warm standby's files (internal/ha: the HA key, the
+// secret shared with a peer) again with the master key a restore put in
+// place: a backup carries no ha/, and the restoring Controller's own was
+// sealed with the key it had - it wouldn't start again otherwise. hs is
+// its HA store, opened with that key; nil: none to keep.
+func resealHA(hs *ha.Store, keyPath, dataDir string) error {
+	if hs == nil {
+		return nil
+	}
+	key, err := secrets.LoadOrCreate(keyPath, dataDir)
+	if err != nil {
+		return fmt.Errorf("the restored master key: %w", err)
+	}
+	if err := hs.Reseal(key); err != nil {
+		return fmt.Errorf("the warm standby's files, sealed again with the restored master key: %w - remove %s before starting the Controller", err, filepath.Join(dataDir, ha.Dir))
+	}
+	return nil
 }
 
 // restartSelf starts the Controller again on what was restored: its
@@ -443,8 +467,23 @@ func restoreCommand(args []string) {
 	if keyPath == "" {
 		keyPath = filepath.Join(*dataDir, "master.key")
 	}
+	// The data directory's own warm standby files, sealed with the master
+	// key the restore replaces: opened now, sealed again after.
+	var hs *ha.Store
+	if _, err := os.Stat(filepath.Join(*dataDir, ha.Dir, "ha.key.sealed")); err == nil {
+		key, err := secrets.LoadOrCreate(*masterKeyFile, *dataDir)
+		if err != nil {
+			fail(err)
+		}
+		if hs, err = ha.Open(filepath.Join(*dataDir, ha.Dir), key); err != nil {
+			fail(err)
+		}
+	}
 	n, err := restoreFiles(archive, *dataDir, keyPath)
 	if err != nil {
+		fail(err)
+	}
+	if err := resealHA(hs, keyPath, *dataDir); err != nil {
 		fail(err)
 	}
 	if err := noteRestored(*dataDir, m); err != nil {
