@@ -110,7 +110,12 @@ With it the node forgets the lost fleet and joins another.
    CD-ROM; `-fat rescue.img` for a disk or a USB stick. Add
    `-skip-firewall` if the node's firewall may shut port 9506: its
    saved ruleset isn't applied for that boot.
-2. Attach it and restart the node. Its console shows
+2. Attach it and restart the node - the ISO on a bus the node's kernel
+   has a driver for: SATA, IDE or virtio-scsi; libvirt's plain `scsi`
+   bus adds an LSI controller it doesn't have, and the node never sees
+   the volume (`virsh attach-disk NODE rescue.iso sdz --type cdrom
+   --targetbus sata --config`; on Proxmox, a CD/DVD drive on IDE or
+   SATA). Its console shows
    `init: rescue: a rescue volume on /dev/sr0` and, in its banner,
    `rescue    XXXX-XXXX-XXXX-XXXX-XXXX` - for 30 minutes; five wrong
    codes close the window until the next boot.

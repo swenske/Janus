@@ -247,6 +247,13 @@ func (c *Cluster) ClusterLeave(ctx context.Context, _ *emptypb.Empty) (*janusv1a
 	if err := c.apply(true, false, was); err != nil {
 		return nil, err
 	}
+	// The handoffs were the cluster's - copies kept an hour after an
+	// update, a hold, a refusal: they end with the membership.
+	if c.Handoff != nil {
+		if err := c.Handoff.Close(); err != nil {
+			log.Printf("cluster: ending the handoffs on leaving %s: %v", m.Name, err)
+		}
+	}
 	c.FollowACME()
 	// The ring was the cluster's: the members that stay must not be able
 	// to read or forge this node's tickets any more (they renew theirs
