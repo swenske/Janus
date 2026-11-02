@@ -18,6 +18,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/backup"
+	"github.com/swenske/Janus/dashboard/backend/internal/ha"
 	"github.com/swenske/Janus/dashboard/backend/internal/identity"
 	"github.com/swenske/Janus/dashboard/backend/internal/secrets"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
@@ -34,7 +35,18 @@ func freshApp(t *testing.T) *authApp {
 	tokens, _ := auth.OpenTokens(dir)
 	log, _ := audit.Open(dir)
 	nodes, _ := store.Open(dir)
-	a := &app{auth: st, tokens: tokens, loginLimiter: auth.NewLoginLimiter(), audit: log, store: nodes, dataDir: dir, masterKeyPath: filepath.Join(t.TempDir(), "master.key")}
+	keyPath := filepath.Join(t.TempDir(), "master.key")
+	// Its warm standby's files, made at its first start as main does -
+	// sealed with its own master key, which a restore replaces.
+	key, err := secrets.LoadOrCreate(keyPath, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hs, err := ha.Open(filepath.Join(dir, ha.Dir), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &app{auth: st, tokens: tokens, loginLimiter: auth.NewLoginLimiter(), audit: log, store: nodes, dataDir: dir, masterKeyPath: keyPath, ha: hs}
 	return &authApp{app: a, h: a.audited(a.routes(http.NotFoundHandler()))}
 }
 
@@ -100,6 +112,15 @@ func TestRestore(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dst.dataDir, "backup", "state.json")); err != nil {
 		t.Errorf("the backup settings: %v", err)
+	}
+	// It starts again: its HA files open with the restored master key,
+	// the same HA certificate.
+	rkey, err := secrets.LoadOrCreate(dst.masterKeyPath, dst.dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hs, err := ha.Open(filepath.Join(dst.dataDir, ha.Dir), rkey); err != nil || hs.CertSHA256() != dst.ha.CertSHA256() {
+		t.Fatalf("the HA files after the restore: %v", err)
 	}
 
 	// Set up: no restore from its page.

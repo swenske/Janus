@@ -120,12 +120,15 @@ func Open(dir string, key Sealer) (*Store, error) {
 	}
 	if sealed, err := os.ReadFile(filepath.Join(dir, "secret.sealed")); err == nil {
 		if s.secret, err = key.Open(sealed, purposeSecret); err != nil {
-			return nil, fmt.Errorf("ha: the peers' secret: %w", err)
+			return nil, fmt.Errorf("ha: the peers' secret isn't sealed with this master key - it changed since the pairing (a restore by an older dashboardd, a key replaced by hand): remove %s and pair the standby again: %w", dir, err)
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
 	if err := s.loadCert(); err != nil {
+		if errors.Is(err, errSealedOther) {
+			return nil, fmt.Errorf("ha: the HA certificate's key isn't sealed with this master key - it changed since it was made (a restore by an older dashboardd, a key replaced by hand): remove %s to make a new one; a standby must then be paired again", dir)
+		}
 		return nil, fmt.Errorf("ha: the HA certificate: %w", err)
 	}
 	return s, nil
@@ -146,7 +149,7 @@ func (s *Store) loadCert() error {
 	}
 	keyPEM, err := s.key.Open(sealed, purposeKey)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", errSealedOther, err)
 	}
 	c, err := tls.X509KeyPair(certPEM, keyPEM)
 	if err != nil {
@@ -201,6 +204,9 @@ func (s *Store) makeCert() error {
 	s.cert, s.certFP = c, fingerprint(der)
 	return nil
 }
+
+// errSealedOther: the HA key was sealed with another master key.
+var errSealedOther = errors.New("sealed with another master key")
 
 // Reseal seals what the store keeps sealed again with key: a promotion
 // restores the active's master key over the standby's own.
