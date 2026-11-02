@@ -59,8 +59,10 @@ type fakeMember struct {
 	// flows: its open connections, counted down by each ClusterHandoff
 	// reading them (they end); handoffs: whose it copies, until when.
 	noHandoff string
-	flows     int
-	handoffs  map[string]time.Time
+	// oldRelease: a release before ClusterHandoff, which says nothing.
+	oldRelease bool
+	flows      int
+	handoffs   map[string]time.Time
 }
 
 // clusterFake answers the cluster engine for every node, and keeps what
@@ -221,11 +223,11 @@ func (f *clusterFake) ClusterGet(_ context.Context, m clusters.Member) (*janusv1
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if fm.info == nil {
-		return &janusv1alpha1.ClusterInfo{Drained: fm.drained, UndrainedUnix: fm.undrained, HandoffUnavailable: fm.noHandoff}, nil
+		return &janusv1alpha1.ClusterInfo{Drained: fm.drained, UndrainedUnix: fm.undrained, HandoffUnavailable: fm.noHandoff, HandoffSupported: !fm.oldRelease}, nil
 	}
 	info := proto.Clone(fm.info).(*janusv1alpha1.ClusterInfo)
 	info.MemberCertNotAfterUnix = f.notAfter.Unix()
-	info.Drained, info.UndrainedUnix, info.HandoffUnavailable = fm.drained, fm.undrained, fm.noHandoff
+	info.Drained, info.UndrainedUnix, info.HandoffUnavailable, info.HandoffSupported = fm.drained, fm.undrained, fm.noHandoff, !fm.oldRelease
 	return info, nil
 }
 

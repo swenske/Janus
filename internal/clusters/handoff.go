@@ -91,6 +91,8 @@ func (e *Engine) HandoffReady(ctx context.Context, c *Cluster) ([]netip.Addr, st
 		switch {
 		case err != nil:
 			why = append(why, fmt.Sprintf("%s doesn't answer: %v", m.Name, err))
+		case !info.GetHandoffSupported():
+			why = append(why, m.Name+": its release has no connection handoff - update the cluster without it first")
 		case info.GetHandoffUnavailable() != "":
 			why = append(why, m.Name+": "+info.GetHandoffUnavailable())
 		}

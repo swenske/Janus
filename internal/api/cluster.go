@@ -348,7 +348,7 @@ func (c *Cluster) info() *janusv1alpha1.ClusterInfo {
 	if t := c.Store.UndrainedAt(); !t.IsZero() {
 		info.UndrainedUnix = t.Unix()
 	}
-	info.HandoffUnavailable = c.handoffUnavailable()
+	info.HandoffSupported, info.HandoffUnavailable = true, c.handoffUnavailable()
 	if c.Handoff != nil {
 		for _, h := range c.Handoff.List() {
 			info.Handoffs = append(info.Handoffs, handoffState(h))

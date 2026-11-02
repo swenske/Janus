@@ -249,8 +249,16 @@ func TestClusterUpgradeOptionsAPI(t *testing.T) {
 	if o := get(); o.Handoff.Available || o.Handoff.Why != "lb-2: the nftables extension isn't in this node's image" {
 		t.Errorf("lb-2 without nftables: %+v", o.Handoff)
 	}
+	// A member on a release before the handoff says nothing about it: it
+	// can't (v2026.11.02's lab found it offered).
 	f.mu.Lock()
-	f.nodes["lb-2"].noHandoff = ""
+	f.nodes["lb-2"].noHandoff, f.nodes["lb-2"].oldRelease = "", true
+	f.mu.Unlock()
+	if o := get(); o.Handoff.Available || o.Handoff.Why != "lb-2: its release has no connection handoff - update the cluster without it first" {
+		t.Errorf("lb-2 on an older release: %+v", o.Handoff)
+	}
+	f.mu.Lock()
+	f.nodes["lb-2"].oldRelease = false
 	f.mu.Unlock()
 	if o := get(); !o.Handoff.Available || !slices.Equal(o.Handoff.Addresses, []string{"203.0.113.10"}) || !strings.Contains(o.Handoff.How, "on 203.0.113.10") {
 		t.Errorf("an anycast cluster: %+v", o.Handoff)

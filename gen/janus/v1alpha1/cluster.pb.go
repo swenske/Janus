@@ -204,8 +204,12 @@ type ClusterInfo struct {
 	// none in effect.
 	HandoffHoldUntilUnix   int64 `protobuf:"varint,21,opt,name=handoff_hold_until_unix,json=handoffHoldUntilUnix,proto3" json:"handoff_hold_until_unix,omitempty"`
 	HandoffRefuseUntilUnix int64 `protobuf:"varint,22,opt,name=handoff_refuse_until_unix,json=handoffRefuseUntilUnix,proto3" json:"handoff_refuse_until_unix,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// This node's release has ClusterHandoff - handoff_unavailable then
+	// says whether it can now. False: a release before it, which says
+	// nothing (handoff_unavailable empty) and can't.
+	HandoffSupported bool `protobuf:"varint,23,opt,name=handoff_supported,json=handoffSupported,proto3" json:"handoff_supported,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ClusterInfo) Reset() {
@@ -390,6 +394,13 @@ func (x *ClusterInfo) GetHandoffRefuseUntilUnix() int64 {
 		return x.HandoffRefuseUntilUnix
 	}
 	return 0
+}
+
+func (x *ClusterInfo) GetHandoffSupported() bool {
+	if x != nil {
+		return x.HandoffSupported
+	}
+	return false
 }
 
 type ClusterFlowsRequest struct {
@@ -1693,7 +1704,7 @@ const file_janus_v1alpha1_cluster_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x1f\n" +
 	"\vapi_address\x18\x03 \x01(\tR\n" +
-	"apiAddress\"\xef\x06\n" +
+	"apiAddress\"\x9c\a\n" +
 	"\vClusterInfo\x12\x16\n" +
 	"\x06member\x18\x01 \x01(\bR\x06member\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x12\n" +
@@ -1720,7 +1731,8 @@ const file_janus_v1alpha1_cluster_proto_rawDesc = "" +
 	"\x13handoff_unavailable\x18\x13 \x01(\tR\x12handoffUnavailable\x12?\n" +
 	"\bhandoffs\x18\x14 \x03(\v2#.janus.v1alpha1.ClusterHandoffStateR\bhandoffs\x125\n" +
 	"\x17handoff_hold_until_unix\x18\x15 \x01(\x03R\x14handoffHoldUntilUnix\x129\n" +
-	"\x19handoff_refuse_until_unix\x18\x16 \x01(\x03R\x16handoffRefuseUntilUnix\"3\n" +
+	"\x19handoff_refuse_until_unix\x18\x16 \x01(\x03R\x16handoffRefuseUntilUnix\x12+\n" +
+	"\x11handoff_supported\x18\x17 \x01(\bR\x10handoffSupported\"3\n" +
 	"\x13ClusterFlowsRequest\x12\x1c\n" +
 	"\taddresses\x18\x01 \x03(\tR\taddresses\"s\n" +
 	"\x11ClusterFlowsChunk\x12\x16\n" +

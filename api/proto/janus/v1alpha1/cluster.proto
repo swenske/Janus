@@ -166,6 +166,10 @@ message ClusterInfo {
   // none in effect.
   int64 handoff_hold_until_unix = 21;
   int64 handoff_refuse_until_unix = 22;
+  // This node's release has ClusterHandoff - handoff_unavailable then
+  // says whether it can now. False: a release before it, which says
+  // nothing (handoff_unavailable empty) and can't.
+  bool handoff_supported = 23;
 }
 
 message ClusterFlowsRequest {
