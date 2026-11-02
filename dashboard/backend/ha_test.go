@@ -480,3 +480,37 @@ func TestWitness(t *testing.T) {
 		t.Fatal("the promoted Controller fenced by its own witness")
 	}
 }
+
+// TestStandbyStateWhilePromoting: a standby promoted, until it starts
+// again, says it's the active at its new epoch - the peer that stepped
+// down for it doesn't find a second standby (v2026.11.02's lab: "the
+// peer is a standby too" for a minute after a switchover).
+func TestStandbyStateWhilePromoting(t *testing.T) {
+	s := mustOpenHA(t, t.TempDir())
+	secret, _ := ha.NewSecret()
+	if err := s.SetPeer(ha.Peer{Name: "a", Address: "a:8443", CertSHA256: strings.Repeat("ab", 32)}, secret, ha.Standby, 2); err != nil {
+		t.Fatal(err)
+	}
+	mux := (&standby{ha: s}).peerRoutes()
+	state := func() ha.PeerState {
+		t.Helper()
+		req := httptest.NewRequest("GET", "/ha/state", nil)
+		req.Header.Set("Authorization", "Bearer "+s.Bearer())
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		var st ha.PeerState
+		if err := json.Unmarshal(rec.Body.Bytes(), &st); err != nil || rec.Code != http.StatusOK {
+			t.Fatalf("%d %s", rec.Code, rec.Body.String())
+		}
+		return st
+	}
+	if st := state(); st.Role != ha.Standby || st.Epoch != 2 {
+		t.Fatalf("a standby: %+v", st)
+	}
+	if err := s.SetRole(ha.Active, 3); err != nil {
+		t.Fatal(err)
+	}
+	if st := state(); st.Role != ha.Active || st.Epoch != 3 {
+		t.Fatalf("promoted, not started again yet: %+v", st)
+	}
+}

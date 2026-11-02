@@ -73,29 +73,7 @@ func runStandby(s *standby, addr, registerAddr, tlsCert, tlsKey string) {
 	}
 	// The registration port: the active's questions. Nodes aren't served:
 	// they find the active.
-	peerMux := http.NewServeMux()
-	peerMux.HandleFunc("GET /ha/state", s.peer(func(w http.ResponseWriter, _ *http.Request) {
-		st := s.ha.State()
-		writeJSON(w, http.StatusOK, ha.PeerState{Role: ha.Standby, Epoch: st.Epoch, Version: version, Name: haName()})
-	}))
-	peerMux.HandleFunc("POST /ha/promote", s.peer(func(w http.ResponseWriter, _ *http.Request) {
-		if s.promoting.Load() {
-			writeError(w, http.StatusConflict, "promoting already")
-			return
-		}
-		go func() {
-			if msg, err := s.promote(context.Background(), false); err != nil {
-				log.Printf("standby: the switchover failed: %v", err)
-			} else {
-				log.Print(msg)
-				go restartSelf()
-			}
-		}()
-		writeJSON(w, http.StatusAccepted, map[string]string{"message": "taking over"})
-	}))
-	peerMux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
-		writeError(w, http.StatusServiceUnavailable, "this Controller is a standby: the active answers")
-	})
+	peerMux := s.peerRoutes()
 	serve(registerAddr, &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{*s.ha.Certificate()}}, peerMux)
 
 	// The main port: a page saying what this is, and keepalived's check.
@@ -136,6 +114,37 @@ func runStandby(s *standby, addr, registerAddr, tlsCert, tlsKey string) {
 	s.pullLoop()
 }
 
+// peerRoutes are what the standby's registration port answers: its
+// state and the switchover, for the active only.
+func (s *standby) peerRoutes() *http.ServeMux {
+	peerMux := http.NewServeMux()
+	peerMux.HandleFunc("GET /ha/state", s.peer(func(w http.ResponseWriter, _ *http.Request) {
+		// Promoted, until it starts again: the active, at its new epoch -
+		// not a second standby to the peer stepping down for it.
+		st := s.ha.State()
+		writeJSON(w, http.StatusOK, ha.PeerState{Role: st.Role, Epoch: st.Epoch, Version: version, Name: haName()})
+	}))
+	peerMux.HandleFunc("POST /ha/promote", s.peer(func(w http.ResponseWriter, _ *http.Request) {
+		if s.promoting.Load() {
+			writeError(w, http.StatusConflict, "promoting already")
+			return
+		}
+		go func() {
+			if msg, err := s.promote(context.Background(), false); err != nil {
+				log.Printf("standby: the switchover failed: %v", err)
+			} else {
+				log.Print(msg)
+				go restartSelf()
+			}
+		}()
+		writeJSON(w, http.StatusAccepted, map[string]string{"message": "taking over"})
+	}))
+	peerMux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		writeError(w, http.StatusServiceUnavailable, "this Controller is a standby: the active answers")
+	})
+	return peerMux
+}
+
 func serve(addr string, tlsConfig *tls.Config, h http.Handler) {
 	ln, err := tls.Listen("tcp", addr, tlsConfig)
 	if err != nil {
@@ -160,16 +169,33 @@ func (s *standby) peer(next http.HandlerFunc) http.HandlerFunc {
 }
 
 // pullLoop copies the active every standbyPullEvery, until a promotion.
+// A pull that failed is tried again within standbyRetry, a minute of
+// it: right after a switchover the new active is still starting.
 func (s *standby) pullLoop() {
+	quick := 0
 	for {
+		wait := standbyPullEvery()
 		if !s.promoting.Load() {
 			if err := s.pull(context.Background()); err != nil {
 				log.Printf("standby: %v", err)
+				if quick < standbyRetries {
+					quick++
+					wait = min(wait, standbyRetry)
+				}
+			} else {
+				quick = 0
 			}
 		}
-		time.Sleep(standbyPullEvery())
+		time.Sleep(wait)
 	}
 }
+
+// standbyRetry is how soon a failed pull is tried again, standbyRetries
+// times in a row at most.
+const (
+	standbyRetry   = 5 * time.Second
+	standbyRetries = 12
+)
 
 // pull takes a copy of the active, or says why not.
 func (s *standby) pull(ctx context.Context) error {
@@ -290,9 +316,18 @@ func (s *standby) promote(ctx context.Context, force bool) (string, error) {
 	how := "handed over by the active"
 	handedOver := false
 	if c := s.ha.Client(); c != nil {
-		hctx, cancel := context.WithTimeout(ctx, time.Minute)
-		data, h, err := c.Do(hctx, http.MethodPost, "/ha/stepdown", nil, ha.MaxReplica)
-		cancel()
+		// A quick look first: an active the standby can't reach doesn't
+		// keep the promotion waiting the handover's minute.
+		pctx, pcancel := context.WithTimeout(ctx, 10*time.Second)
+		_, err := c.State(pctx)
+		pcancel()
+		var data []byte
+		var h http.Header
+		if err == nil {
+			hctx, cancel := context.WithTimeout(ctx, time.Minute)
+			data, h, err = c.Do(hctx, http.MethodPost, "/ha/stepdown", nil, ha.MaxReplica)
+			cancel()
+		}
 		if err == nil {
 			archive, rep, handedOver = data, ha.ReplicaFrom(h, time.Now().UTC()), true
 		} else {
