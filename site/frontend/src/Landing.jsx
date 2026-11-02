@@ -13,6 +13,7 @@ import {
   Hammer,
   KeyRound,
   Layers,
+  LifeBuoy,
   Lock,
   Network,
   RefreshCcw,
@@ -64,7 +65,7 @@ const PILLARS = [
     title: 'Light',
     points: [
       'A 16 MB root filesystem with 4 binaries - a Go init and its shutdown command, janusd and HAProxy - beside a signed kernel image: nothing else unless you add it.',
-      'A 54 MB compressed VM disk, both update slots included; boots straight to a serving HAProxy.',
+      'A 55 MB compressed VM disk, both update slots included; boots straight to a serving HAProxy.',
       'Built from scratch (LFS-style), from a kernel configured symbol by symbol.',
       'Optional software is chosen per image, not installed: an image carries exactly what you picked.',
     ],
@@ -104,7 +105,7 @@ const FEATURES = [
     title: 'Kernel tuning',
     text: 'The kernel parameters HAProxy depends on, tested on trial and kept once applied - with values suggested from what the node observes. The CIS benchmark’s stay locked.',
   },
-  { icon: KeyRound, title: 'Provisioning', text: 'Nodes register with your Controller on first boot. Controller and network settings at install, offline on an image, or from a NoCloud volume.' },
+  { icon: KeyRound, title: 'Provisioning', text: 'Nodes register with your Controller on first boot, or are added by the one-time pairing code they show - no key ever printed. Controller and network settings at install, offline on an image, or from a NoCloud volume.' },
   { icon: ServerCog, title: 'Your own VMs', text: 'The Controller creates, resizes and updates nodes on libvirt and Proxmox VE - and grows them under load, vCPUs and memory plugged in while they run; a Terraform provider drives it as code.' },
   {
     icon: Combine,
@@ -120,6 +121,11 @@ const FEATURES = [
     icon: Gauge,
     title: 'Metrics',
     text: 'A Prometheus exporter on every node - HAProxy serving, reloads and crashes, certificates, VRRP, BGP, the firewall, the clock, the logs shipped -, a Grafana dashboard and alert rules ready to load; node_exporter as an extension, and HAProxy’s own exporter.',
+  },
+  {
+    icon: LifeBuoy,
+    title: 'Recovery',
+    text: 'A warm standby for the Controller, a copy every minute, promoted when you say - a witness in Consul or S3 makes the old one step down. With the Controller down, janusctl signs in with the fleet’s recovery kit; a rescue volume takes back a node that trusts nothing.',
   },
   { icon: Users, title: 'Accounts and access', text: 'Controller accounts with roles, MFA (TOTP or passkeys), single sign-on through OpenID Connect (Keycloak, a Synology, others), API tokens and access by node label; janusctl signs in with your SSH key.' },
   {
