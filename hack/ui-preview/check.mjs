@@ -388,6 +388,34 @@ for (const reducedMotion of ['reduce', 'no-preference']) {
     if (!/^dashboardd standby -data-dir \/data -peer \S+:\d+ -pair janus-standby_[0-9a-f]{64}_\S+$/.test(command)) problems.push(`settings: no pairing command on the High availability card: ${command || (await ha.innerText()).slice(0, 300)}`)
     await axe(page, 'settings with a pairing token')
     await page.screenshot({ path: `${OUT}/settings-ha.png`, fullPage: true })
+    // Paired (answers made up): the witness - where it is, its epoch and
+    // whose -, or what to set up when there's none, or why it can't be read.
+    const now = () => new Date().toISOString()
+    const paired = (witness) => ({
+      role: 'active',
+      epoch: 2,
+      version: 'v2026.11.02',
+      name: 'ctl-a',
+      register_address: '192.0.2.11:8443',
+      standby: { name: 'ctl-b', address: '192.0.2.12:8443', paired_at: now(), cert_sha256: 'ab'.repeat(32) },
+      last_copy: { at: now(), version: 'v2026.11.02', from: '192.0.2.12' },
+      peer: { checked: now(), role: 'standby', epoch: 2, version: 'v2026.11.02' },
+      witness,
+    })
+    for (const [name, witness, want] of [
+      ['consul', { state: 'ok', where: 'consul https://consul.example:8501 key janus/controllers/0123abcd/witness', epoch: 2, holder: 'self', name: 'ctl-a', checked: now() }, /epoch 2, held by this Controller[\s\S]*janus\/controllers\/0123abcd\/witness/],
+      ['none', { state: 'none', checked: now() }, /none[\s\S]*set up Consul/],
+      ['error', { state: 'error', where: 's3://janus/ctl/janus-controller-0123abcd.witness.json', error: 'S3: AccessDenied (403)', checked: now() }, /unreachable[\s\S]*AccessDenied/],
+    ]) {
+      await page.route('**/api/ha', (r) => r.fulfill({ json: paired(witness) }))
+      await page.reload()
+      await settle(page)
+      const text = await ha.innerText().catch(() => '')
+      if (!want.test(text)) problems.push(`settings: the witness (${name}) on the High availability card: ${text.slice(0, 500)}`)
+      if (name === 'consul') await axe(page, 'settings with a standby and its witness')
+      await page.unroute('**/api/ha')
+    }
+    await page.screenshot({ path: `${OUT}/settings-ha-witness.png`, fullPage: true })
   }
   // Node figures off: the Nodes page asks for none, draws none; the
   // charts' box can't be ticked.

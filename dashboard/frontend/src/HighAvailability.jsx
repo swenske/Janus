@@ -6,8 +6,8 @@ import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared
 
 // HighAvailability is the Settings card of the warm standby (/api/ha,
 // admins; docs/guide/controller-standby.md): pairing a standby with a
-// token shown once, what the standby last copied, the switchover to it,
-// and forgetting it.
+// token shown once, what the standby last copied, the witness, the
+// switchover to it, and forgetting it.
 export default function HighAvailability() {
   const [view, setView] = useState(null)
   const [error, setError] = useState(null)
@@ -126,6 +126,10 @@ export default function HighAvailability() {
                 </dd>
                 <dt>Epoch</dt>
                 <dd>{view.epoch}</dd>
+                <dt>Witness</dt>
+                <dd>
+                  <Witness w={view.witness} />
+                </dd>
               </dl>
               {view.last_copy && staleCopy(view.last_copy.at) && (
                 <div className="notice warn small">The standby hasn&apos;t copied this Controller for more than 5 minutes: is it running? Its page says why.</div>
@@ -151,6 +155,36 @@ export default function HighAvailability() {
         </div>
       )}
     </Card>
+  )
+}
+
+// Witness says where the witness is and what it holds: what stops this
+// Controller when its standby is promoted while they can't reach each
+// other.
+function Witness({ w }) {
+  if (!w) return <span className="muted">not read yet</span>
+  if (w.state === 'none')
+    return (
+      <span className="small">
+        <Badge tone="warn">none</Badge> a promotion forced while this Controller can&apos;t reach its standby leaves two actives: set up Consul (Settings,
+        Consul) or the backups&apos; S3 bucket.{' '}
+        <a href="https://janus.sw-servers.net/docs/guide/controller-standby/#the-witness">The witness</a>
+      </span>
+    )
+  if (w.state === 'error')
+    return (
+      <span className="small">
+        <Badge tone="danger">unreachable</Badge> {w.error} <span className="muted">({ago(w.checked)})</span>
+      </span>
+    )
+  const holder = w.holder === 'self' ? 'this Controller' : w.holder === 'peer' ? `the standby (${w.name})` : w.name
+  return (
+    <>
+      epoch {w.epoch}, held by {holder}
+      <span className="muted small"> ({ago(w.checked)})</span>
+      <div className="mono small muted">{w.where}</div>
+      {w.unconditional && <div className="small muted">This bucket takes no conditional write: the witness is written plainly.</div>}
+    </>
   )
 }
 

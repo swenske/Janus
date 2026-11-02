@@ -74,6 +74,30 @@ func TestLive(t *testing.T) {
 			}
 		}
 	}
+	// The witness's conditional writes (internal/ha): a service that
+	// doesn't do them is said so, not failed.
+	wk := prefix + "witness-live.json"
+	_ = c.Delete(ctx, wk)
+	switch err := c.PutIf(ctx, wk, []byte(`{"epoch":1}`), "application/json", Condition{IfNoneMatch: true}); {
+	case err != nil:
+		t.Logf("a conditional write refused (%v): the witness writes without", err)
+	default:
+		data, etag, err := c.GetETag(ctx, wk)
+		if err != nil || string(data) != `{"epoch":1}` || etag == "" {
+			t.Fatalf("GetETag: %q, %q, %v", data, etag, err)
+		}
+		if err := c.PutIf(ctx, wk, []byte(`{"epoch":2}`), "application/json", Condition{IfNoneMatch: true}); !IsPreconditionFailed(err) {
+			t.Logf("If-None-Match over an object: %v - the service ignores conditions", err)
+		}
+		if err := c.PutIf(ctx, wk, []byte(`{"epoch":2}`), "application/json", Condition{IfMatch: `"0123456789abcdef0123456789abcdef"`}); !IsPreconditionFailed(err) {
+			t.Logf("If-Match on another ETag: %v - the service ignores conditions", err)
+		}
+		if err := c.PutIf(ctx, wk, []byte(`{"epoch":2}`), "application/json", Condition{IfMatch: etag}); err != nil {
+			t.Errorf("If-Match on its ETag: %v", err)
+		}
+		_ = c.Delete(ctx, wk)
+	}
+
 	bad := *c
 	bad.SecretKey = "wrong"
 	var e *Error

@@ -153,7 +153,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if peer, fenced := fencedAtStart(haStore); fenced {
+	if peer, fenced := fencedAtStart(haStore, func() (ha.Witness, error) { return witnessOf(dirFiles(*dataDir), masterKey) }); fenced {
 		log.Printf("ha: the peer %s is the active at epoch %d, above this Controller's %d - starting as its standby", peer.Name, peer.Epoch, haStore.State().Epoch)
 		if err := haStore.SetRole(ha.Standby, peer.Epoch); err != nil {
 			log.Fatal(err)
@@ -275,6 +275,7 @@ func main() {
 		telemetry:             telemetryStore,
 		telemetryURL:          *telemetryURL,
 		ha:                    haStore,
+		haKey:                 masterKey,
 		haPairLimiter:         ratelimit.New(5, time.Minute),
 	}
 	app.runner = newMachineRunner(app)
@@ -494,6 +495,10 @@ type app struct {
 	ha         *ha.Store
 	haView     haPeerView
 	haStepping atomic.Bool
+	// haKey is the master key the witness's settings are sealed with;
+	// haWitness the last look at the witness.
+	haKey     ha.Sealer
+	haWitness haWitnessView
 	// haPairLimiter bounds pairing attempts per address: a token is 256
 	// bits, but nobody needs more than a few tries; nil in tests.
 	haPairLimiter *ratelimit.Limiter

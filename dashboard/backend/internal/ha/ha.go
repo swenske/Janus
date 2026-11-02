@@ -7,9 +7,10 @@
 //
 // The epoch fences the old active: whichever of the two sees its peer
 // active at a higher epoch than its own steps down - at its start, before
-// any loop, and every 30 s while it runs. Without a witness, a promotion
-// forced while the old active still runs behind a partition leaves two
-// actives until one sees the other: documented, not prevented.
+// any loop, and every 30 s while it runs -, its peer saying so or the
+// witness (witness.go), which both reach when they can't reach each
+// other. Without one, a promotion forced while the old active still runs
+// behind a partition leaves two actives until one sees the other.
 //
 // What it keeps, in <data>/ha - left out of backups and copies, each
 // Controller's own:
