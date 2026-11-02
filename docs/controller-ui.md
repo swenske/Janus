@@ -393,7 +393,9 @@ once with the `dashboardd standby` command and its end; with one, its
 name and address, when it was paired, its last copy (the time it took
 one, the version it runs - a warning past 5 minutes), the active's last
 look at it (its role and epoch, or why it didn't answer), the epoch,
-then **Switch over** (`POST /api/ha/switchover`, a session's, its name
+the witness (where it is - Consul or the S3 bucket -, the epoch it holds
+and whose, or why it can't be read; "none" with what to set up), then
+**Switch over** (`POST /api/ha/switchover`, a session's, its name
 typed: the page then says the standby is taking over) and **Remove the
 standby** (`DELETE /api/ha/standby`); and the **Usage report** (`Telemetry.jsx`,
 `/api/telemetry`, sessions only, docs/guide/telemetry.md): on or off -

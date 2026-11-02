@@ -259,9 +259,14 @@ registration port - each pinning the other's certificate, a secret
 shared since their pairing - and runs nothing else. Promoting it, by
 hand, restores the last copy one epoch above; a Controller that finds
 its peer active at a higher epoch steps down - at its start, before any
-loop, and every 30 s - its data set aside. No witness: a forced
-promotion behind a partition leaves two actives until one sees the
-other.
+loop, and every 30 s - its data set aside. The witness (`ha/witness.go`,
+the backend's `witness.go`) carries the epoch where both reach when they
+can't reach each other: Consul's KV (check-and-set) when the Controller
+has Consul on, else the backups' S3 bucket (`If-Match`/`If-None-Match`),
+a record signed by the holder's HA key. A promotion writes it first; the
+active reads it every 30 s and at its start, and steps down when its
+peer holds an epoch above it. Neither set up, a forced promotion behind a
+partition leaves two actives until one sees the other.
 
 A node registering itself with a Controller whose fleet is ready sends
 no key at all (`internal/selfregister`, protocol 2): its CA's

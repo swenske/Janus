@@ -32,8 +32,9 @@ Consul recommends for production:
   proxy in front is fine).
 
 The Controller's token: a policy that lets it make the nodes' tokens and
-their policy, read the gossip key, and take a node it no longer manages
-out of the catalog:
+their policy, read the gossip key, take a node it no longer manages out
+of the catalog - and, with a [warm standby](controller-standby.md#the-witness),
+keep its witness in the KV:
 
 ```hcl
 acl      = "write"
@@ -47,6 +48,9 @@ service_prefix "" {
 }
 agent_prefix "" {
   policy = "read"
+}
+key_prefix "janus/controllers/" {
+  policy = "write"
 }
 ```
 

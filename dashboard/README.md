@@ -684,8 +684,9 @@ standby -peer ACTIVE:8443 -pair TOKEN` pairs a new data directory with
 it, and `dashboardd promote` on the standby's host - or **Switch over**
 on the active's card - makes it the active, the same Controller one
 epoch above; the old active becomes its standby. Behind a VIP or a DNS
-name both serve ([a warm standby for the
-Controller](../docs/guide/controller-standby.md)).
+name both serve; with Consul or a backups' bucket set up, a witness
+there stops an old active cut off from its standby ([a warm standby for
+the Controller](../docs/guide/controller-standby.md)).
 
 ### API tokens and Terraform
 
