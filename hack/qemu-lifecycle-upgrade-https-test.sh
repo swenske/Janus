@@ -106,7 +106,13 @@ wait_http_and_marker() {
 last_cmdline() { grep "^Kernel command line:" "$LOG" | tail -1; }
 
 wait_http_and_marker 1 "$HTTP_TIMEOUT_SECS" || fail "slot A never answered HTTP 200 within ${HTTP_TIMEOUT_SECS}s"
-grep -q "$FIRST_BOOT_MSG" "$LOG" || fail "slot A didn't bootstrap a fresh PKI"
+# HAProxy answers before janusd made the PKI (by design): wait for it.
+first_boot() { grep -q "$FIRST_BOOT_MSG" "$LOG"; }
+deadline=$((SECONDS + 60))
+until first_boot; do
+  [ "$SECONDS" -lt "$deadline" ] || fail "slot A didn't bootstrap a fresh PKI"
+  sleep 1
+done
 case "$(last_cmdline)" in
   *"verity 1 PARTLABEL=BOOT-A-DATA PARTLABEL=BOOT-A-HASH "*"$V1_HASH"*) : ;;
   *) fail "slot A's cmdline doesn't match the local build: $(last_cmdline)" ;;
