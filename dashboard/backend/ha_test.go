@@ -5,18 +5,23 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
+	"github.com/swenske/Janus/dashboard/backend/internal/backup"
 	"github.com/swenske/Janus/dashboard/backend/internal/ha"
 	"github.com/swenske/Janus/dashboard/backend/internal/secrets"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
@@ -238,7 +243,7 @@ func TestStandby(t *testing.T) {
 	if err := active.app.ha.SetRole(ha.Active, 0); err != nil {
 		t.Fatal(err)
 	}
-	if peer, fenced := fencedAtStart(active.app.ha); !fenced || peer.Epoch != 1 {
+	if peer, fenced := fencedAtStart(active.app.ha, noWitness); !fenced || peer.Epoch != 1 {
 		t.Errorf("not fenced: %+v", peer)
 	}
 }
@@ -284,5 +289,194 @@ func TestSetAside(t *testing.T) {
 	}
 	if again, err := setAside(dir, filepath.Join(dir, "master.key"), time.Now()); err != nil || again != "" {
 		t.Errorf("nothing left to set aside: %q %v", again, err)
+	}
+}
+
+func noWitness() (ha.Witness, error) { return nil, errNoWitness }
+
+// condS3 is a bucket served over HTTP (fakeS3 has no ETags) - path-style, signatures not
+// checked - with ETags and conditional writes; failing answers 500.
+type condS3 struct {
+	mu      sync.Mutex
+	objects map[string][]byte
+	etags   map[string]string
+	n       int
+	failing atomic.Bool
+}
+
+func newCondS3(t *testing.T) (*condS3, string) {
+	t.Helper()
+	f := &condS3{objects: map[string][]byte{}, etags: map[string]string{}}
+	srv := httptest.NewServer(f)
+	t.Cleanup(srv.Close)
+	return f, srv.URL
+}
+
+func (f *condS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if f.failing.Load() {
+		http.Error(w, "<Error><Code>InternalError</Code></Error>", http.StatusInternalServerError)
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key := r.URL.Path
+	switch r.Method {
+	case http.MethodGet:
+		data, ok := f.objects[key]
+		if !ok {
+			http.Error(w, "<Error><Code>NoSuchKey</Code></Error>", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("ETag", f.etags[key])
+		_, _ = w.Write(data)
+	case http.MethodPut:
+		_, exists := f.objects[key]
+		if (r.Header.Get("If-None-Match") == "*" && exists) || (r.Header.Get("If-Match") != "" && r.Header.Get("If-Match") != f.etags[key]) {
+			http.Error(w, "<Error><Code>PreconditionFailed</Code></Error>", http.StatusPreconditionFailed)
+			return
+		}
+		data, _ := io.ReadAll(r.Body)
+		f.n++
+		f.objects[key], f.etags[key] = data, fmt.Sprintf(`"%d"`, f.n)
+	default:
+		http.Error(w, "", http.StatusMethodNotAllowed)
+	}
+}
+
+// witnessed reads the witness the fake holds.
+func (f *condS3) witnessed(t *testing.T) ha.WitnessRecord {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for k, data := range f.objects {
+		if strings.HasSuffix(k, ".witness.json") {
+			var rec ha.WitnessRecord
+			if err := json.Unmarshal(data, &rec); err != nil {
+				t.Fatal(err)
+			}
+			return rec
+		}
+	}
+	t.Fatal("no witness in the bucket")
+	return ha.WitnessRecord{}
+}
+
+// TestWitness: with the backups' bucket set up, the active keeps the
+// witness at its epoch; cut off from it, its standby is promoted -
+// refused while the witness can't be written, forced with it written -
+// and the old active, still running, finds itself replaced through the
+// witness alone: in its loop, and at its start.
+func TestWitness(t *testing.T) {
+	noRestart(t)
+	ctx := context.Background()
+	active := newHAActive(t)
+	a := active.app
+	key, err := secrets.LoadOrCreate("", active.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.haKey = key
+	id, err := loadOrCreateControllerID(active.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bucket, endpoint := newCondS3(t)
+	bs, err := backup.OpenStore(filepath.Join(active.dir, "backup"), key, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := "secret-1"
+	if err := bs.SetSettings(backup.Settings{Endpoint: endpoint, Region: "us-east-1", Bucket: "janus", Prefix: "ctl/", AccessKey: "ak", PathStyle: true, IntervalHours: 24}, &secret); err != nil {
+		t.Fatal(err)
+	}
+
+	// No standby: no witness looked at.
+	if v := a.haWitness.view(); v != nil {
+		t.Fatalf("unpaired: %v", v)
+	}
+	sdir := t.TempDir()
+	skey, err := secrets.LoadOrCreate("", sdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shs, err := ha.Open(filepath.Join(sdir, ha.Dir), skey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := a.ha.NewPairing(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pairStandby(ctx, shs, active.addr, token, "b", "127.0.0.1:1"); err != nil {
+		t.Fatal(err)
+	}
+	if above := a.checkWitness(ctx); above != nil {
+		t.Fatalf("a new witness: %+v", above)
+	}
+	if rec := bucket.witnessed(t); rec.Epoch != 0 || rec.Holder != a.ha.CertSHA256() {
+		t.Fatalf("the active's witness: %+v", rec)
+	}
+	if v := a.haWitness.view(); v["state"] != "ok" || v["holder"] != ha.HolderSelf || !strings.HasPrefix(v["where"].(string), "s3://janus/ctl/janus-controller-") {
+		t.Fatalf("the active's view: %v", v)
+	}
+	sb := &standby{ha: shs, dataDir: sdir, masterKeyPath: skey.Path}
+	if err := sb.pull(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// The partition: the standby no longer reaches the active, which
+	// last answered long ago - and the bucket fails: refused.
+	cut := shs.State()
+	far := *cut.Peer
+	far.Address = "127.0.0.1:1"
+	shared, _ := base64.RawURLEncoding.DecodeString(shs.Bearer())
+	if err := shs.SetPeer(far, shared, ha.Standby, cut.Epoch); err != nil {
+		t.Fatal(err)
+	}
+	if err := shs.NotePull(time.Now().Add(-5*time.Minute), true, 0, nil); err != nil {
+		t.Fatal(err)
+	}
+	bucket.failing.Store(true)
+	if _, err := sb.promote(ctx, false); err == nil || !strings.Contains(err.Error(), "make sure it's stopped") {
+		t.Fatalf("promoted with the witness failing: %v", err)
+	}
+	if st := shs.State(); st.Role != ha.Standby {
+		t.Fatalf("a refused promotion changed the standby: %+v", st)
+	}
+	if _, err := os.Stat(filepath.Join(sdir, "users.json")); err == nil {
+		t.Fatal("a refused promotion restored the copy")
+	}
+	bucket.failing.Store(false)
+	msg, err := sb.promote(ctx, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(msg, "epoch 1 (the witness s3://janus/ctl/") {
+		t.Fatalf("promote: %s", msg)
+	}
+	if rec := bucket.witnessed(t); rec.Epoch != 1 || rec.Holder != shs.CertSHA256() {
+		t.Fatalf("the claimed witness: %+v", rec)
+	}
+
+	// The old active, still running, can't reach its peer: the witness
+	// says it's replaced.
+	above := a.checkWitness(ctx)
+	if above == nil || above.Epoch != 1 {
+		t.Fatalf("the old active isn't replaced: %+v (%v)", above, a.haWitness.view())
+	}
+	if peer, fenced := fencedAtStart(a.ha, func() (ha.Witness, error) { return witnessOf(dirFiles(active.dir), key) }); !fenced || peer.Epoch != 1 {
+		t.Fatalf("not fenced at its start: %+v", peer)
+	}
+	// The promoted one, its peer unreachable, isn't.
+	nkey, err := secrets.LoadOrCreate("", sdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	promoted, err := ha.Open(filepath.Join(sdir, ha.Dir), nkey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, fenced := fencedAtStart(promoted, func() (ha.Witness, error) { return witnessOf(dirFiles(sdir), nkey) }); fenced {
+		t.Fatal("the promoted Controller fenced by its own witness")
 	}
 }

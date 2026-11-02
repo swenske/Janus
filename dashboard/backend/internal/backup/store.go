@@ -346,13 +346,16 @@ func (s *Store) SigningPublic() ed25519.PublicKey {
 	return append(ed25519.PublicKey{}, s.st.SigningPublic...)
 }
 
+// ErrNoBucket: no S3 bucket set up.
+var ErrNoBucket = errors.New("no S3 bucket set up")
+
 // Client is the bucket, with the secret unsealed.
 func (s *Store) Client() (*s3.Client, string, error) {
 	s.mu.Lock()
 	set, sealed := s.st.Settings, s.st.SecretSealed
 	s.mu.Unlock()
 	if set.Endpoint == "" || set.Bucket == "" || len(sealed) == 0 {
-		return nil, "", errors.New("no S3 bucket set up")
+		return nil, "", ErrNoBucket
 	}
 	secret, err := s.key.Open(sealed, purposeSecret)
 	if err != nil {
@@ -367,6 +370,17 @@ func (s *Store) Client() (*s3.Client, string, error) {
 		region = "us-east-1"
 	}
 	return &s3.Client{Endpoint: u, Region: region, Bucket: set.Bucket, AccessKey: set.AccessKey, SecretKey: string(secret), PathStyle: set.PathStyle}, set.Prefix, nil
+}
+
+// ClientFrom is the bucket a backup store's state.json - read from a
+// copy of a data directory, key the master key it carries - names: what
+// a standby being promoted writes the witness to (internal/ha).
+func ClientFrom(stateJSON []byte, key Sealer) (*s3.Client, string, error) {
+	s := &Store{key: key}
+	if err := json.Unmarshal(stateJSON, &s.st); err != nil {
+		return nil, "", err
+	}
+	return s.Client()
 }
 
 // Record keeps a run in the history.

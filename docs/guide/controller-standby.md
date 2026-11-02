@@ -24,17 +24,24 @@ leaves behind.
   nodes keep trusting it; nothing is done to them.
 - **The epoch fences** the old active: a Controller that finds its peer
   active at a higher epoch than its own becomes its standby.
+- **The witness** - a record in Consul or in the backups' S3 bucket,
+  which both reach even when they can't reach each other - says which of
+  the two holds the epoch: an old active cut off from its standby learns
+  there that it was replaced.
 
 ```mermaid
 flowchart LR
     accTitle: A Controller and its warm standby behind one address
-    accDescr: Browsers, janusctl and nodes reach the Controller through one address - a VIP or a DNS name - that leads to the active. The standby pulls a copy of the active every minute over the registration port; the active asks the standby where it stands every 30 seconds. The nodes are reached by the active only.
+    accDescr: Browsers, janusctl and nodes reach the Controller through one address - a VIP or a DNS name - that leads to the active. The standby pulls a copy of the active every minute over the registration port; the active asks the standby where it stands every 30 seconds, and reads the witness - in Consul or the backups' S3 bucket - which the standby writes when it's promoted. The nodes are reached by the active only.
     users([Browsers, janusctl,<br/>registering nodes]) --> vip{{"VIP or DNS name"}}
     vip --> active["Active Controller<br/>epoch N"]
     vip -.->|after a promotion| standby["Standby Controller<br/>its last copy"]
     standby -->|a copy every minute<br/>8443, pinned| active
     active -->|its state every 30 s| standby
     active --> nodes[(Nodes)]
+    witness[("Witness<br/>Consul or S3")]
+    active -.->|reads it every 30 s| witness
+    standby -.->|writes its epoch<br/>when promoted| witness
 ```
 
 ## Pairing a standby
@@ -127,7 +134,9 @@ docker compose exec janus-controller /dashboardd promote
 - **The active is gone**: the standby promotes itself on its last copy -
   at most a minute old. While the active answered less than 2 minutes
   ago without handing over, it refuses: the active may still run. Stop
-  it, then `promote -force`.
+  it, then `promote -force`. With a [witness](#the-witness), the standby
+  writes its new epoch there first; when it can't, it refuses too -
+  the old active couldn't learn it's replaced - unless forced.
 
 The new active starts within seconds - everyone signs in again; its
 first start logs what to check when it runs on another host, as after a
@@ -156,6 +165,37 @@ docker compose exec janus-controller /dashboardd ha status
 # active: answered 42s ago
 ```
 
+## The witness
+
+Without one, an active cut off from its standby - a network partition,
+not a crash - can't learn that the standby was promoted: two actives run
+until one sees the other. The witness is a record both reach on their
+own path, signed by the HA key of the Controller holding the epoch:
+
+- **Where**: in **Consul's KV**, key `janus/controllers/<id>/witness`,
+  when [Settings › Consul](consul-controller.md) is on - the Controller's
+  token needs `key_prefix "janus/controllers/" { policy = "write" }`
+  ([its policy](consul-controller.md#before-you-start)); otherwise in
+  the **backups' S3 bucket**, object `<prefix>janus-controller-<id>.witness.json`,
+  when [backups](../../dashboard/README.md#backups) have a bucket set up
+  (scheduled or not). The settings choose, never which one answers: two
+  witnesses would be two truths. Neither set up: no witness.
+- **Promoting** writes the new epoch there first. A Consul write is a
+  check-and-set; an S3 one names the ETag it read (`If-Match`,
+  `If-None-Match` when there's none) - AWS, MinIO, versitygw honour
+  them; a service that refuses them gets a plain write, and the card
+  says so.
+- **The active** reads it every 30 s and when it starts with its peer
+  silent: when its peer holds an epoch above its own, it steps down and
+  becomes its standby - within 30 s of a promotion, as long as it reaches
+  the witness. A record neither of the pair signed is written over.
+- **The High availability card** shows where it is, which epoch it holds
+  and whose, or why it can't be read.
+
+An active that reaches neither its standby nor the witness keeps
+running: the witness never stops a Controller by being away - a Consul
+or S3 outage would be a Controller outage.
+
 ## What a copy holds
 
 | Copied | Not copied |
@@ -171,8 +211,10 @@ docker compose exec janus-controller /dashboardd ha status
   hypervisor created since the last copy is an orphan - delete it on
   the hypervisor; a cluster change under way is lost - its reconcile
   reports the drift.
-- **No witness**: `promote -force` with the old active still running
-  behind a network partition leaves two actives until one sees the
-  other's epoch. Stop the old host before forcing.
+- **Two actives for a moment**: `promote -force` with the old active
+  still running behind a partition leaves two actives - for up to 30 s
+  when it reaches the [witness](#the-witness); until one sees the
+  other's epoch without one, or when the old active reaches neither its
+  standby nor the witness. Stop the old host before forcing.
 - **One standby**, promoted by hand - a failover nobody decided can't
   split the fleet.
