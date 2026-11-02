@@ -222,6 +222,8 @@ func printCluster(info *janusv1alpha1.ClusterInfo) {
 	fmt.Printf("Peers port:  %d\n", info.GetPeersPort())
 	if why := info.GetHandoffUnavailable(); why != "" {
 		fmt.Printf("Handoff:     unavailable - %s\n", why)
+	} else if !info.GetHandoffSupported() {
+		fmt.Println("Handoff:     unavailable - not in this node's release")
 	}
 	for _, g := range []struct {
 		unix int64
