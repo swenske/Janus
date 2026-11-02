@@ -380,6 +380,17 @@ grep -q "refusing new connections" "$WORKDIR/handoffs.log" || fail "no member wa
 grep -q "holding the packets" "$WORKDIR/handoffs.log" || fail "no member was seen holding packets"
 for i in $MEMBERS; do grep -aq "cluster: handing lb-$((3 - i))'s connections over" "$WORKDIR/$i.log" || fail "lb-$i's console doesn't show its handoff"; done
 echo "  ok: each member refused new connections, was read and copied to while out ($copied packets at most), held and copied back once in - the journal says each step; both on $VERSION_B"
+# Leaving the cluster ends the handoffs it had: each member still copies
+# the other's connections (an hour after the update) until the cluster
+# is deleted (v2026.11.02's lab found the copy kept after it).
+gets="$(alice -n lb-1 cluster get; alice -n lb-2 cluster get)"
+grep -q "Handoff: *copying" <<<"$gets" || fail "no handoff in effect after the update, to see end: $gets"
+alice cluster delete edge >"$WORKDIR/delete.out" 2>&1 || fail "cluster delete: $(cat "$WORKDIR/delete.out")"
+for i in $MEMBERS; do
+  out="$(alice -n "lb-$i" cluster get)"
+  if grep -q "Handoff: *copying\|refusing new connections\|holding the packets" <<<"$out"; then fail "lb-$i still hands connections over after leaving the cluster: $out"; fi
+done
+echo "  ok: the cluster deleted, no member hands connections over any more"
 
 for i in $NODES; do
   if grep -a "avc:.*denied" "$WORKDIR/$i.log"; then fail "AVC denials on node $i"; fi
