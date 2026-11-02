@@ -153,6 +153,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	tidyHA(*dataDir)
 	if peer, fenced := fencedAtStart(haStore, func() (ha.Witness, error) { return witnessOf(dirFiles(*dataDir), masterKey) }); fenced {
 		log.Printf("ha: the peer %s is the active at epoch %d, above this Controller's %d - starting as its standby", peer.Name, peer.Epoch, haStore.State().Epoch)
 		if err := haStore.SetRole(ha.Standby, peer.Epoch); err != nil {
