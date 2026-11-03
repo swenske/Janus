@@ -6,9 +6,13 @@
 # fetches the module and its dependencies through proxy.golang.org and
 # checks them against Go's checksum database; the module's zip is also
 # checked against the sha256 pinned in versions.mk. Static, like
-# upstream's (CGO_ENABLED=0), not stripped: govulncheck reads what a
-# binary reaches from its symbols. The export stage is the extension's
-# file tree; hack/extpack adds its manifest and packs it.
+# upstream's (CGO_ENABLED=0). Its symbol table stays - govulncheck reads
+# what a binary reaches from it, and a stripped binary would have every
+# vulnerability of every module reported - but its DWARF debug
+# information goes (-w): half the binary's weight in the image's 64 MiB
+# slot (11.50 -> 5.65 MiB of squashfs), and govulncheck's verbose report
+# is the same byte for byte without it. The export stage is the
+# extension's file tree; hack/extpack adds its manifest and packs it.
 
 ARG NODE_EXPORTER_VERSION
 ARG NODE_EXPORTER_SHA256
@@ -25,7 +29,7 @@ RUN test -n "${NODE_EXPORTER_SHA256}" \
     && echo "${NODE_EXPORTER_SHA256}  $(go env GOMODCACHE)/cache/download/$module/@v/$v.zip" | sha256sum -c - \
     && cd "$(go env GOMODCACHE)/$module@$v" \
     && GOARCH="${ARCH}" go build -trimpath -o /out/usr/local/sbin/node_exporter \
-       -ldflags "-X github.com/prometheus/common/version.Version=${NODE_EXPORTER_VERSION} -X github.com/prometheus/common/version.Branch=$v -X github.com/prometheus/common/version.BuildUser=janus" . \
+       -ldflags "-w -X github.com/prometheus/common/version.Version=${NODE_EXPORTER_VERSION} -X github.com/prometheus/common/version.Branch=$v -X github.com/prometheus/common/version.BuildUser=janus" . \
     && install -D -m 0644 LICENSE /out/usr/share/licenses/prometheus-node-exporter/LICENSE
 
 FROM scratch AS export
