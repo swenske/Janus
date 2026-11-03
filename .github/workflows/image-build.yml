@@ -442,6 +442,12 @@ jobs:
       - name: LifecycleService.Upgrade fetches a release bundle over real HTTP
         run: make qemu-lifecycle-upgrade-url-test
 
+      # The slots' size is the disk's (#495): a root filesystem over 64
+      # MiB streamed into 128 MiB slots, refused by an older 64 MiB disk,
+      # a bundle changed part way refused, Rollback checking its slot.
+      - name: Updates fit the disk's slots, streamed and checked block by block
+        run: make qemu-lifecycle-slots-test
+
       # Same, over https:// against the newest real GitHub Release,
       # verified against the node's own bundled CA trust store - the
       # plain-http test above never exercised TLS verification at all,

@@ -55,7 +55,7 @@ GEN_DIR := gen
 	disk-image qemu-ab-boot-test uki-image qemu-uefi-boot-test \
 	qemu-uefi-ab-boot-test qemu-lifecycle-rollback-test qemu-secureboot-test \
 	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test qemu-lifecycle-upgrade-variant-test qemu-lifecycle-upgrade-from-release-test release-bundle release-images release-image-files qemu-orchestrator-test \
-	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-probe-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-fleetctl-test qemu-pairing-test qemu-rescue-test qemu-cluster-test qemu-state-migrate-test qemu-controller-cluster-test qemu-clusterctl-test qemu-cluster-upgrade-test qemu-cluster-upgrade-bgp-test qemu-cluster-handoff-test qemu-controller-cluster-upgrade-test qemu-self-register-fleet-test qemu-self-register-enroll-test qemu-self-register-legacy-test qemu-network-config-test qemu-dhcp-test \
+	qemu-lifecycle-upgrade-url-test qemu-lifecycle-slots-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-probe-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-fleetctl-test qemu-pairing-test qemu-rescue-test qemu-cluster-test qemu-state-migrate-test qemu-controller-cluster-test qemu-clusterctl-test qemu-cluster-upgrade-test qemu-cluster-upgrade-bgp-test qemu-cluster-handoff-test qemu-controller-cluster-upgrade-test qemu-self-register-fleet-test qemu-self-register-enroll-test qemu-self-register-legacy-test qemu-network-config-test qemu-dhcp-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build dashboard-bin \
 	qemu-dashboard-test controller-standby-test dashboard-image controller-self-update-test controller-libvirt-test controller-sso-test terraform-provider-build terraform-provider-dist terraform-provider-dist-test terraform-provider-test routeros-hook-test local-dev-image ca-certificates seed-controller-test \
@@ -1199,6 +1199,13 @@ qemu-lifecycle-upgrade-test: build disk-image
 qemu-lifecycle-upgrade-url-test: build disk-image
 	./hack/qemu-lifecycle-upgrade-url-test.sh $(BUILD_DIR)/rootfs/disk.img $(BUILD_DIR)/bzImage $(BUILD_DIR) $(BIN_DIR)/janusctl
 
+# The slots' size is the disk's (#495): a root filesystem bigger than 64
+# MiB streamed into 128 MiB slots, refused by a disk of the older 64 MiB
+# layout before anything is written; a bundle changed part way, and
+# Rollback to the slot it spoiled, refused - see the script's header.
+qemu-lifecycle-slots-test: build disk-image
+	./hack/qemu-lifecycle-slots-test.sh $(BUILD_DIR)/bzImage $(BUILD_DIR) $(BIN_DIR)/janusctl
+
 # Every SystemService/HAProxyService/NetworkService method beyond the
 # lifecycle ones, on a real enforcing node - including janusd restart,
 # reboot, reset and shutdown.
@@ -1236,8 +1243,8 @@ rootfs-fit-test: build extensions-amd64
 	$(MAKE) disk-image SCHEMATIC=$(BUILD_DIR)/schematic-every-extension.json
 	@size=$$(stat -c %s $(BUILD_DIR)/rootfs/rootfs.squashfs); \
 	mib=$$(python3 -c "print(f'{$$size / 1048576:.2f}')"); \
-	echo "every extension: rootfs.squashfs $$mib MiB of the 64 MiB slot"; \
-	if [ $$size -gt $$((62 * 1048576)) ]; then echo "::warning::every extension: rootfs.squashfs $$mib MiB, less than 2 MiB left in the 64 MiB slot"; fi
+	echo "every extension: rootfs.squashfs $$mib MiB of the 128 MiB slot"; \
+	if [ $$size -gt $$((120 * 1048576)) ]; then echo "::error::every extension: rootfs.squashfs $$mib MiB, less than 8 MiB left in the 128 MiB slot (#495)"; exit 1; fi
 
 # The firewall (nftables extension) on a real enforcing node - see the
 # script's header.

@@ -22,10 +22,13 @@ import "fmt"
 // DATA_MB/HASH_MB/ESP_MB - kept identical so a disk Install produces is
 // indistinguishable in shape from one assembled at build time, and so
 // internal/bootslot's fixed partition-number convention keeps holding
-// regardless of which one produced a given disk.
+// regardless of which one produced a given disk. DataMB was 64 until the
+// image with every extension came within 0.4 MiB of it (#495): disks
+// made before keep 64 MiB slots for good, and janusd reads a slot's real
+// size rather than this constant.
 const (
 	ESPMB  = 64
-	DataMB = 64
+	DataMB = 128
 	HashMB = 4
 
 	// MinStateMB is the smallest STATE partition Install will accept -
