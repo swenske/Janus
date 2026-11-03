@@ -11,7 +11,7 @@
 # doesn't know about is allowed rather than rejected at load time -
 # forward-compatible if a future kernel bump adds new classes this
 # policy hasn't been taught about yet, rather than refusing to boot.
-FROM debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS build
+FROM debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4 AS build
 RUN apt-get update && apt-get install -y --no-install-recommends \
     checkpolicy \
     && rm -rf /var/lib/apt/lists/*
