@@ -409,7 +409,11 @@ func (a *app) handleFleetStatus(w http.ResponseWriter, _ *http.Request) {
 	nodes := map[string]nodeTrust{}
 	for _, n := range a.store.List() {
 		nt := a.trust.get(n.ID)
-		if n.TrustsFleet() && nt.State == trustWaiting {
+		// Not tried yet, a node recorded as trusting the fleet is shown as
+		// such; one just admitted that refused the fleet's certificate
+		// (an error said why) is joining: the page's "joining the
+		// fleet…" (#517).
+		if n.TrustsFleet() && nt.State == trustWaiting && nt.Error == "" {
 			nt.State = trustTrusted
 		}
 		if nt.BundleVersion == 0 {

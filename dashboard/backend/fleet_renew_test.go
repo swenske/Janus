@@ -285,6 +285,18 @@ func TestAJustAdmittedNodeIsJoining(t *testing.T) {
 	if nt := a.trust.get(n.ID); nt.State != trustWaiting || !strings.Contains(nt.Error, "just admitted") {
 		t.Fatalf("just admitted: %+v", nt)
 	}
+	// What the page reads: waiting - "joining the fleet…" -, not trusted.
+	rec := httptest.NewRecorder()
+	a.handleFleetStatus(rec, httptest.NewRequest(http.MethodGet, "/api/fleet", nil))
+	var st struct {
+		Nodes map[string]nodeTrust `json:"nodes"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &st); err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Nodes[n.ID]; got.State != trustWaiting {
+		t.Fatalf("GET /api/fleet says %+v for a node just admitted", got)
+	}
 
 	a.trust.mu.Lock()
 	a.trust.admitted[n.ID] = time.Now().Add(-joiningGrace - time.Second)
