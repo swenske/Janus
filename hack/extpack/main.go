@@ -68,7 +68,7 @@ import (
 func main() {
 	log.SetFlags(0)
 	if len(os.Args) < 2 {
-		log.Fatal("usage: extpack pack|catalog ...")
+		log.Fatal("usage: extpack pack|catalog|weigh ...")
 	}
 	switch os.Args[1] {
 	case "pack":
@@ -87,6 +87,8 @@ func main() {
 		imageInfo(os.Args[2:])
 	case "inputs":
 		inputs(os.Args[2:])
+	case "weigh":
+		weigh(os.Args[2:])
 	default:
 		log.Fatalf("unknown command %q", os.Args[1])
 	}
