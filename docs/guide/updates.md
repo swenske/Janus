@@ -79,6 +79,11 @@ janusctl -n lb1 version           # the release now running, and its slot
 - A node that can't reach the URL: `janusctl lifecycle upload-release
   DIR` streams a bundle from where `janusctl` runs, then `upgrade` takes
   the directory it prints.
+- A bundle whose `rootfs.squashfs` or `rootfs.verity` isn't the one its
+  kernel image was built with - damaged on its way, or files of two
+  builds in one directory - is refused before anything is written
+  (`rootfs.squashfs: … nothing was written`): take the four files of
+  one release again.
 - `-kexec` reboots into the new release without going through the
   firmware: the running kernel jumps straight into the new one, in
   seconds, where a server's POST takes a minute. The same flag on

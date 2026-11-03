@@ -18,6 +18,14 @@ actuels ne couvrent pas.
 
 ## Suivi des corrections
 
+**Mis à jour le 2026-11-03 : #15 et #16 corrigés.** #15 l'a été par la
+PR #435 (`e3e7bded`, 2026-10-30) : deux builds d'un même commit donnent
+les mêmes artefacts, rootfs compris. #16 l'est par la vérification de
+l'arbre dm-verity avant toute écriture (`internal/verity`), enregistrée
+comme JANUS-2026-007. Des trois points ouverts notés pendant l'ajout de
+la configuration réseau, deux sont levés (voir leur liste). Chaque
+section porte son paragraphe **Corrigé**.
+
 **Mis à jour le 2026-10-11 : constat #17.** Une faille amont trouvée
 pendant la quatrième passe, dans `go-uefi`, a été signalée en privé à son
 mainteneur le 2026-09-30 et tenue hors du dépôt public jusqu'à sa
@@ -53,9 +61,10 @@ priorité ; la CI est repassée au vert. Le run `image-build` 36745534311,
 lancé avant, a compilé `janusd` avec Go 1.26.0 : ses artefacts de
 vérification ne doivent pas servir de livrable.
 
-Nouveaux constats de cette passe, tous deux ouverts : #15 (rootfs
-différent pour chaque artefact d'un même run CI) et #16 (bundle
-incohérent qui peut rendre un nœud injoignable).
+Nouveaux constats de cette passe, tous deux ouverts alors et corrigés
+depuis (2026-10-30 et 2026-11-03) : #15 (rootfs différent pour chaque
+artefact d'un même run CI) et #16 (bundle incohérent qui peut rendre un
+nœud injoignable).
 
 **Points ouverts notés pendant l'ajout de la configuration réseau**
 (même jour, hors numérotation) :
@@ -64,16 +73,24 @@ incohérent qui peut rendre un nœud injoignable).
   interface au démarrage et ne renouvelle jamais le bail. Un nœud dont
   le serveur DHCP ne réserve pas l'adresse garde un bail expiré. Un
   client DHCP en espace utilisateur, avec renouvellement, est l'amélioration
-  prévue (voir `docs/network-configuration.md`).
+  prévue (voir `docs/network-configuration.md`). **Levé** par la PR #396
+  (2026-10-29) : `janusd` a son propre client DHCP, qui renouvelle ses
+  baux ; le UKI ne passe plus `ip=dhcp`.
 - **NTP non authentifié.** `janusd` interroge ses serveurs en SNTP. Un
   attaquant sur le chemin peut décaler l'horloge, donc les dates des
   certificats émis au premier démarrage. NTS serait la réponse, à un
-  coût bien plus élevé.
+  coût bien plus élevé. **Toujours ouvert** au 2026-11-03.
 - **Certificats clients sans renouvellement.** Le certificat serveur du
   nœud est désormais réémis 30 jours avant expiration, mais les
   certificats clients (admin, service du Controller) restent valables
   un an sans mécanisme de renouvellement : les premiers nœuds déployés
-  les perdront vers septembre 2027.
+  les perdront vers septembre 2027. **Levé pour l'essentiel** : depuis
+  la PR #469 (2026-11-01), un nœud ne crée plus de certificat admin au
+  premier démarrage ; un nœud qui fait confiance à une flotte est appelé
+  avec des certificats de 12 h émis à la demande, et le Controller
+  supprime alors son certificat de service ; l'identité du Controller et
+  sa CA émettrice se renouvellent (PR #451, #452, #454). Reste le
+  certificat de service d'un an d'un nœud resté hors flotte.
 
 Vérification globale après correction : `go build`, `go vet`,
 `golangci-lint` (0 problème), `go test -race ./...` et `govulncheck`
@@ -118,8 +135,8 @@ sont corrigées ci-dessous (#10 et #11 sont précisés dans leurs sections) :
 | 12 | Info | Corrigé | Robustesse | `internal/api/lifecycle.go` | `writePartitionFile` n'appelle pas `f.Sync()` avant le `syscall.Sync()` global |
 | 13 | Faible | Corrigé | Bug (trouvé en corrigeant #2) | `internal/haproxy/runtime_maps.go`, `runtime_certs.go` | Valeur de map tronquée au premier espace ; bundle PEM coupé par une ligne vide ou bloqué sans saut de ligne final |
 | 14 | Moyenne | Corrigé | Chaîne de publication | `.github/workflows/image-build.yml` | Les GitHub Releases publient des UKI non signés alors qu'un bundle signé est construit |
-| 15 | Faible | Ouvert | Chaîne de build | `Makefile` (`rootfs-build`), `rootfs/assemble.sh` | Chaque artefact d'un run CI embarque un rootfs différent (root hash différent) |
-| 16 | Moyenne | Ouvert | Robustesse | `internal/api/lifecycle.go` | Un squashfs/verity qui ne correspond pas au UKI rend le nœud injoignable après reboot |
+| 15 | Faible | Corrigé | Chaîne de build | `Makefile` (`rootfs-build`), `rootfs/assemble.sh` | Chaque artefact d'un run CI embarque un rootfs différent (root hash différent) |
+| 16 | Moyenne | Corrigé | Robustesse | `internal/api/lifecycle.go` | Un squashfs/verity qui ne correspond pas au UKI rend le nœud injoignable après reboot |
 | 17 | Élevée (amont) | Corrigé en amont | Dépendance | `github.com/foxboron/go-uefi` | `authenticode.Verify` acceptait une signature greffée sur n'importe quel binaire |
 
 ---
@@ -593,7 +610,7 @@ sont corrigées ci-dessous (#10 et #11 sont précisés dans leurs sections) :
   sur ce slot. Pas de test unitaire : il faudrait un vrai périphérique
   bloc. C'est couvert par les tests QEMU d'upgrade, non relancés ici.
 
-## 15. (Faible) Un rootfs différent pour chaque artefact d'un même run CI — ouvert
+## 15. (Faible) Un rootfs différent pour chaque artefact d'un même run CI — corrigé
 
 - **Où** : `Makefile` (`rootfs-build` est `.PHONY` et chaque cible
   d'image en dépend) et `rootfs/assemble.sh` (`mksquashfs` sans
@@ -609,8 +626,19 @@ sont corrigées ci-dessous (#10 et #11 sont précisés dans leurs sections) :
   `SOURCE_DATE_EPOCH`, `-mkfs-time`/`-all-time` de `mksquashfs`,
   sel verity fixé), ou une cible `rootfs-build` non `.PHONY` construite
   une seule fois par run.
+- **Corrigé** (PR #435, `e3e7bded`, 2026-10-30), par les deux voies
+  proposées. `rootfs-build` et `disk-image` sont incrémentaux (`hack/
+  fresh.sh` et des tampons) : un run ne refait le rootfs que si une
+  entrée a changé. Et le build est reproductible : `mksquashfs
+  -mkfs-time/-all-time` à la date du commit, sel et UUID dm-verity tirés
+  de l'image, GUID GPT tirés du root hash, ID de volume FAT, UUID et
+  dates de l'ext4 STATE, dates de xorriso et CID du VMDK fixés
+  (`hack/reproducible.sh`). Deux builds d'un même commit sur la machine
+  de build ont donné 33 des 35 artefacts identiques ; les deux autres
+  ne diffèrent que par l'heure de signature Secure Boot, que `sbsign`
+  signe avec le reste.
 
-## 16. (Moyenne) Un bundle incohérent peut rendre un nœud injoignable — ouvert
+## 16. (Moyenne) Un bundle incohérent peut rendre un nœud injoignable — corrigé
 
 - **Où** : `internal/api/lifecycle.go`, `Upgrade`.
 - **Constat** : la signature authentifie le UKI, donc le root hash
@@ -625,6 +653,28 @@ sont corrigées ci-dessous (#10 et #11 sont précisés dans leurs sections) :
   `rootfs.verity`) et comparer sa racine au root hash lu dans la ligne
   de commande **signée** du UKI. Le bundle devient alors vérifié de bout
   en bout avant tout reboot.
+- **Corrigé** (2026-11-03, JANUS-2026-007, gravité moyenne proposée,
+  CVSS 5.3 : `AV:N/AC:H/PR:N/UI:R/S:U/C:N/I:N/A:H`). Le nouveau paquet
+  `internal/verity` lit la table dm-verity de la ligne de commande du
+  UKI (version, tailles de blocs, nombre de blocs, bloc de départ,
+  algorithme, root hash, sel - le sel est dans la table, pas besoin du
+  superbloc), reconstruit l'arbre comme le noyau le lit et compare sa
+  racine au root hash, puis l'arbre lui-même au contenu de
+  `rootfs.verity` à partir du bloc de départ. `Upgrade` le fait pour le
+  UKI du slot cible, `Install` pour les deux, avant toute écriture ; le
+  refus nomme le fichier fautif (`rootfs.squashfs: … nothing was
+  written`). La vérification s'applique aussi avec
+  `insecure_skip_signature_check` : elle protège d'un mélange de
+  fichiers, pas seulement d'une altération.
+- **Vérification** : l'arbre est identique à celui de `veritysetup` sur
+  8 formes (formats 0 et 1, SHA-256 et SHA-512, 0 à 3 niveaux, blocs de
+  données et de hachage de tailles différentes, avec et sans
+  superbloc, sans sel) ; les bundles publiés v2026.09.30-3, v2026.10.02,
+  v2026.10.15 et v2026.11.02-2 passent (8 ms pour 15 Mio), un mélange
+  de deux releases est refusé dans les deux sens.
+  `qemu-lifecycle-upgrade-url-test` sert deux bundles mélangés en HTTP à
+  un vrai nœud (OVMF, SELinux enforcing) : refusés, rien d'écrit, pas de
+  reboot, puis la vraie mise à jour passe.
 
 ---
 

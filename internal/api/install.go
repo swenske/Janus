@@ -138,6 +138,20 @@ func (l *Lifecycle) Install(req *janusv1alpha1.InstallRequest, stream janusv1alp
 	if len(verity) > diskimage.HashMB*1024*1024 {
 		return status.Errorf(codes.FailedPrecondition, "%s is %d bytes, exceeds the %d-byte BOOT-*-HASH partition size", verityPath, len(verity), diskimage.HashMB*1024*1024)
 	}
+	// Both slots get the same squashfs: each UKI must pin it, or the
+	// installed disk wouldn't boot from that slot (see checkVerity).
+	var root string
+	for _, u := range []struct {
+		name string
+		data []byte
+	}{{"uki-a.efi", ukiA}, {"uki-b.efi", ukiB}} {
+		if root, err = checkVerity(u.name, u.data, squashfs, verity); err != nil {
+			return err
+		}
+	}
+	if err := send("verifying", 0.12, "rootfs.squashfs, rootfs.verity: the ones uki-a.efi and uki-b.efi pin (root hash "+root+")"); err != nil {
+		return err
+	}
 
 	disk, err := diskfs.Open(diskPath, diskfs.WithOpenMode(diskfs.ReadWrite))
 	if err != nil {
