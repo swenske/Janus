@@ -9,6 +9,8 @@
 #      - a copy of v2 with one byte changed past its first MiB, over
 #        http, is refused part way: the node keeps running, its other
 #        slot holds neither release, and Rollback refuses that slot;
+#      - the same damaged copy uploaded (into the slot) is refused, saying
+#        the slot holds that upload;
 #      - v2 uploaded (upload-release: the root filesystem goes straight
 #        into the slot, never held whole in memory) and installed: the
 #        node reboots into it;
@@ -168,6 +170,15 @@ refused "$LOG" "v2 with a byte changed 2 MiB in" "rootfs.squashfs: " "block 512 
 "$CTL" "${CTL_ARGS[@]}" version | grep -q "^Other slot: B - .*refused" || fail "version doesn't say slot B holds a refused update: $("$CTL" "${CTL_ARGS[@]}" version | grep '^Other slot')"
 CMD=(lifecycle rollback)
 refused "$LOG" "Rollback to the half-written slot B" "slot B doesn't hold what its kernel image boots" "update it again"
+
+# The same damaged bundle uploaded: the root filesystem goes into slot B
+# first, so the refusal says the slot holds that upload - not that
+# nothing was written (#512's finding 2).
+BAD_STAGING="$("$CTL" "${CTL_ARGS[@]}" lifecycle upload-release "$WORKDIR/srv/bad" | grep -o 'staged at [^ ]*' | awk '{print $3}' | head -1)"
+[ -n "$BAD_STAGING" ] || fail "upload-release of the damaged bundle didn't say where it staged"
+CMD=(lifecycle upgrade -insecure-skip-signature-check "$BAD_STAGING")
+refused "$LOG" "the damaged bundle uploaded into slot B" "block 512 " "Slot B holds that upload" "Rollback won't switch to it"
+if "$CTL" "${CTL_ARGS[@]}" "${CMD[@]}" 2>&1 | grep -q "nothing was written"; then fail "the uploaded bundle's refusal says nothing was written"; fi
 
 UPLOAD_OUT="$("$CTL" "${CTL_ARGS[@]}" lifecycle upload-release "$V2_BUNDLE")"
 STAGING_DIR="$(grep -o 'staged at [^ ]*' <<<"$UPLOAD_OUT" | awk '{print $3}' | head -1)"

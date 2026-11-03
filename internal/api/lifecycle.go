@@ -484,7 +484,11 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 	if err != nil {
 		return status.Errorf(codes.FailedPrecondition, "rootfs.verity: %v", err)
 	}
-	tree, err := checkHashTree(table, ukiName, hashTree)
+	// What a refusal leaves in the target slot: nothing written, or - a
+	// root filesystem uploaded into it - that upload, not the slot's
+	// previous release.
+	refused := refusedSuffix(stagedSlot(bundleRef, bc.targetSlot))
+	tree, err := checkHashTree(table, ukiName, hashTree, refused)
 	if err != nil {
 		return err
 	}
@@ -500,7 +504,7 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 	}
 	defer data.Close()
 	if data.size >= 0 && uint64(data.size) != table.DataBytes() {
-		return notTheUKIs("rootfs.squashfs", fmt.Errorf("%d bytes, %s's table covers %d", data.size, ukiName, table.DataBytes()), ukiName, nothingWritten)
+		return notTheUKIs("rootfs.squashfs", fmt.Errorf("%d bytes, %s's table covers %d", data.size, ukiName, table.DataBytes()), ukiName, refused)
 	}
 
 	// Streamed into the slot, each block checked first: a slot's worth
@@ -520,6 +524,9 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 	case errors.Is(err, verity.ErrData) && written == 0 && !data.staged:
 		slotWritten(bc.targetSlot, nil, nil, true) // as it was: read it again
 		return notTheUKIs("rootfs.squashfs", err, ukiName, nothingWritten)
+	case errors.Is(err, verity.ErrData) && data.staged:
+		slotWritten(bc.targetSlot, nil, errors.New("holds an uploaded root filesystem its update refused"), false)
+		return notTheUKIs("rootfs.squashfs", err, ukiName, refused)
 	case errors.Is(err, verity.ErrData):
 		slotWritten(bc.targetSlot, nil, errors.New("holds part of an update that was refused"), false)
 		return notTheUKIs("rootfs.squashfs", err, ukiName, fmt.Sprintf(
