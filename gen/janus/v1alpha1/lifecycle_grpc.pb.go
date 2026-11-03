@@ -54,7 +54,9 @@ type LifecycleServiceClient interface {
 	// stream message here.
 	Upgrade(ctx context.Context, in *UpgradeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[UpgradeResponse], error)
 	// Rollback switches the bootloader default back to the other A/B slot
-	// and reboots, without needing a new image.
+	// and reboots, without needing a new image. The slot is checked against
+	// the kernel image staged for it first: one an update wrote part of and
+	// gave up on is refused.
 	Rollback(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*RollbackResponse, error)
 	// UploadReleaseFile streams one release-bundle file (one of
 	// "rootfs.squashfs", "rootfs.verity", "uki-a.efi", "uki-b.efi" - the
@@ -64,8 +66,9 @@ type LifecycleServiceClient interface {
 	// doc comment for the alternative, node-initiated http(s):// fetch
 	// mode). Call once per file the upcoming Upgrade call will need, then
 	// call Upgrade itself with source.reference set to the returned
-	// staging_dir. Never triggers an upgrade by itself - purely a file
-	// transfer.
+	// staging_dir. Never triggers an upgrade by itself; rootfs.squashfs
+	// goes straight into the inactive slot, though, which no longer holds
+	// its previous release until the Upgrade completes.
 	UploadReleaseFile(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[UploadReleaseFileRequest, UploadReleaseFileResponse], error)
 }
 
@@ -166,7 +169,9 @@ type LifecycleServiceServer interface {
 	// stream message here.
 	Upgrade(*UpgradeRequest, grpc.ServerStreamingServer[UpgradeResponse]) error
 	// Rollback switches the bootloader default back to the other A/B slot
-	// and reboots, without needing a new image.
+	// and reboots, without needing a new image. The slot is checked against
+	// the kernel image staged for it first: one an update wrote part of and
+	// gave up on is refused.
 	Rollback(context.Context, *emptypb.Empty) (*RollbackResponse, error)
 	// UploadReleaseFile streams one release-bundle file (one of
 	// "rootfs.squashfs", "rootfs.verity", "uki-a.efi", "uki-b.efi" - the
@@ -176,8 +181,9 @@ type LifecycleServiceServer interface {
 	// doc comment for the alternative, node-initiated http(s):// fetch
 	// mode). Call once per file the upcoming Upgrade call will need, then
 	// call Upgrade itself with source.reference set to the returned
-	// staging_dir. Never triggers an upgrade by itself - purely a file
-	// transfer.
+	// staging_dir. Never triggers an upgrade by itself; rootfs.squashfs
+	// goes straight into the inactive slot, though, which no longer holds
+	// its previous release until the Upgrade completes.
 	UploadReleaseFile(grpc.ClientStreamingServer[UploadReleaseFileRequest, UploadReleaseFileResponse]) error
 	mustEmbedUnimplementedLifecycleServiceServer()
 }

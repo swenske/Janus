@@ -196,7 +196,7 @@ func handleUpgradeUpload(w http.ResponseWriter, r *http.Request, node *store.Nod
 				healthTimeoutSeconds = uint32(n)
 			}
 		case "rootfs_squashfs", "rootfs_verity", "uki_a", "uki_b":
-			dir, err := relayReleaseFile(ctx, client, releaseFormFields[name], part)
+			dir, err := relayReleaseFile(ctx, client, releaseFormFields[name], part, 0)
 			part.Close()
 			if err != nil {
 				http.Error(w, fmt.Sprintf("upload %s: %v", releaseFormFields[name], err), http.StatusBadGateway)
@@ -232,8 +232,9 @@ func readFormValue(part *multipart.Part) string {
 // relayReleaseFile streams one multipart part's bytes to the node via
 // UploadReleaseFile, chunked the same way cmd/janusctl's own
 // "lifecycle upload-release" does, and returns the resulting staging
-// directory.
-func relayReleaseFile(ctx context.Context, client janusv1alpha1.LifecycleServiceClient, filename string, src io.Reader) (string, error) {
+// directory. size, when known (else 0), lets the node refuse a file too
+// big for its slot before writing anything.
+func relayReleaseFile(ctx context.Context, client janusv1alpha1.LifecycleServiceClient, filename string, src io.Reader, size int64) (string, error) {
 	const chunkSize = 512 * 1024
 
 	stream, err := client.UploadReleaseFile(ctx)
@@ -248,7 +249,7 @@ func relayReleaseFile(ctx context.Context, client janusv1alpha1.LifecycleService
 		if n > 0 {
 			req := &janusv1alpha1.UploadReleaseFileRequest{Chunk: buf[:n]}
 			if first {
-				req.Filename = filename
+				req.Filename, req.Size = filename, uint64(max(size, 0))
 				first = false
 			}
 			if err := stream.Send(req); err != nil {
@@ -263,7 +264,7 @@ func relayReleaseFile(ctx context.Context, client janusv1alpha1.LifecycleService
 		}
 	}
 	if first {
-		_ = stream.Send(&janusv1alpha1.UploadReleaseFileRequest{Filename: filename})
+		_ = stream.Send(&janusv1alpha1.UploadReleaseFileRequest{Filename: filename, Size: uint64(max(size, 0))})
 	}
 
 	resp, err := stream.CloseAndRecv()

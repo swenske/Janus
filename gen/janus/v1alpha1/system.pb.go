@@ -2493,7 +2493,12 @@ type VersionResponse struct {
 	InactiveSlot *SlotImage `protobuf:"bytes,13,opt,name=inactive_slot,json=inactiveSlot,proto3" json:"inactive_slot,omitempty"`
 	// What the firmware does with UEFI Secure Boot, read from its
 	// variables (docs/guide/secure-boot.md).
-	SecureBoot    SecureBoot `protobuf:"varint,14,opt,name=secure_boot,json=secureBoot,proto3,enum=janus.v1alpha1.SecureBoot" json:"secure_boot,omitempty"`
+	SecureBoot SecureBoot `protobuf:"varint,14,opt,name=secure_boot,json=secureBoot,proto3,enum=janus.v1alpha1.SecureBoot" json:"secure_boot,omitempty"`
+	// The size of each A/B slot's data partition, in bytes: the largest
+	// root filesystem an update can write. 64 MiB on disks made before
+	// 128 MiB slots - a disk keeps its slots for good. 0 when this boot
+	// isn't from an A/B slot, or from a node that doesn't say.
+	SlotBytes     uint64 `protobuf:"varint,15,opt,name=slot_bytes,json=slotBytes,proto3" json:"slot_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2624,6 +2629,13 @@ func (x *VersionResponse) GetSecureBoot() SecureBoot {
 		return x.SecureBoot
 	}
 	return SecureBoot_SECURE_BOOT_UNSPECIFIED
+}
+
+func (x *VersionResponse) GetSlotBytes() uint64 {
+	if x != nil {
+		return x.SlotBytes
+	}
+	return 0
 }
 
 // The image an A/B slot holds.
@@ -8451,7 +8463,7 @@ const file_janus_v1alpha1_system_proto_rawDesc = "" +
 	"is_default\x18\x02 \x01(\bR\tisDefault\x12\x1c\n" +
 	"\tlistening\x18\x03 \x01(\bR\tlistening\x12\x14\n" +
 	"\x05error\x18\x04 \x01(\tR\x05error\x12/\n" +
-	"\x13effective_addresses\x18\x05 \x03(\tR\x12effectiveAddresses\"\xd3\x04\n" +
+	"\x13effective_addresses\x18\x05 \x03(\tR\x12effectiveAddresses\"\xf2\x04\n" +
 	"\x0fVersionResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\tR\aversion\x12\x1d\n" +
 	"\n" +
@@ -8474,7 +8486,9 @@ const file_janus_v1alpha1_system_proto_rawDesc = "" +
 	"\x06kernel\x18\f \x01(\v2\x1e.janus.v1alpha1.ImageComponentR\x06kernel\x12>\n" +
 	"\rinactive_slot\x18\r \x01(\v2\x19.janus.v1alpha1.SlotImageR\finactiveSlot\x12;\n" +
 	"\vsecure_boot\x18\x0e \x01(\x0e2\x1a.janus.v1alpha1.SecureBootR\n" +
-	"secureBoot\"\xe4\x01\n" +
+	"secureBoot\x12\x1d\n" +
+	"\n" +
+	"slot_bytes\x18\x0f \x01(\x04R\tslotBytes\"\xe4\x01\n" +
 	"\tSlotImage\x12\x12\n" +
 	"\x04slot\x18\x01 \x01(\tR\x04slot\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12!\n" +

@@ -520,7 +520,14 @@ type UploadReleaseFileRequest struct {
 	// Raw file bytes, in order - present on every message, including the
 	// first if it also carries data. No fixed chunk size is required;
 	// a few hundred KiB to a few MiB per message is reasonable.
-	Chunk         []byte `protobuf:"bytes,2,opt,name=chunk,proto3" json:"chunk,omitempty"`
+	Chunk []byte `protobuf:"bytes,2,opt,name=chunk,proto3" json:"chunk,omitempty"`
+	// Set on the first message, optional: the file's size in bytes, when
+	// the client knows it. A file too big for where it goes is then
+	// refused before anything is written - rootfs.squashfs goes straight
+	// into the node's inactive slot, and without its size, a root
+	// filesystem bigger than the slot is only refused once it has
+	// overwritten the slot's previous release.
+	Size          uint64 `protobuf:"varint,3,opt,name=size,proto3" json:"size,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -567,6 +574,13 @@ func (x *UploadReleaseFileRequest) GetChunk() []byte {
 		return x.Chunk
 	}
 	return nil
+}
+
+func (x *UploadReleaseFileRequest) GetSize() uint64 {
+	if x != nil {
+		return x.Size
+	}
+	return 0
 }
 
 type UploadReleaseFileResponse struct {
@@ -662,10 +676,11 @@ const file_janus_v1alpha1_lifecycle_proto_rawDesc = "" +
 	"\amessage\x18\x03 \x01(\tR\amessage\"3\n" +
 	"\x10RollbackResponse\x12\x1f\n" +
 	"\vactive_slot\x18\x01 \x01(\tR\n" +
-	"activeSlot\"L\n" +
+	"activeSlot\"`\n" +
 	"\x18UploadReleaseFileRequest\x12\x1a\n" +
 	"\bfilename\x18\x01 \x01(\tR\bfilename\x12\x14\n" +
-	"\x05chunk\x18\x02 \x01(\fR\x05chunk\"a\n" +
+	"\x05chunk\x18\x02 \x01(\fR\x05chunk\x12\x12\n" +
+	"\x04size\x18\x03 \x01(\x04R\x04size\"a\n" +
 	"\x19UploadReleaseFileResponse\x12\x1f\n" +
 	"\vstaging_dir\x18\x01 \x01(\tR\n" +
 	"stagingDir\x12#\n" +
