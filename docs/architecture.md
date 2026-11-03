@@ -76,6 +76,13 @@ boot chain: [boot, disk layout and A/B updates](internals/boot.md).
   authenticates the whole bundle, whatever transport or relay it came
   through. `ImageSource.insecure_skip_signature_check` opts out, for
   development and test bundles only.
+- **The rootfs is checked against that root hash before it's written**,
+  signed bundle or not: `Upgrade` and `Install` rebuild the squashfs's
+  dm-verity hash tree (`internal/verity`) and refuse a `rootfs.squashfs`
+  or `rootfs.verity` other than the ones the UKI's table describes. The
+  kernel would refuse them too, but only at the next boot, from a slot
+  the ESP already points at: no root, no `janusd`, nothing left to
+  revert.
 - **Release pipeline:** the bundle a GitHub Release publishes is the one
   signed in CI (`iso-image-with-bundle` with `SIGNING_KEY`/
   `SIGNING_CERT`), and publication fails if its UKIs don't verify against

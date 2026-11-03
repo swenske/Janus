@@ -110,7 +110,10 @@ sequenceDiagram
   must be signed with the release certificate built into janusd, and
   their signed command line pins the root filesystem's dm-verity hash -
   so checking the signature authenticates the whole bundle, whatever
-  path it came by. An image built for another schematic is refused
+  path it came by. The root filesystem and its hash tree are then
+  checked against that hash (`internal/verity` rebuilds the tree): a
+  squashfs the kernel would refuse at the next boot is refused now, while
+  the node still runs. An image built for another schematic is refused
   unless the change is meant (`allow_schematic_change`).
 - **The marker is written before the switch**, durably (written, synced,
   renamed, the directory synced): a power cut at any point leaves either
