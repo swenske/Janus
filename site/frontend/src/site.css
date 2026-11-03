@@ -163,3 +163,8 @@ details summary { cursor: pointer; margin-top: 0.8rem; color: var(--muted); }
   .topbar nav { flex-wrap: nowrap; gap: 0.1rem; }
   .hero { padding-top: 2.5rem; }
 }
+
+/* What a schematic takes of a slot (Builder: imageWeight). */
+.slot-weight { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 1rem; max-width: 32rem; }
+.slot-weight .row { justify-content: space-between; }
+.slot-weight p { margin: 0; }

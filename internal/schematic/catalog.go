@@ -26,6 +26,15 @@ type Catalog struct {
 	// existed - its images have the serial console, and a schematic
 	// can't name one.
 	Console []string `json:"console,omitempty"`
+	// SlotBytes is the size of the A/B slots the release's images are
+	// made with (128 MiB) - a disk installed before keeps its own, 64 MiB
+	// - and BaseBytes what the image without HAProxy or any extension
+	// takes of one. With each HAProxy branch's and extension's Bytes,
+	// they say about how much of a slot a schematic's root filesystem
+	// takes (amd64's, squashed like the image). Absent: a release from
+	// before they were measured (hack/extpack weigh).
+	SlotBytes uint64 `json:"slot_bytes,omitempty"`
+	BaseBytes uint64 `json:"base_bytes,omitempty"`
 	// Retired lists the branches and tracks earlier releases offered and
 	// this one no longer does, with the last release that had each: an
 	// image built with one stays on it (no automatic move to another
@@ -51,6 +60,9 @@ type Variant struct {
 	// has one: HAProxy branches do, kernel tracks move on by themselves.
 	EOL    string   `json:"eol,omitempty"`
 	Arches []string `json:"arches"`
+	// Bytes is what a HAProxy branch takes of a slot (Catalog.SlotBytes);
+	// a kernel track takes none - the kernel is in the UKI, on the ESP.
+	Bytes uint64 `json:"bytes,omitempty"`
 }
 
 // Retired is a variant a release no longer offers.
@@ -111,6 +123,8 @@ type CatalogEntry struct {
 	// Nothing adds them behind the user's back - a schematic is what was
 	// written, its ID too - Resolve refuses it instead (RequirementError).
 	Requires []string `json:"requires,omitempty"`
+	// Bytes is what the extension takes of a slot (Catalog.SlotBytes).
+	Bytes uint64 `json:"bytes,omitempty"`
 }
 
 // RequirementError says a schematic names an extension without another

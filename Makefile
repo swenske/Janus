@@ -351,6 +351,8 @@ ifeq ($(call suspended,raspberry-pi),)
 else
 	cp $(EXT_DIR)/extension-*-amd64.tar $(EXT_DIR)/schematic-catalog.json $(BUILD_DIR)/inputs/
 endif
+	# What each part takes of a slot, for the image builder (#495).
+	go run ./hack/extpack weigh -catalog $(BUILD_DIR)/inputs/schematic-catalog.json -inputs $(BUILD_DIR)/inputs
 
 # SCHEMATIC=path/to/schematic.json builds the rootfs with that schematic's
 # extensions (already built: make extensions-amd64) and puts its ID into
