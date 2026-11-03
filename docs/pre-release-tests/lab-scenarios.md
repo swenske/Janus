@@ -71,6 +71,11 @@ release to the pre-release. Measured:
   0.1 s run on the lab's host (since v2026.10.14-2; from the workstation
   before, whose path adds its own lost requests).
 
+Since v2026.11.04, what a past standby left in the data directory is
+read before and after: `ha/control.sock` and the set-asides in
+`ha/previous/`; then a stale socket (a Unix socket nothing listens on)
+is put at `ha/control.sock` and the Controller restarted, to see it go.
+
 ### The image factory
 
 A node's Update page offers the pre-release apart; asked to, the factory
@@ -1037,6 +1042,27 @@ real size; the public builder in headless Chromium, light and dark, the
 pre-release chosen: each extension's weight and the slot meter, for the
 default and for every extension, console errors and failed requests.
 
+### The fleet's trust for a new node
+
+Since v2026.11.04. `GET /api/fleet` read every 0.5 s from the moment a
+node is created, a line for each change of its state: two machines the
+Controller makes from the pre-release's image (one on each host, their
+registration token), then a node made by hand from the image, without
+a token, approved by hand as soon as it is listed, and the same with the
+release before's image. Measured: the states the node goes through
+(`needs-kit` must never show), how long it stays joining, the time to
+ready.
+
+### USB devices under SELinux
+
+Since v2026.11.04. On a node made by hand on a host (the Controller's
+machines have no USB device), stopped: a USB tablet added to its
+machine's inactive definition, started; then a USB keyboard plugged in
+live and taken out. The same on a node of the release before. Measured:
+the AVC denials after the boot and after the plug, the console's "USB
+disconnect", when the tablet is enumerated against when the policy is
+loaded.
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -1215,3 +1241,10 @@ ran:
   sampled meanwhile; `m-recycle68`, `rec-cluster68`: the recycle with
   `RV=` a version; `builder.mjs`: the public builder with the
   pre-release chosen (v2026.11.03).
+- `fleetwatch OUT SECONDS`: `GET /api/fleet` every 0.5 s, each change
+  of a new node's trust state; `manual-vm NAME HOST IMAGE`: a node made
+  by hand, announcing itself without a token; `approve-watch NAME OUT
+  [DELAY]`: approves it once it is listed; `usb-test NAME`: the USB
+  tablet and the live keyboard; `ndmesg NAME`: a node's kernel log
+  through its page; `rbench-short NAME`: keep-alive 64 and a new
+  connection per request, three rounds (v2026.11.04).
