@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/releasetrust"
+	"github.com/swenske/Janus/internal/verity"
 )
 
 // TestCheckUKISignature: an untrusted UKI is refused unless the caller
@@ -140,5 +142,46 @@ func TestUKICmdlineOfARealUKI(t *testing.T) {
 	}
 	if !strings.Contains(cmdline, "dm-mod.create=") {
 		t.Errorf("cmdline %q", cmdline)
+	}
+}
+
+// TestCheckVerity: a bundle's squashfs and hash tree pass only when
+// they're the ones its UKI's dm-verity table pins - each refusal names
+// the file and says nothing was written (security audit 2026-09-30 #16).
+func TestCheckVerity(t *testing.T) {
+	squashfs := bytes.Repeat([]byte("janus-rootfs-block"), 4096*40/18+1)[:4096*40]
+	table := &verity.Table{Version: 1, DataBlockSize: 4096, HashBlockSize: 4096, DataBlocks: 40,
+		HashStartBlock: 1, Algorithm: "sha256", Salt: []byte{1, 2, 3}}
+	tree, root, err := table.Build(squashfs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hashTree := append(make([]byte, 4096), tree...)
+	uki := minimalPE(t, fmt.Sprintf(`console=ttyS0 dm-mod.create="vroot,,,ro,0 320 verity 1 PARTLABEL=BOOT-B-DATA PARTLABEL=BOOT-B-HASH 4096 4096 40 1 sha256 %x 010203" root=/dev/dm-0 ro`, root))
+
+	got, err := checkVerity("uki-b.efi", uki, squashfs, hashTree)
+	if err != nil || got != fmt.Sprintf("%x…", root[:6]) {
+		t.Fatalf("its own bundle: %q, %v", got, err)
+	}
+
+	other := bytes.Clone(squashfs)
+	other[5000] ^= 1
+	for _, c := range []struct {
+		name            string
+		uki, data, tree []byte
+		want            string
+	}{
+		{"another squashfs", uki, other, hashTree, "rootfs.squashfs: "},
+		{"another tree", uki, squashfs, append(make([]byte, 4096), bytes.Repeat([]byte{7}, len(tree))...), "rootfs.verity: "},
+		{"a UKI without a verity table", minimalPE(t, "console=ttyS0 ro"), squashfs, hashTree, "uki-b.efi: "},
+		{"not a UKI", []byte("MZ"), squashfs, hashTree, "uki-b.efi: "},
+	} {
+		_, err := checkVerity("uki-b.efi", c.uki, c.data, c.tree)
+		if status.Code(err) != codes.FailedPrecondition || !strings.HasPrefix(status.Convert(err).Message(), c.want) {
+			t.Errorf("%s: %v", c.name, err)
+		}
+		if c.want != "uki-b.efi: " && !strings.Contains(fmt.Sprint(err), "nothing was written") {
+			t.Errorf("%s: %v doesn't say nothing was written", c.name, err)
+		}
 	}
 }

@@ -28,6 +28,7 @@ import (
 	"github.com/swenske/Janus/internal/releasetrust"
 	"github.com/swenske/Janus/internal/schematic"
 	"github.com/swenske/Janus/internal/slotimage"
+	"github.com/swenske/Janus/internal/verity"
 )
 
 // Lifecycle implements janusv1alpha1.LifecycleServiceServer.
@@ -229,6 +230,34 @@ func checkSchematic(src *janusv1alpha1.ImageSource, nodeCmdline string, uki []by
 	return "", status.Errorf(codes.FailedPrecondition,
 		"this bundle is built from image schematic %s, but the node runs schematic %s: it would not keep the node's extensions, HAProxy branch and kernel track. Use the update built for schematic %s (janus.sw-servers.net), or set allow_schematic_change to switch",
 		target[:12], current[:12], current)
+}
+
+// checkVerity refuses a rootfs.squashfs or a rootfs.verity other than the
+// ones a UKI's command line - signed, once checkUKISignature passed -
+// pins with its dm-verity table (internal/verity). The kernel would
+// refuse them too, but only at boot, from a slot the ESP already points
+// at: no root, no init, no janusd to revert - a node lost until someone
+// reaches its console (security audit 2026-09-30, #16). Checked before
+// anything is written. Returns the start of the root hash, for progress
+// messages.
+func checkVerity(ukiName string, uki, squashfs, hashTree []byte) (string, error) {
+	cmdline, err := ukiCmdline(uki)
+	if err != nil {
+		return "", status.Errorf(codes.FailedPrecondition, "%s: %v", ukiName, err)
+	}
+	table, err := verity.FromCmdline(cmdline)
+	if err != nil {
+		return "", status.Errorf(codes.FailedPrecondition, "%s: %v", ukiName, err)
+	}
+	if err := table.Verify(squashfs, hashTree); err != nil {
+		file := "rootfs.squashfs"
+		if errors.Is(err, verity.ErrHashTree) {
+			file = "rootfs.verity"
+		}
+		return "", status.Errorf(codes.FailedPrecondition,
+			"%s: %v - it isn't the one %s was built with (damaged on its way, or the bundle mixes two builds), and the node couldn't mount its root from it: nothing was written", file, err, ukiName)
+	}
+	return fmt.Sprintf("%x…", table.RootDigest[:6]), nil
 }
 
 // bootContext is what both Rollback and Upgrade need to know about the
@@ -442,12 +471,19 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 		return err
 	}
 
-	verity, err := fetchBundleFile(ctx, bundleRef, "rootfs.verity")
+	hashTree, err := fetchBundleFile(ctx, bundleRef, "rootfs.verity")
 	if err != nil {
 		return status.Errorf(codes.FailedPrecondition, "rootfs.verity: %v", err)
 	}
-	if len(verity) > upgradeMaxHashBytes {
-		return status.Errorf(codes.FailedPrecondition, "rootfs.verity is %d bytes, exceeds the %d-byte BOOT-*-HASH partition size", len(verity), upgradeMaxHashBytes)
+	if len(hashTree) > upgradeMaxHashBytes {
+		return status.Errorf(codes.FailedPrecondition, "rootfs.verity is %d bytes, exceeds the %d-byte BOOT-*-HASH partition size", len(hashTree), upgradeMaxHashBytes)
+	}
+	root, err := checkVerity(ukiName, uki, squashfs, hashTree)
+	if err != nil {
+		return err
+	}
+	if err := send("verifying", 0.28, fmt.Sprintf("rootfs.squashfs, rootfs.verity: the ones %s pins (root hash %s)", ukiName, root)); err != nil {
+		return err
 	}
 
 	targetDataDev, _ := bootslot.SlotDataDevice(bc.disk, bc.targetSlot)
@@ -466,7 +502,7 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 	if err := send("writing-hash", 0.5, fmt.Sprintf("writing rootfs.verity to slot %s (%s)", bc.targetSlot, targetHashDev)); err != nil {
 		return err
 	}
-	if err := writePartitionFile(targetHashDev, verity); err != nil {
+	if err := writePartitionFile(targetHashDev, hashTree); err != nil {
 		return status.Errorf(codes.Internal, "write %s: %v", targetHashDev, err)
 	}
 	syscall.Sync()
