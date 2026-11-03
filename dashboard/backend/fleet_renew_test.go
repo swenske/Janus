@@ -264,3 +264,42 @@ func TestRenewAnswersAfterThePass(t *testing.T) {
 		t.Errorf("the answer is the moment before the loop's pass: behind %v, alpha %+v, renewal %+v", out.NodesBehind, out.Nodes[alpha.ID], out.Renewal)
 	}
 }
+
+// TestAJustAdmittedNodeIsJoining: a keyless node admitted a moment before
+// it takes the fleet's trust refuses the fleet's certificate - it shows
+// as joining and is tried again soon, not as needing the recovery kit
+// (#517). The same refusal from a node admitted long ago does need the
+// kit; once the node trusts the fleet, it is trusted.
+func TestAJustAdmittedNodeIsJoining(t *testing.T) {
+	a, _, _ := fleetApp(t)
+	ctx := context.Background()
+	n, nodeFleet := realFleetNode(t, a, "fresh")
+	rootPEM, bundle, _, _ := a.fleet.Trust()
+	if err := nodeFleet.Reset(); err != nil { // not the fleet's yet
+		t.Fatal(err)
+	}
+	nodeproxy.Reconnect(n.ID)
+
+	a.trust.Admitted(n.ID)
+	a.trustAll(ctx)
+	if nt := a.trust.get(n.ID); nt.State != trustWaiting || !strings.Contains(nt.Error, "just admitted") {
+		t.Fatalf("just admitted: %+v", nt)
+	}
+
+	a.trust.mu.Lock()
+	a.trust.admitted[n.ID] = time.Now().Add(-joiningGrace - time.Second)
+	a.trust.mu.Unlock()
+	a.trustAll(ctx)
+	if nt := a.trust.get(n.ID); nt.State != trustNeedsKit {
+		t.Fatalf("admitted long ago: %+v", nt)
+	}
+
+	if err := nodeFleet.Set(rootPEM, bundle); err != nil {
+		t.Fatal(err)
+	}
+	nodeproxy.Reconnect(n.ID)
+	a.trustAll(ctx)
+	if nt := a.trust.get(n.ID); nt.State != trustTrusted {
+		t.Fatalf("once it trusts the fleet: %+v", nt)
+	}
+}
