@@ -85,10 +85,7 @@ func runStandby(s *standby, addr, registerAddr, tlsCert, tlsKey string) {
 		writeJSON(w, http.StatusOK, s.status())
 	})
 	mainMux.HandleFunc("GET /{$}", s.page)
-	mainMux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Retry-After", "30")
-		writeError(w, http.StatusServiceUnavailable, "this Controller is a standby: the active answers")
-	})
+	mainMux.HandleFunc("/", s.notServing)
 	serve(addr, &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{*cert}}, securityHeaders(mainMux))
 
 	// `dashboardd promote` on this host.
@@ -139,10 +136,20 @@ func (s *standby) peerRoutes() *http.ServeMux {
 		}()
 		writeJSON(w, http.StatusAccepted, map[string]string{"message": "taking over"})
 	}))
-	peerMux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
-		writeError(w, http.StatusServiceUnavailable, "this Controller is a standby: the active answers")
-	})
+	peerMux.HandleFunc("/", s.notServing)
 	return peerMux
+}
+
+// notServing answers what a standby doesn't serve: the active does - or,
+// promoted, this Controller once it has started again.
+func (s *standby) notServing(w http.ResponseWriter, _ *http.Request) {
+	if s.ha.State().Role == ha.Active {
+		w.Header().Set("Retry-After", "5")
+		writeError(w, http.StatusServiceUnavailable, "this Controller was just promoted: it answers as the active once started again, in a few seconds")
+		return
+	}
+	w.Header().Set("Retry-After", "30")
+	writeError(w, http.StatusServiceUnavailable, "this Controller is a standby: the active answers")
 }
 
 func serve(addr string, tlsConfig *tls.Config, h http.Handler) {
@@ -435,7 +442,47 @@ func setAside(dataDir, masterKeyPath string, now time.Time) (string, error) {
 			return "", err
 		}
 	}
+	if err := prunePrevious(dataDir); err != nil {
+		log.Printf("standby: pruning %s: %v", filepath.Join(ha.Dir, "previous"), err)
+	}
 	return dest, nil
+}
+
+// keptPrevious is how many set-asides ha/previous/ keeps, the newest:
+// each is a whole data directory, and the updater copies them all while
+// the Controller is stopped for an update.
+const keptPrevious = 2
+
+// prunePrevious removes the set-asides beyond the newest keptPrevious -
+// their names are the times they were made.
+func prunePrevious(dataDir string) error {
+	dir := filepath.Join(dataDir, ha.Dir, "previous")
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for i := 0; i < len(entries)-keptPrevious; i++ {
+		if err := os.RemoveAll(filepath.Join(dir, entries[i].Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// tidyHA clears what an earlier run left in <data>/ha at a Controller's
+// start: the standby's control socket - nothing listens on it now, and
+// the updater's copy of the data directory refused it - and the
+// set-asides beyond keptPrevious.
+func tidyHA(dataDir string) {
+	if err := os.Remove(controlSocket(dataDir)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("ha: the old control socket: %v", err)
+	}
+	if err := prunePrevious(dataDir); err != nil {
+		log.Printf("ha: pruning %s: %v", filepath.Join(ha.Dir, "previous"), err)
+	}
 }
 
 // clearDataDir empties a standby's data directory before a copy is

@@ -332,6 +332,16 @@ func (s *Store) SetRole(role string, epoch uint64) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.state.Role == Active && role == Standby {
+		// What an earlier time as a standby left - its pulls' notes; the
+		// copy itself went with the promotion (Reseal) - is of an epoch
+		// before this Controller was the active: not this standby's.
+		for _, name := range []string{"replica.sealed", "replica.json"} {
+			if err := os.Remove(filepath.Join(s.dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+	}
 	next := s.state
 	next.Role, next.Epoch = role, epoch
 	if err := writeJSON(filepath.Join(s.dir, "state.json"), next); err != nil {
