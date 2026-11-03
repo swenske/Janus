@@ -163,7 +163,7 @@ func pushFile(ctx context.Context, client janusv1alpha1.LifecycleServiceClient, 
 		body = io.TeeReader(counter, h)
 	}
 	out.send(relayProgress{Stage: "download", File: name, Total: total, Message: "the Controller downloads it and pushes it to the node"})
-	dir, err := relayReleaseFile(ctx, client, name, body)
+	dir, err := relayReleaseFile(ctx, client, name, body, total)
 	if err != nil {
 		return "", "", fmt.Errorf("push to the node: %w", err)
 	}

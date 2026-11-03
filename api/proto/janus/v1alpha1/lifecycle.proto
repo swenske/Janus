@@ -34,7 +34,9 @@ service LifecycleService {
   rpc Upgrade(UpgradeRequest) returns (stream UpgradeResponse);
 
   // Rollback switches the bootloader default back to the other A/B slot
-  // and reboots, without needing a new image.
+  // and reboots, without needing a new image. The slot is checked against
+  // the kernel image staged for it first: one an update wrote part of and
+  // gave up on is refused.
   rpc Rollback(google.protobuf.Empty) returns (RollbackResponse);
 
   // UploadReleaseFile streams one release-bundle file (one of
@@ -45,8 +47,9 @@ service LifecycleService {
   // doc comment for the alternative, node-initiated http(s):// fetch
   // mode). Call once per file the upcoming Upgrade call will need, then
   // call Upgrade itself with source.reference set to the returned
-  // staging_dir. Never triggers an upgrade by itself - purely a file
-  // transfer.
+  // staging_dir. Never triggers an upgrade by itself; rootfs.squashfs
+  // goes straight into the inactive slot, though, which no longer holds
+  // its previous release until the Upgrade completes.
   rpc UploadReleaseFile(stream UploadReleaseFileRequest) returns (UploadReleaseFileResponse);
 }
 
@@ -175,6 +178,13 @@ message UploadReleaseFileRequest {
   // first if it also carries data. No fixed chunk size is required;
   // a few hundred KiB to a few MiB per message is reasonable.
   bytes chunk = 2;
+  // Set on the first message, optional: the file's size in bytes, when
+  // the client knows it. A file too big for where it goes is then
+  // refused before anything is written - rootfs.squashfs goes straight
+  // into the node's inactive slot, and without its size, a root
+  // filesystem bigger than the slot is only refused once it has
+  // overwritten the slot's previous release.
+  uint64 size = 3;
 }
 
 message UploadReleaseFileResponse {

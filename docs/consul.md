@@ -175,5 +175,5 @@ udp dport 8301 ip saddr 192.0.2.0/24 accept
 
 The agent is about 30 MB of the image (compressed), next to about 16 MB
 for the base. An image with every extension, Consul included, is about
-62 MiB, and fits the 64 MiB boot slots; the image build checks it on
-every release.
+58 MiB: it fits the 128 MiB boot slots, and the 64 MiB ones of disks
+made before them; the image build checks it on every release.

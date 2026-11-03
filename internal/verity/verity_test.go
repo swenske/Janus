@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -269,5 +270,54 @@ func TestFromCmdline(t *testing.T) {
 		if tab, err := FromCmdline(bad); err == nil {
 			t.Errorf("%s: accepted as %+v", strings.TrimSpace(bad), tab)
 		}
+	}
+}
+
+// TestCopy: each block is checked before it's written - a refused block
+// leaves exactly the blocks before it written - and the source must end
+// with the table's data.
+func TestCopy(t *testing.T) {
+	s := shapes[1] // 512-byte blocks, three levels
+	table := s.table()
+	data := testData(s.blocks, s.dataBlock)
+	tree, root, err := table.Build(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	table.RootDigest = root
+	hashDev := append(make([]byte, s.hashBlk), tree...)
+	if got := table.HashBytes(); got != uint64(len(hashDev)) {
+		t.Errorf("HashBytes %d, the device is %d", got, len(hashDev))
+	}
+	checked, err := table.CheckTree(hashDev)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	if n, err := table.Copy(&out, bytes.NewReader(data), checked); err != nil || n != int64(len(data)) || !bytes.Equal(out.Bytes(), data) {
+		t.Fatalf("its own data: %d bytes, %v", n, err)
+	}
+
+	bad := bytes.Clone(data)
+	bad[700*s.dataBlock+3] ^= 1
+	out.Reset()
+	n, err := table.Copy(&out, bytes.NewReader(bad), checked)
+	if !errors.Is(err, ErrData) || n != int64(700*s.dataBlock) || out.Len() != 700*s.dataBlock {
+		t.Errorf("block 700 changed: %d bytes written, %v", n, err)
+	}
+	if !strings.Contains(fmt.Sprint(err), "block 700 ") {
+		t.Errorf("doesn't name the block: %v", err)
+	}
+	if _, err := table.Copy(io.Discard, bytes.NewReader(data[:len(data)-1]), checked); !errors.Is(err, ErrData) {
+		t.Errorf("one byte short: %v", err)
+	}
+	if _, err := table.Copy(io.Discard, io.MultiReader(bytes.NewReader(data), strings.NewReader("x")), checked); !errors.Is(err, ErrData) {
+		t.Errorf("one byte more: %v", err)
+	}
+	other := shapes[0].table()
+	other.RootDigest = root
+	if _, err := other.Copy(io.Discard, bytes.NewReader(data), checked); err == nil {
+		t.Error("another table's tree accepted")
 	}
 }
