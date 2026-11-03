@@ -10,8 +10,11 @@
 // (damaged on the way, mixed from two builds) leaves a kernel that can't
 // mount its root: no init, no janusd, nothing left to revert to the
 // other slot (security audit 2026-09-30, #16). Upgrade and Install
-// therefore rebuild the hash tree here first and refuse a bundle whose
-// files aren't the ones its UKI was built with.
+// therefore check the bundle against that table first: the hash tree
+// against the root digest (CheckTree), then each block of the root
+// filesystem against the tree before it's written (Copy) - streamed, so
+// a slot's worth of data is never held in memory. Rollback checks a
+// slot against its staged UKI the same way before switching to it.
 //
 // The tree is built the way the kernel's dm-verity target reads it
 // (drivers/md/dm-verity-target.c, Documentation/admin-guide/
@@ -30,6 +33,7 @@ import (
 	"errors"
 	"fmt"
 	"hash"
+	"io"
 	"math/bits"
 	"strconv"
 	"strings"
@@ -177,45 +181,39 @@ func hasher(algorithm string) (func() hash.Hash, int, error) {
 	return nil, 0, fmt.Errorf("verity table: unsupported hash algorithm %q", algorithm)
 }
 
-// Verify checks that data is the table's data and that hashTree - the
-// hash device's content, superblock included when there is one - holds
-// the tree it makes from HashStartBlock on. Nothing outside the tree is
-// read (the kernel doesn't read a veritysetup superblock either).
-func (t *Table) Verify(data, hashTree []byte) error {
-	if want := t.DataBlocks * uint64(t.DataBlockSize); uint64(len(data)) != want {
-		return fmt.Errorf("%w: %d bytes, the table covers %d (%d blocks of %d)", ErrData, len(data), want, t.DataBlocks, t.DataBlockSize)
-	}
-	tree, root, err := t.Build(data)
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(root, t.RootDigest) {
-		return fmt.Errorf("%w: its root hash is %x, the table's %x", ErrData, root, t.RootDigest)
-	}
-	start := t.HashStartBlock * uint64(t.HashBlockSize)
-	end := start + uint64(len(tree))
-	if end < start || uint64(len(hashTree)) < end {
-		return fmt.Errorf("%w: %d bytes, the tree ends at byte %d", ErrHashTree, len(hashTree), end)
-	}
-	if !bytes.Equal(hashTree[start:end], tree) {
-		return fmt.Errorf("%w: bytes %d-%d differ from the tree the data makes", ErrHashTree, start, end-1)
-	}
-	return nil
+// DataBytes is the size of the data the table covers.
+func (t *Table) DataBytes() uint64 {
+	return t.DataBlocks * uint64(t.DataBlockSize)
 }
 
-// Build makes data's hash tree as the hash device holds it from
-// HashStartBlock on (top level first), and its root digest. data must
-// hold the table's DataBlocks blocks; anything after them is left out.
-func (t *Table) Build(data []byte) (tree, root []byte, err error) {
+// HashBytes is how much of the hash device the kernel reads: up to the
+// end of the tree, superblock included when there is one.
+func (t *Table) HashBytes() uint64 {
+	g, err := t.geometry()
+	if err != nil {
+		return 0
+	}
+	return t.HashStartBlock*uint64(t.HashBlockSize) + g.treeBlocks()*uint64(t.HashBlockSize)
+}
+
+// geometry is how the table's tree is laid out.
+type geometry struct {
+	digest func([]byte) []byte
+	// perBlock hashes per hash block, each entry bytes apart (format 1
+	// pads each to the block's share, format 0 packs them).
+	perBlock, entry int
+	// counts: each level's blocks, from the data up (level 0 holds the
+	// data blocks' digests); empty when the data is one block.
+	counts []uint64
+}
+
+func (t *Table) geometry() (*geometry, error) {
 	newHash, size, err := hasher(t.Algorithm)
 	if err != nil {
-		return nil, nil, err
-	}
-	if uint64(len(data)) < t.DataBlocks*uint64(t.DataBlockSize) {
-		return nil, nil, fmt.Errorf("%w: %d bytes, fewer than the table's %d blocks of %d", ErrData, len(data), t.DataBlocks, t.DataBlockSize)
+		return nil, err
 	}
 	h := newHash()
-	digest := func(block []byte) []byte {
+	g := &geometry{digest: func(block []byte) []byte {
 		h.Reset()
 		if t.Version >= 1 {
 			h.Write(t.Salt)
@@ -225,38 +223,182 @@ func (t *Table) Build(data []byte) (tree, root []byte, err error) {
 			h.Write(t.Salt)
 		}
 		return h.Sum(nil)
-	}
-
+	}}
 	// The kernel's hash_per_block_bits: as many hashes per block as the
-	// largest power of two that fits; format 1 pads each to the block's
-	// share, format 0 packs them.
+	// largest power of two that fits.
 	perBlockBits := bits.Len(uint(t.HashBlockSize/size)) - 1
-	perBlock := 1 << perBlockBits
-	entry := size
+	g.perBlock, g.entry = 1<<perBlockBits, size
 	if t.Version >= 1 {
-		entry = t.HashBlockSize >> perBlockBits
+		g.entry = t.HashBlockSize >> perBlockBits
 	}
+	// As many levels as the kernel counts: until one block holds every
+	// digest of the level below.
+	for n := t.DataBlocks; n > 1; {
+		n = (n + uint64(g.perBlock) - 1) / uint64(g.perBlock)
+		g.counts = append(g.counts, n)
+	}
+	return g, nil
+}
 
+func (g *geometry) treeBlocks() uint64 {
+	var n uint64
+	for _, c := range g.counts {
+		n += c
+	}
+	return n
+}
+
+// Tree is a hash device's tree, checked against its table's root digest.
+type Tree struct {
+	t *Table
+	g *geometry
+	// level0 holds the data blocks' digests; nil when the data is a
+	// single block, whose digest is the root.
+	level0 []byte
+}
+
+// CheckTree checks a hash device's tree against the table's root digest,
+// the way the kernel does on its way to each data block: the top level's
+// block must hash into the root digest, every other block into its entry
+// in the level above. It needs no data: a bundle's hash tree is known
+// good - or refused - before its root filesystem is read, and then each
+// data block can be checked on its own (Copy). Nothing outside the tree
+// is read (the kernel doesn't read a veritysetup superblock either).
+func (t *Table) CheckTree(hashDev []byte) (*Tree, error) {
+	g, err := t.geometry()
+	if err != nil {
+		return nil, err
+	}
+	hbs := uint64(t.HashBlockSize)
+	start := t.HashStartBlock * hbs
+	end := start + g.treeBlocks()*hbs
+	if end < start || uint64(len(hashDev)) < end {
+		return nil, fmt.Errorf("%w: %d bytes, the tree ends at byte %d", ErrHashTree, len(hashDev), end)
+	}
+	// Each level's offset: the device holds the top level first.
+	offsets := make([]uint64, len(g.counts))
+	off := start
+	for i := len(g.counts) - 1; i >= 0; i-- {
+		offsets[i] = off
+		off += g.counts[i] * hbs
+	}
+	for i := len(g.counts) - 1; i >= 0; i-- {
+		for b := uint64(0); b < g.counts[i]; b++ {
+			block := hashDev[offsets[i]+b*hbs : offsets[i]+(b+1)*hbs]
+			want := t.RootDigest
+			if i < len(g.counts)-1 {
+				want = entryOf(hashDev[offsets[i+1]:], g, t.HashBlockSize, b, len(t.RootDigest))
+			}
+			if !bytes.Equal(g.digest(block), want) {
+				return nil, fmt.Errorf("%w: block %d of level %d (byte %d) doesn't hash to what %s", ErrHashTree, b, i, offsets[i]+b*hbs, above(i, len(g.counts)))
+			}
+		}
+	}
+	tree := &Tree{t: t, g: g}
+	if len(g.counts) > 0 {
+		tree.level0 = hashDev[offsets[0] : offsets[0]+g.counts[0]*hbs]
+	}
+	return tree, nil
+}
+
+// above names what a level's blocks hash into.
+func above(level, levels int) string {
+	if level == levels-1 {
+		return "the table's root digest says"
+	}
+	return fmt.Sprintf("level %d holds for it", level+1)
+}
+
+// entryOf is the digest a level holds for block i of the level below.
+func entryOf(level []byte, g *geometry, hashBlockSize int, i uint64, size int) []byte {
+	off := (i/uint64(g.perBlock))*uint64(hashBlockSize) + (i%uint64(g.perBlock))*uint64(g.entry)
+	return level[off : off+uint64(size)]
+}
+
+// leaf is the digest the tree holds for data block i.
+func (tr *Tree) leaf(i uint64) []byte {
+	if tr.level0 == nil {
+		return tr.t.RootDigest
+	}
+	return entryOf(tr.level0, tr.g, tr.t.HashBlockSize, i, len(tr.t.RootDigest))
+}
+
+// Copy reads the table's data from src, checks each block against the
+// tree before writing it to dst, and wants src to end there. It returns
+// the bytes written: a block refused at byte n leaves n written. Errors
+// about the data wrap ErrData; dst's are returned as they are.
+func (t *Table) Copy(dst io.Writer, src io.Reader, tree *Tree) (int64, error) {
+	if tree == nil || tree.t != t {
+		return 0, errors.New("verity: Copy needs this table's checked tree (CheckTree)")
+	}
+	var written int64
+	buf := make([]byte, t.DataBlockSize)
+	for i := uint64(0); i < t.DataBlocks; i++ {
+		if n, err := io.ReadFull(src, buf); err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+				return written, fmt.Errorf("%w: it ends after %d bytes, the table covers %d", ErrData, i*uint64(t.DataBlockSize)+uint64(n), t.DataBytes())
+			}
+			return written, err
+		}
+		if !bytes.Equal(tree.g.digest(buf), tree.leaf(i)) {
+			return written, fmt.Errorf("%w: block %d (byte %d) isn't the one the hash tree holds", ErrData, i, i*uint64(t.DataBlockSize))
+		}
+		n, err := dst.Write(buf)
+		written += int64(n)
+		if err != nil {
+			return written, err
+		}
+	}
+	var one [1]byte
+	if n, _ := io.ReadFull(src, one[:]); n > 0 {
+		return written, fmt.Errorf("%w: it goes on after the %d bytes the table covers", ErrData, t.DataBytes())
+	}
+	return written, nil
+}
+
+// Verify checks that data is the table's data and that hashDev - the hash
+// device's content, superblock included when there is one - holds its
+// tree from HashStartBlock on.
+func (t *Table) Verify(data, hashDev []byte) error {
+	if uint64(len(data)) != t.DataBytes() {
+		return fmt.Errorf("%w: %d bytes, the table covers %d (%d blocks of %d)", ErrData, len(data), t.DataBytes(), t.DataBlocks, t.DataBlockSize)
+	}
+	tree, err := t.CheckTree(hashDev)
+	if err != nil {
+		return err
+	}
+	_, err = t.Copy(io.Discard, bytes.NewReader(data), tree)
+	return err
+}
+
+// Build makes data's hash tree as the hash device holds it from
+// HashStartBlock on (top level first), and its root digest - what
+// veritysetup format writes. data must hold the table's DataBlocks
+// blocks; anything after them is left out.
+func (t *Table) Build(data []byte) (tree, root []byte, err error) {
+	g, err := t.geometry()
+	if err != nil {
+		return nil, nil, err
+	}
+	if uint64(len(data)) < t.DataBytes() {
+		return nil, nil, fmt.Errorf("%w: %d bytes, fewer than the table's %d blocks of %d", ErrData, len(data), t.DataBlocks, t.DataBlockSize)
+	}
 	// Level 0's input: one digest per data block.
 	digests := make([][]byte, t.DataBlocks)
 	for i := range digests {
 		off := uint64(i) * uint64(t.DataBlockSize)
-		digests[i] = digest(data[off : off+uint64(t.DataBlockSize)])
+		digests[i] = g.digest(data[off : off+uint64(t.DataBlockSize)])
 	}
-
-	// The levels from the data up, as many as the kernel counts: until
-	// one block holds every digest of the level below.
 	var levels [][]byte
-	for len(digests) > 1 {
-		n := (len(digests) + perBlock - 1) / perBlock
-		level := make([]byte, n*t.HashBlockSize)
+	for _, n := range g.counts {
+		level := make([]byte, n*uint64(t.HashBlockSize))
 		for i, d := range digests {
-			copy(level[(i/perBlock)*t.HashBlockSize+(i%perBlock)*entry:], d)
+			copy(level[(i/g.perBlock)*t.HashBlockSize+(i%g.perBlock)*g.entry:], d)
 		}
 		levels = append(levels, level)
 		next := make([][]byte, n)
 		for i := range next {
-			next[i] = digest(level[i*t.HashBlockSize : (i+1)*t.HashBlockSize])
+			next[i] = g.digest(level[i*t.HashBlockSize : (i+1)*t.HashBlockSize])
 		}
 		digests = next
 	}
