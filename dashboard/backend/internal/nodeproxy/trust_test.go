@@ -140,7 +140,7 @@ func TestOnceMoreAfterANodeReboot(t *testing.T) {
 		return client.TrustGet(ctx, &emptypb.Empty{}, opts...)
 	}
 
-	if _, err := onceMore(call); err != nil {
+	if _, err := onceMore(ctx, call); err != nil {
 		t.Fatalf("before the reboot: %v", err)
 	}
 
@@ -158,11 +158,11 @@ func TestOnceMoreAfterANodeReboot(t *testing.T) {
 		t.Fatalf("the first call on the dead connection: %v, want Unavailable", err)
 	}
 	// Once more, after another reboot: onceMore hides it.
-	for _, err := onceMore(call); err != nil; _, err = onceMore(call) {
+	for _, err := onceMore(ctx, call); err != nil; _, err = onceMore(ctx, call) {
 		t.Fatalf("recovering after the first reset: %v", err)
 	}
 	proxy.reboot()
-	st, err := onceMore(call)
+	st, err := onceMore(ctx, call)
 	if err != nil {
 		t.Fatalf("onceMore after the reboot: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestRefusedWhenTheAlertIsLost(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	start := time.Now()
-	_, err = onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.TrustState, error) {
+	_, err = onceMore(ctx, func(opts ...grpc.CallOption) (*janusv1alpha1.TrustState, error) {
 		return janusv1alpha1.NewAccessServiceClient(conn).TrustGet(ctx, &emptypb.Empty{}, opts...)
 	})
 	t.Logf("after %v: %v", time.Since(start).Round(time.Millisecond), err)
@@ -262,4 +262,73 @@ func selfSignedCert(t *testing.T) tls.Certificate {
 		t.Fatal(err)
 	}
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
+}
+
+// cutThenRefusingNode is a node whose first connection dies during the
+// TLS handshake - nothing that says a certificate was refused - and
+// which then refuses the client's certificate on every connection, its
+// alert lost to the reset (resettingTLSNode).
+func cutThenRefusingNode(t *testing.T) string {
+	t.Helper()
+	cert := selfSignedCert(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	conf := &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13,
+		ClientAuth: tls.RequestClientCert, NextProtos: []string{"h2"}}
+	go func() {
+		for n := 0; ; n++ {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(first bool) {
+				if first { // the ClientHello read, then gone
+					_, _ = c.Read(make([]byte, 512))
+					_ = c.Close()
+					return
+				}
+				tc := tls.Server(c, conf)
+				if tc.Handshake() != nil {
+					_ = c.Close()
+					return
+				}
+				_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+				_, _ = tc.Read(make([]byte, 1))
+				_ = c.(*net.TCPConn).SetLinger(0)
+				_ = c.Close()
+			}(n == 0)
+		}
+	}()
+	return ln.Addr().String()
+}
+
+// TestRefusedAfterACutConnection: the first try dies with nothing said
+// (a dead connection), and the next one is a refusal - which onceMore
+// reports at once, rather than waiting for the node until the deadline
+// and swallowing every refusal on the way (#483).
+func TestRefusedAfterACutConnection(t *testing.T) {
+	conn, err := grpc.NewClient(cutThenRefusingNode(t), grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
+		InsecureSkipVerify: true, MinVersion: tls.VersionTLS13, // #nosec G402 -- a test's throwaway server
+		Certificates: []tls.Certificate{selfSignedCert(t)},
+	})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	start := time.Now()
+	_, err = onceMore(ctx, func(opts ...grpc.CallOption) (*janusv1alpha1.TrustState, error) {
+		return janusv1alpha1.NewAccessServiceClient(conn).TrustGet(ctx, &emptypb.Empty{}, opts...)
+	})
+	t.Logf("after %v: %v", time.Since(start).Round(time.Millisecond), err)
+	if !RefusedCertificate(err) {
+		t.Errorf("the refusal after a cut connection isn't reported: %v", err)
+	}
+	if time.Since(start) > 8*time.Second {
+		t.Errorf("took %v: waited for the node instead of reporting the refusal", time.Since(start))
+	}
 }

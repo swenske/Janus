@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -20,7 +21,7 @@ func TrustGet(ctx context.Context, node *store.Node) (*janusv1alpha1.TrustState,
 	if err != nil {
 		return nil, err
 	}
-	return onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.TrustState, error) {
+	return onceMore(ctx, func(opts ...grpc.CallOption) (*janusv1alpha1.TrustState, error) {
 		return janusv1alpha1.NewAccessServiceClient(conn).TrustGet(ctx, &emptypb.Empty{}, opts...)
 	})
 }
@@ -32,30 +33,46 @@ func TrustSet(ctx context.Context, node *store.Node, rootPEM, bundle []byte) (*j
 	if err != nil {
 		return nil, err
 	}
-	return onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.TrustState, error) {
+	return onceMore(ctx, func(opts ...grpc.CallOption) (*janusv1alpha1.TrustState, error) {
 		return janusv1alpha1.NewAccessServiceClient(conn).TrustSet(ctx, &janusv1alpha1.TrustSetRequest{RootCert: rootPEM, Bundle: bundle}, opts...)
 	})
 }
 
-// onceMore runs call, and once more if the connection turned out dead:
-// the shared connection to a node that rebooted since it was last used
-// looks fine until the first bytes sent on it come back as a reset (no
+// onceMore runs call, and again while the node's connection is down: the
+// shared connection to a node that rebooted since it was last used looks
+// fine until the first bytes sent on it come back as a reset (no
 // keepalive pings it meanwhile - a node from before the enforcement
 // policy answers them with a GOAWAY), so that first call fails with
-// Unavailable and grpc reconnects underneath. The second call waits for
-// the new connection - the node is back, or the caller's deadline says.
-// For the calls nothing retries by itself (a trust loop's next turn is
-// ten minutes away); a live view just polls again.
-// A node refusing the certificate isn't a dead connection: that answer
-// stands (waiting would only end on the caller's deadline, the reason
-// lost).
-func onceMore[T any](call func(opts ...grpc.CallOption) (T, error)) (T, error) {
+// Unavailable and grpc reconnects underneath. For the calls nothing
+// retries by itself (a trust loop's next turn is ten minutes away); a
+// live view just polls again.
+//
+// It calls again every retryEvery, never with WaitForReady: grpc keeps a
+// channel whose tries fail in transient failure without a word (sticky,
+// gRFC A62) while a call without WaitForReady fails at once with the
+// latest try's error - so a node that refuses the certificate on a later
+// try is told as soon as it does (#483), where WaitForReady swallowed
+// every refusal until the caller's deadline. A refusal stands; at the
+// deadline the latest error is answered, not the deadline's.
+func onceMore[T any](ctx context.Context, call func(opts ...grpc.CallOption) (T, error)) (T, error) {
 	out, err := call()
-	if status.Code(err) != codes.Unavailable || RefusedCertificate(err) {
-		return out, err
+	for status.Code(err) == codes.Unavailable && !RefusedCertificate(err) {
+		select {
+		case <-ctx.Done():
+			return out, err
+		case <-time.After(retryEvery):
+		}
+		next, nextErr := call()
+		if ctx.Err() != nil && nextErr != nil {
+			return out, err
+		}
+		out, err = next, nextErr
 	}
-	return call(grpc.WaitForReady(true))
+	return out, err
 }
+
+// retryEvery spaces onceMore's calls while a connection is down.
+var retryEvery = 250 * time.Millisecond
 
 // RefusedCertificate reports whether err is a node refusing the
 // Controller's client certificate - its TLS alert, as gRPC reports it.
@@ -110,7 +127,7 @@ func TrustSyncWith(ctx context.Context, node *store.Node, cert *tls.Certificate,
 	}
 	defer conn.Close()
 	c := janusv1alpha1.NewAccessServiceClient(conn)
-	st, err := onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.TrustState, error) {
+	st, err := onceMore(ctx, func(opts ...grpc.CallOption) (*janusv1alpha1.TrustState, error) {
 		return c.TrustGet(ctx, &emptypb.Empty{}, opts...)
 	})
 	if err != nil {
