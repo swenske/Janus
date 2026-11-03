@@ -49,12 +49,12 @@ func TestHashTreeAgainstTheUKI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := checkHashTree(table, "uki-b.efi", hashTree); err != nil {
+	if _, err := checkHashTree(table, "uki-b.efi", hashTree, nothingWritten); err != nil {
 		t.Fatalf("its own tree: %v", err)
 	}
 	_, otherTree, _ := testBundle(t, 41)
 	for name, tree := range map[string][]byte{"another build's tree": otherTree, "a short tree": hashTree[:4096]} {
-		_, err := checkHashTree(table, "uki-b.efi", tree)
+		_, err := checkHashTree(table, "uki-b.efi", tree, nothingWritten)
 		if status.Code(err) != codes.FailedPrecondition || !strings.HasPrefix(status.Convert(err).Message(), "rootfs.verity: ") || !strings.Contains(err.Error(), "nothing was written") {
 			t.Errorf("%s: %v", name, err)
 		}
@@ -76,7 +76,7 @@ func TestWriteSlotData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tree, err := checkHashTree(table, "uki-b.efi", hashTree)
+	tree, err := checkHashTree(table, "uki-b.efi", hashTree, nothingWritten)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,5 +202,40 @@ func TestSlotTooSmall(t *testing.T) {
 	}
 	if msg := status.Convert(slotTooSmall("rootfs.squashfs", 0, 128<<20)).Message(); !strings.Contains(msg, "doesn't fit: this node's slots are 128 MiB") {
 		t.Errorf("unknown size: %q", msg)
+	}
+}
+
+// TestRefusedSuffix: a refusal says nothing was written - unless the root
+// filesystem was uploaded into the slot the update writes, which then
+// holds that upload (#512, finding 2).
+func TestRefusedSuffix(t *testing.T) {
+	staging := t.TempDir()
+	saved := releaseStagingDir
+	releaseStagingDir = staging
+	t.Cleanup(func() { releaseStagingDir = saved })
+
+	if got := stagedSlot(staging, "B"); got != "" {
+		t.Errorf("no upload: %q", got)
+	}
+	if err := writeFileDurably(filepath.Join(staging, stagedMarker), []byte(`{"slot":"B","bytes":4096,"sha256":"x"}`)); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ ref, target, want string }{
+		{staging, "B", "B"},
+		{staging + "/", "B", "B"},
+		{staging, "A", ""},
+		{"https://example.net/bundle", "B", ""},
+		{t.TempDir(), "B", ""},
+	} {
+		if got := stagedSlot(c.ref, c.target); got != c.want {
+			t.Errorf("stagedSlot(%q, %q) = %q, want %q", c.ref, c.target, got, c.want)
+		}
+	}
+	if refusedSuffix("") != nothingWritten {
+		t.Error("nothing uploaded: not \"nothing was written\"")
+	}
+	msg := refusedSuffix("B")
+	if strings.Contains(msg, "nothing was written") || !strings.Contains(msg, "Slot B holds that upload") || !strings.Contains(msg, "Rollback won't switch to it") {
+		t.Errorf("uploaded into B: %q", msg)
 	}
 }

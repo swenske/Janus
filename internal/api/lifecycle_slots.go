@@ -115,12 +115,42 @@ func notTheUKIs(file string, err error, ukiName, written string) error {
 
 const nothingWritten = ", and the node couldn't mount its root from it: nothing was written"
 
+// refusedSuffix is what a refused update says it left in the target slot:
+// nothing written - or, when its root filesystem was uploaded into that
+// slot (stagedSlot), the upload: the slot no longer holds its previous
+// release, whatever this update decides.
+func refusedSuffix(stagedSlot string) string {
+	if stagedSlot == "" {
+		return nothingWritten
+	}
+	return fmt.Sprintf(", and the node couldn't mount its root from it. Slot %s holds that upload, not its previous release: Rollback won't switch to it - upload a sound bundle, then update", stagedSlot)
+}
+
+// stagedSlot is the slot an upload of rootfs.squashfs went into, when
+// bundleRef is UploadReleaseFile's staging directory and that slot is the
+// one an update now writes; "" otherwise.
+func stagedSlot(bundleRef, targetSlot string) string {
+	if filepath.Clean(bundleRef) != filepath.Clean(releaseStagingDir) {
+		return ""
+	}
+	b, err := os.ReadFile(filepath.Join(releaseStagingDir, stagedMarker))
+	if err != nil {
+		return ""
+	}
+	var st stagedData
+	if json.Unmarshal(b, &st) != nil || st.Slot != targetSlot {
+		return ""
+	}
+	return st.Slot
+}
+
 // checkHashTree checks a bundle's rootfs.verity against the root digest
-// its UKI's table pins, before anything of the root filesystem is read.
-func checkHashTree(table *verity.Table, ukiName string, hashTree []byte) (*verity.Tree, error) {
+// its UKI's table pins, before anything of the root filesystem is read;
+// refused says what a refusal leaves in the slot (refusedSuffix).
+func checkHashTree(table *verity.Table, ukiName string, hashTree []byte, refused string) (*verity.Tree, error) {
 	tree, err := table.CheckTree(hashTree)
 	if err != nil {
-		return nil, notTheUKIs("rootfs.verity", err, ukiName, nothingWritten)
+		return nil, notTheUKIs("rootfs.verity", err, ukiName, refused)
 	}
 	return tree, nil
 }
