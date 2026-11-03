@@ -48,6 +48,14 @@ There is no writable overlay and no META partition: what persists is on
 STATE (and the logs on LOGS), everything else is the read-only image or
 memory.
 
+A disk keeps its partitions for good. Each slot's data partition is
+128 MiB - 64 MiB on disks made before the image with every extension
+came within 0.4 MiB of that (#495): `janusd` reads a slot's real size
+(`janusctl version`'s `Slot size`) before an update writes it, and
+refuses a release whose root filesystem doesn't fit. Such a node is
+replaced rather than repartitioned: recycled, or its state moved to a
+new node ([updating nodes](guide/updates.md#when-a-release-doesnt-fit)).
+
 Only one slot is active at a time. `LifecycleService.Upgrade` writes the
 new image to the *inactive* slot, switches the ESP's default image,
 reboots, and watches the new slot's health; if it doesn't report healthy
@@ -76,13 +84,15 @@ boot chain: [boot, disk layout and A/B updates](internals/boot.md).
   authenticates the whole bundle, whatever transport or relay it came
   through. `ImageSource.insecure_skip_signature_check` opts out, for
   development and test bundles only.
-- **The rootfs is checked against that root hash before it's written**,
-  signed bundle or not: `Upgrade` and `Install` rebuild the squashfs's
-  dm-verity hash tree (`internal/verity`) and refuse a `rootfs.squashfs`
-  or `rootfs.verity` other than the ones the UKI's table describes. The
-  kernel would refuse them too, but only at the next boot, from a slot
-  the ESP already points at: no root, no `janusd`, nothing left to
-  revert.
+- **The rootfs is checked against that root hash as it's written**,
+  signed bundle or not (`internal/verity`): `rootfs.verity`'s tree
+  against the root digest the UKI's table pins, before anything is read
+  of the root filesystem, then each block of `rootfs.squashfs` against
+  the tree before it's written - streamed into the inactive slot, never
+  held in memory. The kernel would refuse a mismatch too, but only at
+  the next boot, from a slot the ESP already points at: no root, no
+  `janusd`, nothing left to revert. `Rollback` checks the other slot
+  against its staged UKI the same way before switching to it.
 - **Release pipeline:** the bundle a GitHub Release publishes is the one
   signed in CI (`iso-image-with-bundle` with `SIGNING_KEY`/
   `SIGNING_CERT`), and publication fails if its UKIs don't verify against

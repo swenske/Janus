@@ -58,9 +58,10 @@ and `make schematic-catalog` lists them for a release. A schematic
 layers its extensions onto the base tree - an extension that would
 replace a file of the base, or of another extension, is refused.
 
-Every byte counts: an image's root filesystem must fit its slot - 64 MiB
-on every disk installed so far, for good - and `make rootfs-fit-test`
-builds the image with every extension to check it. A Go binary is built
+Every byte counts: an image's root filesystem must fit its slot - 128
+MiB, and 64 MiB on disks made before, for good - and `make
+rootfs-fit-test` fails when the image with every extension leaves less
+than 8 MiB of a 128 MiB slot. A Go binary is built
 with `-trimpath -ldflags=-w`: no DWARF debug information, which can be
 half its weight once compressed, but its symbol table kept - `hack/
 upstream` runs govulncheck on it, and refuses a binary stripped of it
