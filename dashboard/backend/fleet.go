@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -61,10 +62,48 @@ type trustTracker struct {
 	looping           bool
 	started, finished uint64
 	passDone          chan struct{}
+
+	// admitted: when each node was admitted, for joiningGrace after it.
+	admitted map[string]time.Time
 }
 
 func newTrustTracker() *trustTracker {
-	return &trustTracker{nodes: map[string]nodeTrust{}, kick: make(chan struct{}, 1), passDone: make(chan struct{})}
+	return &trustTracker{nodes: map[string]nodeTrust{}, kick: make(chan struct{}, 1), passDone: make(chan struct{}), admitted: map[string]time.Time{}}
+}
+
+// A node admitted without a key takes the fleet's trust from its
+// registration's answer - at once when a token admits it, at its next
+// poll (every 15 s) when someone approves it - while admitting it kicks
+// a pass at once: refused meanwhile, it isn't missing a renewal, it is
+// joining (#517). It shows as joining and is tried again joinRetry later,
+// for joiningGrace after its admission.
+var (
+	joiningGrace = 2 * time.Minute
+	joinRetry    = 15 * time.Second
+)
+
+// Admitted notes that node id was just admitted.
+func (t *trustTracker) Admitted(id string) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	now := time.Now()
+	for k, at := range t.admitted {
+		if now.Sub(at) > joiningGrace {
+			delete(t.admitted, k)
+		}
+	}
+	t.admitted[id] = now
+}
+
+// joining reports whether node id was admitted less than joiningGrace ago.
+func (t *trustTracker) joining(id string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	at, ok := t.admitted[id]
+	return ok && time.Since(at) < joiningGrace
 }
 
 func (t *trustTracker) beginPass() {
@@ -172,6 +211,7 @@ func (a *app) trustAll(ctx context.Context) {
 	nodes := a.store.List()
 	sem := make(chan struct{}, trustParallel)
 	var wg sync.WaitGroup
+	var joining atomic.Bool
 	for _, n := range nodes {
 		wg.Add(1)
 		sem <- struct{}{}
@@ -180,6 +220,10 @@ func (a *app) trustAll(ctx context.Context) {
 			nctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			nt := a.ensureTrust(nctx, n)
 			cancel()
+			if nt.State == trustNeedsKit && a.trust.joining(n.ID) {
+				nt = nodeTrust{State: trustWaiting, Error: "just admitted: the node takes the fleet's trust from its registration's answer - tried again in a few seconds"}
+				joining.Store(true)
+			}
 			a.trust.set(n.ID, nt)
 			if nt.State == trustTrusted {
 				// A keyless node approved meanwhile fetched its trust.
@@ -188,6 +232,9 @@ func (a *app) trustAll(ctx context.Context) {
 		}()
 	}
 	wg.Wait()
+	if joining.Load() {
+		time.AfterFunc(joinRetry, a.trust.Kick)
+	}
 	behind := a.nodesBehind()
 	switched, err := a.fleet.Switch(len(behind) == 0)
 	switch {

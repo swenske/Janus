@@ -61,7 +61,14 @@ func onceMore[T any](call func(opts ...grpc.CallOption) (T, error)) (T, error) {
 // Controller's client certificate - its TLS alert, as gRPC reports it.
 func RefusedCertificate(err error) bool {
 	msg := status.Convert(err).Message()
-	for _, alert := range []string{"bad certificate", "unknown certificate authority", "certificate required", "expired certificate", "certificate expired", "certificate unknown"} {
+	// "error reading server preface": the node closed the connection right
+	// after the TLS handshake, before its HTTP/2 preface - a node that
+	// lets the certificate in sends that preface at once. TLS 1.3 checks
+	// the client's certificate after the client's side of the handshake
+	// is over, and the node's alert can be lost: the client's preface is
+	// already in the node's buffer when it closes, so the close is a
+	// reset, and the alert in flight goes with it (#483).
+	for _, alert := range []string{"bad certificate", "unknown certificate authority", "certificate required", "expired certificate", "certificate expired", "certificate unknown", "error reading server preface"} {
 		if strings.Contains(msg, alert) {
 			return true
 		}
