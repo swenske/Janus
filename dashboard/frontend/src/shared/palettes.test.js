@@ -92,6 +92,9 @@ const PAIRS = [
   ['--text', ['--info-soft@--bg', '--warn-soft@--bg', '--danger-soft@--bg', '--info-soft@--surface', '--warn-soft@--surface', '--danger-soft@--surface'], 4.5],
   ['--muted', ['--bg', '--surface', '--surface-2', '--card-bg@--bg'], 4.5],
   ['--accent-ink', ['--bg', '--surface', '--card-bg@--bg', '--accent-soft@--surface', '--accent-soft@--bg'], 4.5],
+  // A link in a .notice, on its status's tint (a cluster's lock on a
+  // node page: axe found 4.5:1 less a hair in Kanagawa's light mode).
+  ['--accent-ink', ['--info-soft@--bg', '--warn-soft@--bg', '--danger-soft@--bg', '--info-soft@--surface', '--warn-soft@--surface', '--danger-soft@--surface'], 4.5],
   ...['--ok', '--warn', '--danger', '--info'].map((s) => [s, ['--bg', '--surface', '--card-bg@--bg', `${s}-soft@--surface`, `${s}-soft@--bg`], 4.5]),
   // A danger button's text, on a button's background.
   ['--danger', ['--surface-2'], 4.5],
