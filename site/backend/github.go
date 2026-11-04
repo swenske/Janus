@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/swenske/Janus/internal/calver"
 	"github.com/swenske/Janus/internal/schematic"
 )
 
@@ -107,6 +108,11 @@ func (g *gitHub) Releases(ctx context.Context) ([]release, error) {
 		}
 		out = append(out, *r.release())
 	}
+	// Newest version first: GitHub lists them by the date of each tag's
+	// commit, and a maintenance release (a fix of the previous release,
+	// tagged on its own branch after the newest - docs/contributing/
+	// releasing.md) would come first, taken for the latest.
+	calver.SortNewestFirst(out, func(r release) string { return r.Version })
 	g.mu.Lock()
 	g.releases, g.fetched = out, time.Now()
 	g.mu.Unlock()

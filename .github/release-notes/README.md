@@ -12,6 +12,11 @@ still be completed on `main` while it's tested - `release-promote.yml`
 re-reads them, checks them again and publishes them - and are frozen
 once it is promoted.
 
+A [maintenance release](../../docs/contributing/releasing.md#maintenance-releases)
+has its notes on its branch - its 🔒 section, what the nodes on the
+release it fixes should do - copied here on `main` afterwards, for the
+record.
+
 Structure: a short **Highlights** section first, then one section per
 theme (🌐 network, 🖥️ Controller, 🔒 security, 🐛 fixes, ⚠️ upgrade
 notes...), each with an emoji. Write for an operator: what changed for

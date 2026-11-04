@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
 # The body of a GitHub release: the alpha warning (and, for a
-# pre-release, what a pre-release is), the version's hand-written notes,
+# pre-release, what a pre-release is; for a maintenance release, what it
+# fixes and that it isn't the latest), the version's hand-written notes,
 # then GitHub's generated list of changes since PREVIOUS - the newest
 # release, never a pre-release: a promoted release lists what its readers
-# didn't have yet. image-build.yml writes it when it cuts a release or a
-# pre-release, release-promote.yml again when it promotes one.
+# didn't have yet (a maintenance release: since the release it fixes,
+# the newest its branch reaches). image-build.yml writes it when it cuts
+# a release or a pre-release, release-promote.yml again when it promotes
+# one.
 #
-# Usage: hack/release-body.sh VERSION PREVIOUS release|prerelease COMMIT OUT
+# Usage: hack/release-body.sh VERSION PREVIOUS release|prerelease|maintenance COMMIT OUT
 #   COMMIT: what the tag points at (or will). GITHUB_TOKEN and
 #   GITHUB_REPOSITORY as in a workflow; curl and python3 only.
 set -euo pipefail
 version=$1 prev=$2 kind=$3 commit=$4 out=$5
 notes=".github/release-notes/$version.md"
 [ -s "$notes" ] || { echo "::error::no release notes at $notes" >&2; exit 1; }
-case "$kind" in release | prerelease) ;; *) echo "usage: $0 VERSION PREVIOUS release|prerelease COMMIT OUT" >&2; exit 2 ;; esac
+case "$kind" in release | prerelease | maintenance) ;; *) echo "usage: $0 VERSION PREVIOUS release|prerelease|maintenance COMMIT OUT" >&2; exit 2 ;; esac
 
 generated=$(mktemp)
 trap 'rm -f "$generated" "$generated.req"' EXIT
@@ -38,6 +41,11 @@ rm -f "$generated.req"
   if [ "$kind" = prerelease ]; then
     echo '> [!CAUTION]'
     echo "> **Pre-release**, published to be tested - in a lab, by beta testers - before it becomes a release: the same build is then promoted, unchanged. It may still be withdrawn, and it isn't supported. Nodes and Controllers are never offered it as an update: installing it is a choice, on the Update page or by its version ([pre-releases](https://janus.sw-servers.net/docs/guide/updates.md#pre-releases))."
+    echo
+  fi
+  if [ "$kind" = maintenance ]; then
+    echo '> [!IMPORTANT]'
+    echo "> **Maintenance release of $prev**: its security fixes, for the nodes and Controllers that stay on $prev for now - the previous release is supported for 14 days after the next one ships ([security policy](https://github.com/swenske/Janus/blob/main/SECURITY.md#supported-versions)). It isn't the latest release: nodes on a newer one are never offered it. Install it by its version ([maintenance releases](https://janus.sw-servers.net/docs/guide/updates.md#maintenance-releases))."
     echo
   fi
   cat "$notes"

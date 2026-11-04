@@ -33,10 +33,14 @@ import (
 	"time"
 
 	"github.com/swenske/Janus/dashboard/updater/updaterapi"
+	"github.com/swenske/Janus/internal/calver"
 )
 
-// ReleasesURL lists this project's releases, newest first -
-// GitHub's documented ordering for this endpoint. Not /latest: the
+// ReleasesURL lists this project's releases - by the date of the commit
+// each one's tag names, which fetchLatestRelease sorts by version: a
+// maintenance release (a fix of the previous release, tagged on its own
+// branch after the newest - docs/contributing/releasing.md) comes first
+// in GitHub's list, though it is older. Not /latest: the
 // pre-releases are needed too (ReleaseInfo.Prerelease), and every release
 // up to v2026.09.30-2 was one. dashboardd's -releases-url replaces it (a
 // mirror, or a test's fake).
@@ -128,6 +132,9 @@ func (r *ReleaseInfo) PrereleaseTrack(version string) *ReleaseInfo {
 // component, variant and audience, when only nodes on a HAProxy branch or
 // kernel track), how severe.
 type releaseFix struct {
+	// id names the fix ("JANUS-2026-007", "CVE-…"): the same in every
+	// release's security.json that lists it.
+	id                          string
 	target, extension, severity string
 	component, variant          string
 	audience                    []string
@@ -175,10 +182,18 @@ func (f releaseFix) reaches(img NodeImage) bool {
 // fixes reach the releases with the promotion. For a node on a pre-release,
 // the releases newer than it - each security.json says what it fixes since
 // the release before it, some of which the pre-release may already have.
+// A fix the node's own release lists isn't missing: a maintenance release
+// (a fix of an older release) carries a fix a newer release lists again.
 func (r *ReleaseInfo) SecurityUpdate(version, target string, img NodeImage) (severity, release string) {
 	released := slices.Contains(r.tags, version)
 	if !released && !r.prereleases[version] {
 		return "", ""
+	}
+	has := map[string]bool{}
+	for _, f := range r.security[version] {
+		if f.id != "" {
+			has[f.id] = true
+		}
 	}
 	for _, tag := range r.tags {
 		if tag == version {
@@ -188,7 +203,7 @@ func (r *ReleaseInfo) SecurityUpdate(version, target string, img NodeImage) (sev
 			break
 		}
 		for _, f := range r.security[tag] {
-			if f.target != target || !f.reaches(img) {
+			if f.target != target || !f.reaches(img) || has[f.id] {
 				continue
 			}
 			if release == "" {
@@ -215,6 +230,7 @@ type securityDoc struct {
 		Variant   string   `json:"variant"`
 		Audience  []string `json:"audience"`
 		Fixes     []struct {
+			ID       string `json:"id"`
 			Severity string `json:"severity"`
 		} `json:"fixes"`
 	} `json:"updates"`
@@ -246,7 +262,7 @@ func releaseSecurity(ctx context.Context, tag, url string) ([]releaseFix, error)
 	fixes = []releaseFix{}
 	for _, u := range doc.Updates {
 		for _, f := range u.Fixes {
-			fixes = append(fixes, releaseFix{target: u.Target, extension: u.Extension, severity: cmp.Or(f.Severity, "unknown"),
+			fixes = append(fixes, releaseFix{id: f.ID, target: u.Target, extension: u.Extension, severity: cmp.Or(f.Severity, "unknown"),
 				component: u.Component, variant: u.Variant, audience: u.Audience})
 		}
 	}
@@ -410,6 +426,9 @@ func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
 		return nil, fmt.Errorf("decode GitHub API response: %w", err)
 	}
+	// Newest version first, not GitHub's order (ReleasesURL): the first
+	// release is the latest, the first pre-release the newest.
+	calver.SortNewestFirst(releases, func(r ghRelease) string { return r.TagName })
 
 	var info *ReleaseInfo
 	var pre *ghRelease // the newest pre-release
