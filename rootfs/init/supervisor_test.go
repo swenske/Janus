@@ -175,11 +175,18 @@ func TestSupervisorGiveUpAfterStopsRestarting(t *testing.T) {
 // after an update's confirmation (a Restart, a crash) must come back,
 // not leave the node without its API until the next reboot.
 func TestSupervisorNothingToGiveUpRestartsForever(t *testing.T) {
-	truePath := lookPath(t, "true")
+	// A child that lives 50 ms, then exits - never stable: s.pid is set
+	// most of the time, so the loop below can't miss it. (true lived a
+	// fraction of a millisecond in each ~12 ms cycle: on a loaded CI
+	// runner under -race, the poll below and the restart woke on the
+	// same timer ticks and the poll never saw a child for 5 s - "no child
+	// after the deadline passed", #500.)
+	sleepPath := lookPath(t, "sleep")
 
 	var fired int32
 	s := &Supervisor{
-		Path:        truePath,
+		Path:        sleepPath,
+		Args:        []string{"0.05"},
 		Stdout:      os.Stdout,
 		Stderr:      os.Stderr,
 		MinBackoff:  5 * time.Millisecond,
@@ -195,21 +202,32 @@ func TestSupervisorNothingToGiveUpRestartsForever(t *testing.T) {
 		close(done)
 	}()
 
-	select {
-	case <-done:
-		t.Fatal("Run returned although OnGiveUp had nothing to give up on")
-	case <-time.After(300 * time.Millisecond):
+	deadline := time.Now().Add(5 * time.Second)
+	for atomic.LoadInt32(&fired) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("OnGiveUp never fired past GiveUpAfter")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	// Still restarting it: two children started after OnGiveUp (none
+	// runs while it does - Run calls it between two).
+	seen := map[int64]bool{}
+	for len(seen) < 2 {
+		select {
+		case <-done:
+			t.Fatal("Run returned although OnGiveUp had nothing to give up on")
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("children after OnGiveUp: %v, want two", seen)
+		}
+		if pid := s.pid.Load(); pid != 0 {
+			seen[pid] = true
+		}
+		time.Sleep(time.Millisecond)
 	}
 	if n := atomic.LoadInt32(&fired); n != 1 {
 		t.Errorf("OnGiveUp fired %d times, want once: the deadline goes with it", n)
-	}
-	// Still restarting it: a child shows up again.
-	deadline := time.Now().Add(5 * time.Second)
-	for s.pid.Load() == 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("no child after the deadline passed")
-		}
-		time.Sleep(time.Millisecond)
 	}
 	s.Stop(syscall.SIGTERM)
 	select {
@@ -221,9 +239,9 @@ func TestSupervisorNothingToGiveUpRestartsForever(t *testing.T) {
 
 // TestSupervisorStopEndsSupervision: Stop signals the running child and
 // Run returns once it exits, without restarting it - the power-off path
-// (/sbin/shutdown -> PID 1 -> janusd stopped gracefully). Placed before
-// TestSupervisorGiveUpAfterUnsetNeverGivesUp, whose Run never returns and
-// would compete for the wait4(-1).
+// (/sbin/shutdown -> PID 1 -> janusd stopped gracefully). Every test
+// that starts Run stops it before it returns: two Runs at once would
+// compete for the wait4(-1).
 func TestSupervisorStopEndsSupervision(t *testing.T) {
 	sleepPath := lookPath(t, "sleep")
 	s := &Supervisor{
@@ -267,17 +285,11 @@ func TestSupervisorGiveUpAfterUnsetNeverGivesUp(t *testing.T) {
 	truePath := lookPath(t, "true")
 
 	s := &Supervisor{
-		Path:   truePath,
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
-		// Deliberately slow backoff, not the fast one other tests use -
-		// this Run() call is left running past this test's own return
-		// (Supervisor.Run has no cancellation mechanism, consistent
-		// with its "runs forever" contract), so a slow backoff keeps it
-		// from spawning /usr/bin/true in a tight loop for the rest of
-		// this test binary's process lifetime.
-		MinBackoff:  200 * time.Millisecond,
-		MaxBackoff:  200 * time.Millisecond,
+		Path:        truePath,
+		Stdout:      os.Stdout,
+		Stderr:      os.Stderr,
+		MinBackoff:  5 * time.Millisecond,
+		MaxBackoff:  10 * time.Millisecond,
 		StableAfter: time.Hour,
 		// GiveUpAfter intentionally left zero.
 	}
@@ -293,6 +305,15 @@ func TestSupervisorGiveUpAfterUnsetNeverGivesUp(t *testing.T) {
 		t.Fatal("Run returned with GiveUpAfter unset - it must restart forever")
 	case <-time.After(100 * time.Millisecond):
 		// Still running, as expected.
+	}
+	// Stopped, not left running: its wait4(-1) would reap the children
+	// of the tests after it - a runOnce whose child it took waits for it
+	// forever (-count=30 hung the package, #500).
+	s.Stop(syscall.SIGTERM)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run didn't return after Stop")
 	}
 }
 
