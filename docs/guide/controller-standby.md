@@ -76,6 +76,16 @@ flowchart LR
   promotion puts the active's there.
 - Update the standby first: it keeps no copy from a newer release than
   its own, and says so on its page.
+- **Updating from v2026.11.02 or v2026.11.02-2**: a standby listens on
+  `<data>/ha/control.sock`, which these releases leave behind when it
+  becomes the active, and their updater refuses to back a socket up - the
+  update of a standby, or of an active that has once been one, stops
+  there, nothing changed. On such an active, delete `ha/control.sock`
+  from the data volume first (nothing listens on it); a standby, update
+  by hand: `JANUS_CONTROLLER_IMAGE` in `.env`, then `docker compose up
+  -d`, which recreates the updater too. Later releases remove a stale
+  socket when the Controller starts, and their updater leaves sockets
+  out.
 
 The active's card then shows the standby, its last copy and how it
 answered the last time it was asked. **Remove the standby** forgets it:
@@ -154,7 +164,8 @@ Controller that finds its peer active at a higher epoch steps down -
 when it starts, before any of its loops, and every 30 s while it runs -
 and becomes its standby. What it held is set aside in
 `<data>/ha/previous/<time>/`: what it did after its last copy, kept for
-you to look at, never merged. It then copies the new active.
+you to look at, never merged - the two newest only, each a whole data
+directory. It then copies the new active.
 
 ```sh
 docker compose exec janus-controller /dashboardd ha status

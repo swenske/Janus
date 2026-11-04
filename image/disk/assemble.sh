@@ -80,7 +80,12 @@ SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 # boundary the way CLAUDE.md's own "-ca/-cert/-key ... handy when ctl
 # and daemon share a filesystem" convenience assumes they normally do).
 ESP_MB=64
-DATA_MB=64
+# Each slot's data partition: 128 MiB since the image with every
+# extension came within 0.4 MiB of the 64 MiB slots disks were made with
+# until then (#495). A disk keeps its slots for good - janusd reads a
+# slot's real size before an update writes it. JANUS_SLOT_MB=64 builds
+# a disk of the older layout (hack/qemu-lifecycle-slots-test.sh).
+DATA_MB="${JANUS_SLOT_MB:-128}"
 HASH_MB=4
 STATE_MB=128
 # The LOGS partition (internal/logvol: the node's logs across reboots),

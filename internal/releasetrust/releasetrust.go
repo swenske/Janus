@@ -8,7 +8,10 @@
 // signed .cmdline section holds the rootfs's dm-verity root hash, and the
 // kernel verifies every block of rootfs.squashfs against it. This holds
 // whatever the bundle's transport was - an http:// mirror, an https://
-// download, a relay through the Controller, a local path.
+// download, a relay through the Controller, a local path. Upgrade and
+// Install also check the squashfs and its hash tree against that root
+// hash before writing them (internal/verity): the kernel's check comes
+// only at the next boot, too late to go back.
 //
 // It's the same signature UEFI Secure Boot checks, verified here before
 // anything is written, so it also protects nodes whose firmware doesn't

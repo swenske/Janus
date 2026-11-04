@@ -1,7 +1,11 @@
 package api
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -21,6 +25,7 @@ import (
 	"github.com/swenske/Janus/internal/logvol"
 	"github.com/swenske/Janus/internal/netconfig"
 	"github.com/swenske/Janus/internal/pki"
+	"github.com/swenske/Janus/internal/verity"
 )
 
 // Install writes a full Janus image to a blank disk for the first
@@ -93,28 +98,18 @@ func (l *Lifecycle) Install(req *janusv1alpha1.InstallRequest, stream janusv1alp
 		return err
 	}
 
-	squashfsPath := filepath.Join(bundleDir, "rootfs.squashfs")
-	squashfs, err := os.ReadFile(squashfsPath)
-	if err != nil {
-		return status.Errorf(codes.FailedPrecondition, "read %s: %v", squashfsPath, err)
-	}
-	if want := req.GetSource().GetSha256(); want != "" {
-		if got := sha256Hex(squashfs); got != want {
-			return status.Errorf(codes.FailedPrecondition, "%s sha256 %s doesn't match requested %s", squashfsPath, got, want)
-		}
-	}
 	verityPath := filepath.Join(bundleDir, "rootfs.verity")
-	verity, err := os.ReadFile(verityPath)
+	hashTree, err := fetchBundleFile(stream.Context(), bundleDir, "rootfs.verity", diskimage.HashMB<<20)
 	if err != nil {
 		return status.Errorf(codes.FailedPrecondition, "read %s: %v", verityPath, err)
 	}
 	ukiAPath := filepath.Join(bundleDir, "uki-a.efi")
-	ukiA, err := os.ReadFile(ukiAPath)
+	ukiA, err := fetchBundleFile(stream.Context(), bundleDir, "uki-a.efi", uploadMaxUKIBytes)
 	if err != nil {
 		return status.Errorf(codes.FailedPrecondition, "read %s: %v", ukiAPath, err)
 	}
 	ukiBPath := filepath.Join(bundleDir, "uki-b.efi")
-	ukiB, err := os.ReadFile(ukiBPath)
+	ukiB, err := fetchBundleFile(stream.Context(), bundleDir, "uki-b.efi", uploadMaxUKIBytes)
 	if err != nil {
 		return status.Errorf(codes.FailedPrecondition, "read %s: %v", ukiBPath, err)
 	}
@@ -132,11 +127,49 @@ func (l *Lifecycle) Install(req *janusv1alpha1.InstallRequest, stream janusv1alp
 	if err := send("verifying", 0.1, "uki-a.efi, uki-b.efi: "+signature); err != nil {
 		return err
 	}
-	if len(squashfs) > diskimage.DataMB*1024*1024 {
-		return status.Errorf(codes.FailedPrecondition, "%s is %d bytes, exceeds the %d-byte BOOT-*-DATA partition size", squashfsPath, len(squashfs), diskimage.DataMB*1024*1024)
+
+	// Both slots get the same root filesystem: it must be the one each
+	// UKI's table pins, or the installed disk wouldn't boot from that
+	// slot (see checkHashTree) - checked from the bundle, streamed,
+	// before the disk is touched.
+	squashfsPath := filepath.Join(bundleDir, "rootfs.squashfs")
+	var vt *verity.Table
+	var tree *verity.Tree
+	for _, u := range []struct {
+		name string
+		data []byte
+	}{{"uki-a.efi", ukiA}, {"uki-b.efi", ukiB}} {
+		t, err := ukiVerityTable(u.name, u.data)
+		if err != nil {
+			return err
+		}
+		if tree, err = checkHashTree(t, u.name, hashTree, nothingWritten); err != nil {
+			return err
+		}
+		if vt != nil && (vt.DataBytes() != t.DataBytes() || !bytes.Equal(vt.RootDigest, t.RootDigest)) {
+			return status.Errorf(codes.FailedPrecondition, "uki-a.efi and uki-b.efi boot different root filesystems: they aren't from the same build")
+		}
+		vt = t
 	}
-	if len(verity) > diskimage.HashMB*1024*1024 {
-		return status.Errorf(codes.FailedPrecondition, "%s is %d bytes, exceeds the %d-byte BOOT-*-HASH partition size", verityPath, len(verity), diskimage.HashMB*1024*1024)
+	if vt.DataBytes() > diskimage.DataMB<<20 {
+		return status.Errorf(codes.FailedPrecondition, "%s is %s, bigger than the %d MiB slots Install makes", squashfsPath, mib(vt.DataBytes()), diskimage.DataMB)
+	}
+	data, err := openBundleData(stream.Context(), bundleDir, "", "")
+	if err != nil {
+		return status.Errorf(codes.FailedPrecondition, "read %s: %v", squashfsPath, err)
+	}
+	defer data.Close()
+	sum := sha256.New()
+	if _, err := vt.Copy(io.Discard, io.TeeReader(data, sum), tree); err != nil {
+		return notTheUKIs("rootfs.squashfs", err, "uki-a.efi", nothingWritten)
+	}
+	if want := req.GetSource().GetSha256(); want != "" {
+		if got := hex.EncodeToString(sum.Sum(nil)); got != want {
+			return status.Errorf(codes.FailedPrecondition, "%s sha256 %s doesn't match requested %s", squashfsPath, got, want)
+		}
+	}
+	if err := send("verifying", 0.12, fmt.Sprintf("rootfs.squashfs, rootfs.verity: the ones uki-a.efi and uki-b.efi pin (root hash %x…)", vt.RootDigest[:6])); err != nil {
+		return err
 	}
 
 	disk, err := diskfs.Open(diskPath, diskfs.WithOpenMode(diskfs.ReadWrite))
@@ -185,12 +218,12 @@ func (l *Lifecycle) Install(req *janusv1alpha1.InstallRequest, stream janusv1alp
 		return err
 	}
 	for _, start := range []uint64{layout.ADataStart, layout.BDataStart} {
-		if err := writeDiskAt(disk, start, squashfs); err != nil {
+		if err := writeDiskFrom(disk, start, squashfsPath); err != nil {
 			return status.Errorf(codes.Internal, "write rootfs.squashfs at sector %d: %v", start, err)
 		}
 	}
 	for _, start := range []uint64{layout.AHashStart, layout.BHashStart} {
-		if err := writeDiskAt(disk, start, verity); err != nil {
+		if err := writeDiskAt(disk, start, hashTree); err != nil {
 			return status.Errorf(codes.Internal, "write rootfs.verity at sector %d: %v", start, err)
 		}
 	}
@@ -319,6 +352,22 @@ func writeDiskAt(d *diskpkg.Disk, startSector uint64, data []byte) error {
 		return err
 	}
 	_, err = w.WriteAt(data, int64(startSector)*diskimage.SectorSize)
+	return err
+}
+
+// writeDiskFrom is writeDiskAt for a file, streamed: a slot's worth of
+// root filesystem is never held in memory.
+func writeDiskFrom(d *diskpkg.Disk, startSector uint64, path string) error {
+	w, err := d.Backend.Writable()
+	if err != nil {
+		return err
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = io.CopyBuffer(io.NewOffsetWriter(w, int64(startSector)*diskimage.SectorSize), f, make([]byte, 1<<20))
 	return err
 }
 

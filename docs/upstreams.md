@@ -166,7 +166,9 @@ reaches) and `npm audit` on the Controller frontend's production packages.
 A downloaded Go binary (Consul, Compose) is checked as built: what its
 symbols reach, the standard library of the Go that built it included - a
 stripped binary is refused, govulncheck would report every vulnerability
-of every module in it. When an upstream's binary lags behind on Go,
+of every module in it. Its DWARF debug information isn't needed: the Go
+extensions built here drop it (`-ldflags=-w`) and keep their symbol
+table. When an upstream's binary lags behind on Go,
 building it from source fixes it: node_exporter 1.12.1's carried seven
 vulnerabilities of Go 1.26.5's standard library, the one built here none.
 

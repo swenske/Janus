@@ -93,10 +93,10 @@ BOOT_FILENAME="BOOTAA64.EFI"
 # project's own UKI ~9-10MiB - comfortable headroom on a real SD card
 # without being wasteful. DATA_MB/HASH_MB/STATE_MB match image/disk/
 # assemble.sh's own sizes - this project's arm64 rootfs is smaller than
-# amd64's (~10MiB squashfs vs the 64MiB budget), same headroom
+# amd64's (~10MiB squashfs vs the 128MiB slots), same headroom
 # reasoning as that file's own comment.
 FIRMWARE_MB=128
-DATA_MB=64
+DATA_MB=128
 HASH_MB=4
 STATE_MB=128
 

@@ -1,0 +1,11 @@
+{
+  "id": "JANUS-2026-007",
+  "title": "A root filesystem swapped or damaged in an update bundle left the node unable to boot, with no automatic revert",
+  "severity": "medium",
+  "cvss": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:N/I:N/A:H",
+  "cwe": [
+    "CWE-354"
+  ],
+  "target": "node",
+  "description": "`Upgrade` and `Install` checked a bundle's kernel image - its signature, which authenticates the dm-verity root hash its command line carries - but wrote `rootfs.squashfs` and `rootfs.verity` without checking them against that hash. dm-verity refused them only at the next boot, from the slot the node had just switched to: the kernel couldn't mount its root, so neither init nor janusd ran, and the automatic revert (`wait_for_health`), which janusd drives, never came. The node stayed down until someone reached its console or its disk.\n\nWhoever could alter a bundle on its way - a node fetching an `http://` URL, a mirror or a server the bundle came from - could swap its root filesystem and take down every node updated from it; a bundle damaged in transit, or a directory mixing the files of two builds, did the same by accident. Running code of their own was never possible: dm-verity refuses every block the signed root hash doesn't cover.\n\n**Affected**: nodes updated or installed from a bundle that can be altered on its way: an `http://` URL, a mirror, a staging directory or a relay others can write to.\n\n**Fix**: `Upgrade` and `Install` rebuild the root filesystem's dm-verity hash tree and refuse, before writing anything, a `rootfs.squashfs` or a `rootfs.verity` other than the ones the kernel image's table describes; the node keeps running its release and says which file is wrong.\n\n**Besides updating**: the update that brings this fix is still written by the node's current release, without the check - take it over HTTPS (GitHub Releases, the image factory) or through the Controller."
+}

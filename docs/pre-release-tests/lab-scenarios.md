@@ -71,6 +71,11 @@ release to the pre-release. Measured:
   0.1 s run on the lab's host (since v2026.10.14-2; from the workstation
   before, whose path adds its own lost requests).
 
+Since v2026.11.04, what a past standby left in the data directory is
+read before and after: `ha/control.sock` and the set-asides in
+`ha/previous/`; then a stale socket (a Unix socket nothing listens on)
+is put at `ha/control.sock` and the Controller restarted, to see it go.
+
 ### The image factory
 
 A node's Update page offers the pre-release apart; asked to, the factory
@@ -992,6 +997,72 @@ the journal, `janusctl cluster get`'s handoff line; the nodes' health
 after. Waiting for the balancer needs a balancer hook (RouterOS
 read-only for the lab's BGP anycast, or a webhook): not set up yet.
 
+### The update path: what writes it, and its memory
+
+Since v2026.11.03. A node updated by URL (`lifecycle upgrade
+-wait-for-health -sha256`) and another through the Controller's relay
+(the node page's `upgrade-relay`), first written by the release before
+(the update that brings the pre-release), then by the pre-release itself
+onto another image. Each progress line stamped as it comes; janusd's
+resident memory read through `system ps` every 0.35 s and the node's
+memory (node_exporter: anonymous pages, available) every 0.12 s.
+Measured: the time from the call to the reboot and the write step's,
+janusd's growth, the relay's messages, `janusctl version`'s slot size.
+
+### Damaged and mixed bundles
+
+Since v2026.11.03. On a node of the pre-release outside any cluster,
+bundles served over plain HTTP by a host of the lab (the build box isn't
+reachable from the lab's networks), and pushed by `upload-release`:
+
+| Bundle | Measured |
+|---|---|
+| The pre-release's, one byte of `rootfs.squashfs` changed at 2 MiB, its `.sha256` made to match | the refusal and the block it names; the node serving; what `version` and the node page's Update tab say of the other slot; `lifecycle rollback` refused; a sound bundle repairing it |
+| The pre-release's kernel images (and `rootfs.verity`) with the release before's `rootfs.squashfs`; with its `rootfs.verity` too | the refusal ("nothing was written"); the other slot intact; Rollback accepted, there and back, timed |
+| Both through `upload-release`, then an update from the staging | the "uploaded into slot" check, the refusal, the slot's state |
+| A `rootfs.squashfs` bigger than the slot | refused before anything is written |
+| Two uploads at once | the second refused |
+
+### A recycle onto bigger slots, a new machine
+
+Since v2026.11.03. As in [Recycling](#recycling), the two machines made
+from the release before's image and the master recycled with
+`"version"` = the pre-release: the newcomer's `Slot size` and disk size
+(the hypervisor's view) besides the recycle's usual measures. A new
+machine made from the pre-release's own image: its slot size, its time
+to ready, its health.
+
+### The image catalog and the builder
+
+Since v2026.11.03. The release's `schematic-catalog.json` (`slot_bytes`,
+`base_bytes`, each part's `bytes`) summed for the default image, the
+lab's, the lab's on another HAProxy branch and every extension (built by
+the image factory for the campaign), against each `rootfs.squashfs`'s
+real size; the public builder in headless Chromium, light and dark, the
+pre-release chosen: each extension's weight and the slot meter, for the
+default and for every extension, console errors and failed requests.
+
+### The fleet's trust for a new node
+
+Since v2026.11.04. `GET /api/fleet` read every 0.5 s from the moment a
+node is created, a line for each change of its state: two machines the
+Controller makes from the pre-release's image (one on each host, their
+registration token), then a node made by hand from the image, without
+a token, approved by hand as soon as it is listed, and the same with the
+release before's image. Measured: the states the node goes through
+(`needs-kit` must never show), how long it stays joining, the time to
+ready.
+
+### USB devices under SELinux
+
+Since v2026.11.04. On a node made by hand on a host (the Controller's
+machines have no USB device), stopped: a USB tablet added to its
+machine's inactive definition, started; then a USB keyboard plugged in
+live and taken out. The same on a node of the release before. Measured:
+the AVC denials after the boot and after the plug, the console's "USB
+disconnect", when the tablet is enumerated against when the policy is
+loaded.
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -1164,3 +1235,16 @@ ran:
   body under `longconn.py`, the probes and `rwatch`, its stages and
   journal; `ctl-login HOST JAR`: a sign-in to a second Controller with
   the lab's account (v2026.11.02).
+- `aup NAME NODE url|relay|upload REF [SHA256]` (`ALLOW=1`: another
+  schematic): a node updated by URL, the Controller's relay or an
+  upload, every progress line stamped, janusd's memory and the node's
+  sampled meanwhile; `m-recycle68`, `rec-cluster68`: the recycle with
+  `RV=` a version; `builder.mjs`: the public builder with the
+  pre-release chosen (v2026.11.03).
+- `fleetwatch OUT SECONDS`: `GET /api/fleet` every 0.5 s, each change
+  of a new node's trust state; `manual-vm NAME HOST IMAGE`: a node made
+  by hand, announcing itself without a token; `approve-watch NAME OUT
+  [DELAY]`: approves it once it is listed; `usb-test NAME`: the USB
+  tablet and the live keyboard; `ndmesg NAME`: a node's kernel log
+  through its page; `rbench-short NAME`: keep-alive 64 and a new
+  connection per request, three rounds (v2026.11.04).

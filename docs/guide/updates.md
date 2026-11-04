@@ -78,7 +78,16 @@ janusctl -n lb1 version           # the release now running, and its slot
   `-allow-schematic-change`.
 - A node that can't reach the URL: `janusctl lifecycle upload-release
   DIR` streams a bundle from where `janusctl` runs, then `upgrade` takes
-  the directory it prints.
+  the directory it prints. The root filesystem goes straight into the
+  node's other slot, which no longer holds its previous release until
+  the update completes.
+- A bundle whose `rootfs.squashfs` or `rootfs.verity` isn't the one its
+  kernel image was built with - damaged on its way, or files of two
+  builds in one directory - is refused, each block checked before it's
+  written (`rootfs.squashfs: … nothing was written`): take the four
+  files of one release again. Refused once part of it was written, the
+  node keeps running, but its other slot holds neither release: update
+  it again with a sound bundle - `lifecycle rollback` refuses that slot.
 - `-kexec` reboots into the new release without going through the
   firmware: the running kernel jumps straight into the new one, in
   seconds, where a server's POST takes a minute. The same flag on
@@ -165,7 +174,28 @@ marked; GitHub's **Watch → Custom → Releases** notifies them too.
 
 `janusctl -n lb1 lifecycle rollback`: the node reboots into its other
 slot - the release it ran before, with the same configuration;
-`janusctl -n lb1 version` says which (`Other slot`).
+`janusctl -n lb1 version` says which (`Other slot`). The slot is checked
+against its kernel image first: one an update wrote part of and gave up
+on is refused.
+
+## When a release doesn't fit
+
+A disk keeps the slots it was installed with: 128 MiB each since the
+release that brought them, 64 MiB before - `janusctl -n lb1 version`
+says (`Slot size`). A release whose root filesystem is bigger than the
+node's slots is refused before anything is written, and no update ever
+grows a partition. Replace such a node with one installed from a newer
+image:
+
+- a member of a [cluster](clusters.md#recycling-a-member) that is one of
+  the Controller's machines: **Recycle** it - the newcomer is a new
+  machine made from the release's image, its slots included;
+- any other node: install a new one, then move the old one's state to it
+  ([replacing a node](replacing-a-node.md)).
+
+The default image and most schematics are far from 64 MiB: only the
+heaviest extensions together (Consul, the Prometheus exporters, Let's
+Encrypt) come near it.
 
 ## When an update reverted
 

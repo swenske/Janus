@@ -58,6 +58,17 @@ and `make schematic-catalog` lists them for a release. A schematic
 layers its extensions onto the base tree - an extension that would
 replace a file of the base, or of another extension, is refused.
 
+Every byte counts: an image's root filesystem must fit its slot - 128
+MiB, and 64 MiB on disks made before, for good - and `make
+rootfs-fit-test` fails when the image with every extension leaves less
+than 8 MiB of a 128 MiB slot. A release's catalog says what each
+extension weighs (`hack/extpack weigh`), and the image builder shows it:
+say in the pull request what a new one adds. A Go binary is built
+with `-trimpath -ldflags=-w`: no DWARF debug information, which can be
+half its weight once compressed, but its symbol table kept - `hack/
+upstream` runs govulncheck on it, and refuses a binary stripped of it
+(`-s`, `strip`).
+
 ## Its SELinux domain
 
 Every extension's daemon runs in a domain of its own in

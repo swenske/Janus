@@ -135,8 +135,8 @@ a rescue volume attached ([recovery](guide/recovery.md#neither)).
 | Method | Streaming | Status | Purpose |
 |---|---|---|---|
 | `Install` | server | ✅ | Partition a blank target disk from scratch (GPT + ESP/FAT32 + STATE/ext4, pure Go via go-diskfs) and write a release bundle's rootfs identically to both A/B slots - doesn't reboot anything; optional `controller_address`/`controller_ca_cert` (and `controller_fleet_root_cert`, the Controller's fleet root) write a `controller/` directory onto STATE for the installed node to self-register with on first boot; optional `registration_token` (with `controller_address`: a Controller's enrollment token admits the node without approval, labelled) writes `controller/token`; optional `fleet_root_cert` + `fleet_bundle` (checked first) write `pki/fleet/` - the node trusts that fleet from its first boot, without a Controller ([fleet-without-controller.md](fleet-without-controller.md)) |
-| `Upgrade` | server | ✅ | Write a release bundle's rootfs to the inactive A/B slot, switch + reboot - `wait_for_health` auto-reverts if the new slot's HAProxy (real stats-socket check) never comes up healthy in time, or if janusd itself never stays running long enough to check |
-| `Rollback` | | ✅ | Switch back to the other A/B slot, reboot |
+| `Upgrade` | server | ✅ | Write a release bundle's rootfs to the inactive A/B slot - streamed, each block checked against the UKI's dm-verity tree before it's written, refused when it doesn't fit the slot (128 MiB, 64 MiB on older disks) - switch + reboot - `wait_for_health` auto-reverts if the new slot's HAProxy (real stats-socket check) never comes up healthy in time, or if janusd itself never stays running long enough to check |
+| `Rollback` | | ✅ | Switch back to the other A/B slot, reboot - the slot checked against its staged UKI first |
 
 ## HAProxyService
 
