@@ -143,7 +143,7 @@ func (l *Lifecycle) Install(req *janusv1alpha1.InstallRequest, stream janusv1alp
 		if err != nil {
 			return err
 		}
-		if tree, err = checkHashTree(t, u.name, hashTree); err != nil {
+		if tree, err = checkHashTree(t, u.name, hashTree, nothingWritten); err != nil {
 			return err
 		}
 		if vt != nil && (vt.DataBytes() != t.DataBytes() || !bytes.Equal(vt.RootDigest, t.RootDigest)) {

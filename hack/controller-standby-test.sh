@@ -301,7 +301,16 @@ api "$VIP_MAIN" "$VJAR" GET /api/ha | json '"%s %s" % (d["role"], d["epoch"])' |
 grep -q "handed over by the active" "$W/a.log" || fail "A didn't take B's handed-over copy"
 grep -q "stepping down for the standby" "$W/b.log" || fail "B didn't step down"
 for n in n1 n2; do wait_for "$n's page doesn't answer through A" 60 page "$VIP_MAIN" "$VJAR" "$n"; done
-echo "  ok: the switchover from B's page - B handed A its last copy and stepped down, A the active at epoch 2 with the node B admitted"
+# A was a standby until now: its control socket goes at its start - the
+# updater's backup refused it (v2026.11.02-2's lab); B, the standby, has its own.
+[ ! -e "$W/a/ha/control.sock" ] || fail "A, the active again, kept its standby's control socket"
+[ -S "$W/b/ha/control.sock" ] || fail "B, the standby, has no control socket"
+# B's notes of its copies as A's standby (epoch 0) went when it stepped
+# down: none shown as its copies of A at epoch 2 (v2026.11.02-2's lab).
+if "$DASHBOARDD" ha status -data-dir "$W/b" 2>&1 | grep -qE "^copy: .* epoch 0,"; then
+  fail "B shows a copy of its time as A's standby: $("$DASHBOARDD" ha status -data-dir "$W/b" 2>&1)"
+fi
+echo "  ok: the switchover from B's page - B handed A its last copy and stepped down, A the active at epoch 2 with the node B admitted, without its standby's socket"
 
 # --- 7. the witness in Consul: a promotion behind a partition ---
 # A real Consul server, HTTPS, ACLs denying by default; the Controller's

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -34,10 +36,21 @@ func TestCopyAndReplace(t *testing.T) {
 	if err := os.Symlink("auth.json", filepath.Join(src, "link")); err != nil {
 		t.Fatal(err)
 	}
+	// A socket nothing listens on - a Controller's ha/control.sock: left
+	// out, not a failed backup (v2026.11.02-2's lab).
+	ln, err := net.Listen("unix", filepath.Join(src, "control.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln.(*net.UnixListener).SetUnlinkOnClose(false)
+	_ = ln.Close()
 
 	dst := filepath.Join(root, "dst")
 	if err := copyTree(src, dst); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(dst, "control.sock")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the socket copied: %v", err)
 	}
 	if fi, err := os.Stat(filepath.Join(dst, "nodes", "a")); err != nil || fi.Mode().Perm() != 0o700 {
 		t.Errorf("nodes/a: %v %v", fi, err)
