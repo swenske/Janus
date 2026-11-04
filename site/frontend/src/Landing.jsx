@@ -310,8 +310,9 @@ export default function Landing() {
             <span className="step-n">2</span>
             <h3>Boot</h3>
             <p className="muted">
-              Import the disk in Proxmox or KVM - or let the Controller create the VM on libvirt or Proxmox VE. A node given nothing shows a one-time pairing code on its console,
-              never a key. VMware, bare metal and Raspberry Pi are suspended, <Link to="/builder">waiting for testers</Link>.
+              Import the disk in Proxmox or KVM - or let the Controller create the VM on libvirt or Proxmox VE, the two platforms Janus supports. A node given nothing shows a
+              one-time pairing code on its console, never a key. VMware, bare metal and Raspberry Pi are experimental,{' '}
+              <Link to="/builder">waiting for testers</Link>.
             </p>
           </div>
           <div className="step">

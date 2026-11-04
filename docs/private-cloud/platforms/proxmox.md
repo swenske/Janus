@@ -5,6 +5,8 @@ Controller through Proxmox's API with a token scoped to one pool, and
 configured by Terraform (or OpenTofu) - then a virtual IP between them.
 
 > [!NOTE]
+> One of the two platforms
+> [Janus supports](../README.md#what-janus-supports), with libvirt/KVM.
 > Proven: the Controller's Proxmox VE support, and the provider driving
 > it, on a real Proxmox VE 9.2 node - a hypervisor trusted on its
 > certificate's fingerprint, a node created and admitted, changed in

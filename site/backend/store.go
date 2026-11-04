@@ -46,6 +46,11 @@ type platform struct {
 	Description  string `json:"description"`
 	Docs         string `json:"docs,omitempty"`
 	Experimental bool   `json:"experimental,omitempty"`
+	// Supported is what Janus supports - and the beta covers: amd64
+	// virtual machines on KVM/libvirt and Proxmox VE (docs/private-cloud/
+	// README.md "What Janus supports"). Every other platform is
+	// experimental, even once its target is no longer suspended.
+	Supported bool `json:"supported,omitempty"`
 	// Target is the image target variants.mk may suspend (internal/
 	// variants.Targets); Suspended says it is: the builder shows it greyed
 	// out with a "Need tester" link to its issue form, and nothing builds
@@ -57,9 +62,9 @@ type platform struct {
 // platforms are the images a release publishes, with the same file
 // names for every schematic.
 var platforms = withSuspended([]platform{
-	{ID: "proxmox", Name: "Proxmox VE", Group: "Virtualization", Arch: "amd64", File: "janus.qcow2",
+	{ID: "proxmox", Name: "Proxmox VE", Group: "Virtualization", Arch: "amd64", File: "janus.qcow2", Supported: true,
 		Description: "qcow2 disk to import with qm importdisk; UEFI (OVMF), serial console.", Docs: "docs/private-cloud/platforms/proxmox.md"},
-	{ID: "kvm", Name: "KVM / libvirt", Group: "Virtualization", Arch: "amd64", File: "janus-kvm.qcow2",
+	{ID: "kvm", Name: "KVM / libvirt", Group: "Virtualization", Arch: "amd64", File: "janus-kvm.qcow2", Supported: true,
 		Description: "qcow2 disk for virt-install --boot uefi or any KVM host.", Docs: "docs/private-cloud/platforms/kvm-libvirt.md"},
 	{ID: "vmware", Name: "VMware ESXi", Group: "Virtualization", Arch: "amd64", File: "janus.vmdk", Target: variants.TargetVMware,
 		Description: "streamOptimized VMDK; EFI firmware, a PVSCSI, SATA or NVMe disk controller (not LSI Logic).", Docs: "docs/private-cloud/platforms/vmware.md"},
