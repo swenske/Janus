@@ -183,9 +183,10 @@ operators try the new one.
 Controllers and the image factory order releases by version, not by
 GitHub's list (by the date of each tag's commit, where the maintenance
 release comes first): the newest stays the latest, and a node on it is
-never offered the maintenance release. A node on the previous release
-installs it by its version ([updating
-nodes](../guide/updates.md#maintenance-releases)); the next update it is
+never offered the maintenance release. A node on the previous release is
+offered it on its Update page, beside the update, or installs it by its
+version ([updating nodes](../guide/updates.md#maintenance-releases)) -
+the Controller knows it by its name; the next update it is
 offered is the newest release, as before. Its 🔒 badge leaves out the
 fixes the maintenance release already carries.
 

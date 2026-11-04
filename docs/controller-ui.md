@@ -564,6 +564,20 @@ newer), never back to the release: the node page's `GET
 `?version=`: the create-a-node form asks it for the pre-release once it's
 typed in.
 
+**Maintenance releases** ([releasing](contributing/releasing.md#maintenance-releases))
+are releases, never the latest: `fetchLatestRelease` sorts GitHub's list
+by version (`calver.SortNewestFirst` - GitHub orders it by the date of
+each tag's commit) and keeps those whose name says "- maintenance of vX"
+(`ReleaseInfo.MaintenanceOf`). `MaintenanceFor` gives a node the newest
+one of its release's day, newer than it - `maintenance` in its
+`/api/update-check`; never for a development build, never instead of
+the update. The node's Update page shows it in full under the update
+(`MaintenanceOffer`, a `.notice`: it is supported); **Use this
+maintenance release** fills the installation form in, the default
+schematic's at once, another's through `POST /api/factory/prerelease`
+(which prepares the release on offer, either kind) - the same
+`useOfferPrep` as a pre-release, without the typed version.
+
 ## The node page
 
 Hash routing (`#/haproxy/config`, `#/tools/files?path=/etc`), a sidebar
