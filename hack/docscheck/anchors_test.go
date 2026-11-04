@@ -77,7 +77,9 @@ func TestSiteLinksLeadToPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	pages := map[string]bool{}
-	for _, m := range regexp.MustCompile(`file:\s*([^\s,}]+)`).FindAllSubmatch(structure, -1) {
+	// A section's index is a page too (structure.mjs adds it, and its
+	// /docs/<file>.md permalink: /docs/private-cloud/README.md).
+	for _, m := range regexp.MustCompile(`(?:file|index):\s*([^\s,}]+)`).FindAllSubmatch(structure, -1) {
 		pages[string(m[1])] = true
 	}
 	anchors := map[string]map[string]bool{}
