@@ -64,8 +64,7 @@ it.
   may still change it ([stability](private-cloud/own-orchestrator.md#stability)).
 - Smaller follow-ups: replacing a node straight from another one, changing
   a node's address from the Controller, SSO back-channel logout,
-  enforcing the Controller's Content Security Policy, authenticated time
-  (NTS).
+  authenticated time (NTS).
 
 Not planned, by design: a declarative machine configuration
 (`ApplyConfiguration`), and anything that would run a command on a node.

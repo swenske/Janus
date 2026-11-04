@@ -303,6 +303,26 @@ echo "Second factor OK: the admin set an authenticator app up before anything el
 # Accounts: a reader made by the admin chooses their password, reads,
 # and is refused every change - recorded in the audit with their name.
 API="https://127.0.0.1:${DASHBOARD_ADDR_PORT}"
+
+# The Content Security Policy is enforced on the page and a node page
+# (security_headers.go), and a browser's report of what it blocked is
+# logged.
+for page in / /nodes/none/; do
+  curl -sk -D "$WORKDIR/headers.txt" -o /dev/null "$API$page"
+  if ! grep -qi "^content-security-policy: default-src 'self'; script-src 'self';.*report-uri /csp-report" "$WORKDIR/headers.txt"; then
+    echo "Dashboard test FAILED: $page has no enforced Content Security Policy: $(cat "$WORKDIR/headers.txt")" >&2
+    exit 1
+  fi
+done
+csp_code=$(curl -sk -o /dev/null -w '%{http_code}' -X POST "$API/csp-report" -H 'Content-Type: application/csp-report' \
+  -d '{"csp-report":{"document-uri":"https://dashboard-test/","effective-directive":"img-src","blocked-uri":"https://csp-probe.invalid/x.png"}}')
+[ "$csp_code" = 204 ] || { echo "Dashboard test FAILED: a CSP report answered $csp_code" >&2; exit 1; }
+# Logged before the answer: no wait.
+if ! grep -q 'csp: "https://dashboard-test/" blocked "img-src": "https://csp-probe.invalid/x.png"' "$WORKDIR/dashboardd.log"; then
+  echo "Dashboard test FAILED: the CSP report isn't in the Controller's log" >&2
+  exit 1
+fi
+echo "Content Security Policy OK: enforced on the page and a node page, a browser's report logged"
 READER_JAR="$WORKDIR/reader-cookies.txt"
 curl -sk -b "$COOKIE_JAR" -X POST "$API/api/users" -H 'Content-Type: application/json' -d '{"name":"rita","role":"reader"}' -o "$WORKDIR/rita.json"
 rita_given="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["password"])' "$WORKDIR/rita.json")"

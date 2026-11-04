@@ -49,6 +49,12 @@ function watch(page, where) {
   page.on('response', (r) => {
     if (r.status() >= 400 && !mayFail(r.url())) problems.push(`${where()}: ${r.status()} ${r.url()}`)
   })
+  // What the Content Security Policy blocked (dashboard/backend/
+  // security_headers.go): the console says it too, the report says it
+  // whatever the console's wording.
+  page.on('request', (r) => {
+    if (new URL(r.url()).pathname === '/csp-report') problems.push(`${where()}: CSP report ${r.postData()}`)
+  })
 }
 
 async function settle(page) {

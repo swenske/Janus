@@ -41,6 +41,10 @@ function watch(page, where) {
     const u = r.url()
     if (u.startsWith(CONTROLLER) && r.status() >= 400 && !u.includes('/api/auth/status') && !u.includes('/api/auth/sso/finish')) problems.push(`${where}: ${r.status()} ${u}`)
   })
+  // What the Controller's Content Security Policy blocked: its report.
+  page.on('request', (r) => {
+    if (r.url().startsWith(CONTROLLER) && new URL(r.url()).pathname === '/csp-report') problems.push(`${where}: CSP report ${r.postData()}`)
+  })
   return page
 }
 

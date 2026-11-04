@@ -1219,6 +1219,30 @@ turn, and the step waited for is written under it.
   that doesn't trust the fleet yet gets curves for an admin only, like
   its page.
 
+## Content Security Policy
+
+Every response of the Controller's main port - the page, the API, each
+node's page - carries an enforced `Content-Security-Policy`
+(`dashboard/backend/security_headers.go`). It allows what the two built
+frontends load, nothing else:
+
+| Directive | Allows | For |
+|---|---|---|
+| `default-src 'self'` | this origin | whatever isn't named below: fonts, the manifest |
+| `script-src 'self'` | the built scripts and `theme-boot.js` | no inline script, no `eval` |
+| `style-src 'self' 'unsafe-inline'` | the built stylesheets, inline styles | React's `style` props |
+| `img-src 'self' data: blob:` | this origin's images, `data:` and `blob:` URLs | the TOTP QR code, downloads |
+| `connect-src 'self'` | `fetch` and `EventSource` to this origin | the API, the node relays |
+| `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'none'` | - | no plugin, no other base URL, forms post here, never framed |
+
+What it blocks, the browser reports to `/csp-report`, and the Controller
+logs it: `csp: "<page>" blocked "<directive>": "<what>"`, ten lines a
+minute at most. A change that loads anything else - a font or a script
+from a CDN, an inline script, a worker made from a `blob:`, a request
+to another origin - changes the policy in the same PR:
+`hack/ui-preview.sh check` fails on a violation, in a page's console or
+in the Controller's log, and so does `make controller-sso-test`.
+
 ## Verifying a change
 
 1. `make dashboard-frontend-build` (both pages) and commit the built
