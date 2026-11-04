@@ -2,7 +2,7 @@
 # libvirtd, QEMU with OVMF, and sshd - the Controller reaches libvirt
 # the way it reaches a real hypervisor (SSH as a dedicated user in the
 # libvirt group, its socket forwarded). Not a target artifact.
-FROM debian:13-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+FROM debian:13-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       libvirt-daemon-system libvirt-clients qemu-system-x86 qemu-utils ovmf \
