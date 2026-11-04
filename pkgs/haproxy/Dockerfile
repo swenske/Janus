@@ -73,7 +73,7 @@ ARG AWSLC_SHA256
 ARG ZLIB_VERSION
 ARG ZLIB_SHA256
 
-FROM debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS fetch-base
+FROM debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4 AS fetch-base
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -181,7 +181,7 @@ COPY --from=build /src/haproxy-${HAPROXY_VERSION}/haproxy /haproxy
 
 # --- arm64 cross-compile path -----------------------------------------
 
-FROM debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS deps-arm64
+FROM debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4 AS deps-arm64
 ARG AWSLC_VERSION
 ARG ZLIB_VERSION
 RUN apt-get update && apt-get install -y --no-install-recommends \

@@ -27,7 +27,12 @@ rename, to install with the schematic change accepted; with janusctl,
 pass `-allow-schematic-change`.
 
 An extension is built into the read-only rootfs: there is no installing or
-removing one on a running node. `janusd` runs its services - restarting
+removing one on a running node. It takes room in the node's A/B slots -
+128 MiB each, 64 MiB on a disk installed before them: the builder shows
+each extension's weight and what the image you pick takes of a slot
+(each part measured when the release is built, `hack/extpack weigh`).
+Consul is the heaviest, about 30 MiB; the image with every extension
+takes about 58 MiB. `janusd` runs its services - restarting
 them if they exit - and shows them next to `janusd` and `haproxy` in
 `janusctl system services`, the Controller's **System › Services** page
 and the logs. Each runs in its own SELinux domain.

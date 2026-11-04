@@ -438,6 +438,9 @@ func runVersion(conn *grpc.ClientConn) {
 	if o := resp.GetInactiveSlot(); o != nil {
 		fmt.Printf("Other slot: %s - %s\n", o.GetSlot(), slotImageNote(o))
 	}
+	if n := resp.GetSlotBytes(); n > 0 {
+		fmt.Printf("Slot size: %d MiB\n", n>>20)
+	}
 	if sb := secureBootNote(resp.GetSecureBoot()); sb != "" {
 		fmt.Println("Secure Boot:", sb)
 	}
@@ -868,7 +871,7 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 			for offset := 0; offset < len(data); offset += chunkSize {
 				req := &janusv1alpha1.UploadReleaseFileRequest{Chunk: data[offset:min(offset+chunkSize, len(data))]}
 				if !sentFilename {
-					req.Filename = name
+					req.Filename, req.Size = name, uint64(len(data))
 					sentFilename = true
 				}
 				if err := stream.Send(req); err != nil {
@@ -876,7 +879,7 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 				}
 			}
 			if !sentFilename {
-				_ = stream.Send(&janusv1alpha1.UploadReleaseFileRequest{Filename: name})
+				_ = stream.Send(&janusv1alpha1.UploadReleaseFileRequest{Filename: name, Size: uint64(len(data))})
 			}
 
 			resp, err := stream.CloseAndRecv()

@@ -4,9 +4,74 @@ How Janus was built, phase by phase - what each phase delivered and
 proved, and what's planned. The design itself is in the
 [architecture](architecture.md).
 
+## Where Janus stands
+
+As of 2026-11-03 (v2026.11.02-2), Janus is **alpha**. Every phase of the
+original plan is done but two pieces, and the project went well past
+it.
+
+| Phase | Planned | Where it stands |
+|---|---|---|
+| 0 | Repository, gRPC contract, CI/CD | Done |
+| 1 | A from-scratch kernel and a Go PID 1 that boot | Done |
+| 2 | HAProxy supervised by `janusd`, driven through the API | Done |
+| 3 | Immutability: A/B slots, dm-verity, signed UKIs, Secure Boot, `Install`/`Upgrade`/`Rollback` | Done |
+| 4 | Hardening: kernel, CIS, SELinux | Done: SELinux enforcing, the [CIS Debian 13 L2](guide/kernel-tuning.md) kernel baseline. The x86 kernels are built without CPU mitigations, a decision left open in the [2026-10-07 security review](https://github.com/swenske/Janus/blob/main/docs/security-audit-2026-10-07.md) |
+| 5 | BGP, VRRP and nftables as image extensions | Done |
+| 6 | The companion site: landing page, image factory, remote kernel menuconfig | Done, except the remote kernel menuconfig |
+| 7 | The Controller creates its own nodes on hypervisors | libvirt, Proxmox VE and Terraform done; VMware and Hyper-V not started |
+
+### Beyond the original plan
+
+- **The Controller** grew accounts and roles, MFA and SSO, scoped API
+  tokens, backups to S3 and a [warm standby](guide/controller-standby.md)
+  with a witness ([the Controller](internals/controller.md)).
+- **Fleets**: one PKI for every node, [without a
+  Controller](fleet-without-controller.md) too, nodes joined with a
+  one-time pairing code, a rescue volume and
+  [recovery](guide/recovery.md) paths ([trust](internals/trust.md)).
+- **[Clusters](guide/clusters.md)** of nodes sharing one configuration,
+  their stick tables and TLS ticket keys, recycled member by member
+  ([design](cluster.md)).
+- **Image schematics** with several HAProxy branches and kernel tracks
+  ([image factory](image-factory.md)), signed images, pre-releases tested
+  in a lab before they're [promoted](guide/updates.md#pre-releases), and
+  every upstream followed for its fixes ([upstreams](upstreams.md)).
+- **Operations**: [log forwarding](guide/log-forwarding.md),
+  [vertical auto-scaling](guide/auto-scaling.md), [Let's
+  Encrypt](letsencrypt.md) even without internet access, kernel
+  [tuning](guide/kernel-tuning.md), kexec reboots, `janusd`'s own DHCP
+  client, `janusctl tui` and a [Claude Code plugin](guide/claude-code.md).
+- **[Contracts for a custom orchestrator](private-cloud/own-orchestrator.md)**,
+  for a private cloud that drives nodes without the Controller.
+
+### Still planned
+
+- The hypervisor drivers for **VMware**, then **Hyper-V** (which needs
+  the kernel's Hyper-V drivers and a VHDX image first) -
+  [hypervisors](hypervisors.md).
+- The **remote kernel menuconfig** on the site.
+- The Terraform provider on the Terraform and OpenTofu **registries**,
+  and more of a node under Terraform (its HAProxy configuration first).
+- **Bare metal, VMware ESXi and Raspberry Pi**: built and tested under
+  QEMU, but [suspended](internals/image-build.md#suspended-targets) until
+  someone verifies them on real hardware. arm64 nodes get no updates yet:
+  no A/B update was ever proven there.
+- **An API compatibility promise**: the API is `v1alpha1`, and a release
+  may still change it ([stability](private-cloud/own-orchestrator.md#stability)).
+- Smaller follow-ups: replacing a node straight from another one, changing
+  a node's address from the Controller, SSO back-channel logout,
+  enforcing the Controller's Content Security Policy, authenticated time
+  (NTS).
+
+Not planned, by design: a declarative machine configuration
+(`ApplyConfiguration`), and anything that would run a command on a node.
+
+## How it was built
+
 - **Phase 0** (done): repo structure, gRPC contract, CI/CD skeleton,
   build-system placeholders.
-- **Phase 1** (boot proof done): a from-allnoconfig, 1610-line explicit
+- **Phase 1** (done): a from-allnoconfig, 1610-line explicit
   kernel config (`kernel/configs/janus_defconfig` - no network, no
   disk/block drivers, no ACPI, initramfs-only) boots under QEMU with
   `rootfs/init` - a plain `CGO_ENABLED=0` Go binary - as PID 1. Verified
@@ -20,9 +85,9 @@ proved, and what's planned. The design itself is in the
   `pkgs/bird|keepalived|nftables`, superseded by `extensions/` - were
   removed on 2026-10-03; `pkgs/musl-toolchain` became the arm64
   cross-toolchain.)
-  Still open for Phase 1: real rootfs assembly beyond a single init binary
-  (`rootfs/assemble.sh` still a stub) isn't needed yet either, since the
-  initramfs *is* the whole rootfs for this boot-proof milestone.
+  Real rootfs assembly beyond a single init binary wasn't needed for
+  this boot-proof milestone - the initramfs *was* the whole rootfs;
+  Phase 3's `rootfs/assemble.sh` brought it.
 - **Phase 2** (done): HAProxy
   integration (static musl build,
   supervised by `janusd`), `HAProxyService`'s core RPCs implemented
@@ -119,7 +184,7 @@ proved, and what's planned. The design itself is in the
   reimplement metrics export) - `internal/exporter` (Janus's own,
   system-level, built on top of the gRPC API) is explicitly **deferred
   past Phase 2**, not part of this phase.
-- **Phase 3** (build side started): real immutability - A/B, dm-verity,
+- **Phase 3** (done): real immutability - A/B, dm-verity,
   UKI, Secure Boot, `LifecycleService.Install`/`Upgrade`/`Rollback`.
   `rootfs/assemble.sh` builds a real squashfs image of the rootfs (same
   content as Phase 2's initramfs - init, janusd, static haproxy,
@@ -666,9 +731,9 @@ proved, and what's planned. The design itself is in the
   for real locally before ever touching CI: both UKIs signed with the
   actual production key and `sbverify`-confirmed valid, using the exact
   same command the workflow step now runs.
-- **Phase 4** (started): kernel/CIS hardening pass is real, SELinux
-  policy is still open. Most of what a CIS benchmark's kernel-adjacent
-  controls call out (loadable-module restrictions, `/dev/mem`, kexec,
+- **Phase 4** (done): the kernel/CIS hardening pass first, then the
+  SELinux policy, enforcing by default (below). Most of what a CIS
+  benchmark's kernel-adjacent controls call out (loadable-module restrictions, `/dev/mem`, kexec,
   hibernation, USB/Firewire/staging drivers) was already true by
   construction from `allnoconfig` - this pass is specifically what was
   left: `kernel/configs/janus_defconfig` grew a KSPP-style
@@ -908,9 +973,13 @@ proved, and what's planned. The design itself is in the
   console, only serial; bare-metal support (above) added the screen.
 - **Phase 5** (done): `NetworkService` - bird (BGP), keepalived (VRRP),
   nftables, as image extensions.
-- **Phase 6**: companion website + dedicated Proxmox-hosted backend
-  (separate container from the runner) + remote kernel-menuconfig UI -
-  separate repository, separate plan.
+- **Phase 6** (done, except the remote kernel menuconfig): the companion
+  site, [janus.sw-servers.net](https://janus.sw-servers.net) - landing
+  page, image factory, these docs - in this repository's `site/` (a
+  monorepo, decided 2026-09-30: it shares `internal/schematic`, the
+  Controller's design system and the workflows), served from its own
+  Proxmox container, apart from the runners. The remote kernel
+  menuconfig UI is still to come.
 - **Phase 7** (libvirt, Proxmox VE and Terraform done): the Controller
   creates its own nodes on hypervisors ([hypervisors.md](hypervisors.md):
   libvirt over SSH with a polkit policy, Proxmox VE with an API token

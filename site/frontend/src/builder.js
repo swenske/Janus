@@ -34,3 +34,19 @@ export function selectablePlatform(platforms, id) {
   const p = (platforms || []).find((x) => x.id === id)
   return p && !p.suspended ? p.id : ''
 }
+
+// The slots of a disk installed before 128 MiB ones, which keeps them:
+// such a node takes an image that doesn't fit them by being replaced.
+export const OLD_SLOT_BYTES = 64 * 1024 * 1024
+
+// imageWeight is about how much of a slot a schematic's root filesystem
+// takes, from the release catalog's weights (hack/extpack weigh): the
+// base, the HAProxy branch - the default when none is chosen - and the
+// extensions. null for a release whose catalog doesn't say.
+export function imageWeight(catalog, extensions, haproxy) {
+  if (!catalog?.base_bytes || !catalog?.slot_bytes) return null
+  const branch = (catalog.haproxy || []).find((v) => (haproxy ? v.name === haproxy : v.default))
+  let total = catalog.base_bytes + (branch?.bytes || 0)
+  for (const name of extensions) total += (catalog.extensions || []).find((e) => e.name === name)?.bytes || 0
+  return { bytes: total, slot: catalog.slot_bytes, fits: total <= catalog.slot_bytes, fitsOld: total <= OLD_SLOT_BYTES }
+}

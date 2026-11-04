@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -479,4 +480,109 @@ func TestWitness(t *testing.T) {
 	if _, fenced := fencedAtStart(promoted, func() (ha.Witness, error) { return witnessOf(dirFiles(sdir), nkey) }); fenced {
 		t.Fatal("the promoted Controller fenced by its own witness")
 	}
+}
+
+// TestStandbyStateWhilePromoting: a standby promoted, until it starts
+// again, says it's the active at its new epoch - the peer that stepped
+// down for it doesn't find a second standby (v2026.11.02's lab: "the
+// peer is a standby too" for a minute after a switchover).
+func TestStandbyStateWhilePromoting(t *testing.T) {
+	s := mustOpenHA(t, t.TempDir())
+	secret, _ := ha.NewSecret()
+	if err := s.SetPeer(ha.Peer{Name: "a", Address: "a:8443", CertSHA256: strings.Repeat("ab", 32)}, secret, ha.Standby, 2); err != nil {
+		t.Fatal(err)
+	}
+	mux := (&standby{ha: s}).peerRoutes()
+	state := func() ha.PeerState {
+		t.Helper()
+		req := httptest.NewRequest("GET", "/ha/state", nil)
+		req.Header.Set("Authorization", "Bearer "+s.Bearer())
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		var st ha.PeerState
+		if err := json.Unmarshal(rec.Body.Bytes(), &st); err != nil || rec.Code != http.StatusOK {
+			t.Fatalf("%d %s", rec.Code, rec.Body.String())
+		}
+		return st
+	}
+	if st := state(); st.Role != ha.Standby || st.Epoch != 2 {
+		t.Fatalf("a standby: %+v", st)
+	}
+	if err := s.SetRole(ha.Active, 3); err != nil {
+		t.Fatal(err)
+	}
+	if st := state(); st.Role != ha.Active || st.Epoch != 3 {
+		t.Fatalf("promoted, not started again yet: %+v", st)
+	}
+	// Its other answers - the new standby's first copy asks for one -
+	// say it's starting again, not that it's a standby (v2026.11.02-2's
+	// lab: "this Controller is a standby" for 5 s after a switchover).
+	req := httptest.NewRequest("GET", "/ha/replica", nil)
+	req.Header.Set("Authorization", "Bearer "+s.Bearer())
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "just promoted") || rec.Header().Get("Retry-After") != "5" {
+		t.Errorf("promoted, the replica asked: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestHALeftovers: the set-asides kept are the newest two, and a
+// Controller's start removes the control socket a standby left - the
+// updater's backup refused it (v2026.11.02-2's lab).
+func TestHALeftovers(t *testing.T) {
+	dir := t.TempDir()
+	mustMkdirAll := func(p string) {
+		t.Helper()
+		if err := os.MkdirAll(p, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	previous := filepath.Join(dir, ha.Dir, "previous")
+	for _, n := range []string{"20261102T101500Z", "20261102T111800Z", "20261102T112200Z"} {
+		mustMkdirAll(filepath.Join(previous, n, "store"))
+	}
+	start := time.Date(2026, 11, 2, 13, 0, 0, 0, time.UTC)
+	if err := os.WriteFile(filepath.Join(dir, "users.json"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dest, err := setAside(dir, filepath.Join(dir, "master.key"), start)
+	if err != nil || filepath.Base(dest) != "20261102T130000Z" {
+		t.Fatalf("setAside: %q %v", dest, err)
+	}
+	names := func() []string {
+		t.Helper()
+		entries, err := os.ReadDir(previous)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, e := range entries {
+			out = append(out, e.Name())
+		}
+		return out
+	}
+	if got := strings.Join(names(), " "); got != "20261102T112200Z 20261102T130000Z" {
+		t.Errorf("kept after a set-aside: %s", got)
+	}
+
+	// A socket nothing listens on any more, as a standby's exit leaves it.
+	sock := controlSocket(dir)
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln.(*net.UnixListener).SetUnlinkOnClose(false)
+	_ = ln.Close()
+	if _, err := os.Lstat(sock); err != nil {
+		t.Fatalf("the test's socket: %v", err)
+	}
+	mustMkdirAll(filepath.Join(previous, "20261102T090000Z"))
+	tidyHA(dir)
+	if _, err := os.Lstat(sock); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the control socket left: %v", err)
+	}
+	if got := strings.Join(names(), " "); got != "20261102T112200Z 20261102T130000Z" {
+		t.Errorf("kept at a start: %s", got)
+	}
+	tidyHA(t.TempDir()) // no ha/ at all: nothing to do, nothing said
 }

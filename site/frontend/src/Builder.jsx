@@ -1,9 +1,9 @@
 import { AlertTriangle, Check, Copy, Cpu, Download, ExternalLink, FlaskConical, Hammer, Layers, Loader2, Package, PackagePlus, RefreshCcw, Rocket, Terminal } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { requirementError, toggleExtension } from '@shared/requires.js'
-import { Badge, Card, ErrorBox, Loading, useToast } from '@shared/ui.jsx'
-import { DOCS, REPO, bytes, getJSON, postJSON } from './api.js'
-import { extensionRequestURL, selectablePlatform, testerIssueURL } from './builder.js'
+import { Badge, Card, ErrorBox, Loading, Meter, useToast } from '@shared/ui.jsx'
+import { DOCS, bytes, getJSON, postJSON } from './api.js'
+import { extensionRequestURL, imageWeight, selectablePlatform, testerIssueURL } from './builder.js'
 
 // The image builder, after factory.talos.dev: where the image runs, which
 // release, which HAProxy branch and kernel track, which extensions -
@@ -218,6 +218,8 @@ export default function Builder() {
   const kernel = offered(catalog?.kernel, choice.kernel) ? choice.kernel : ''
   // The console: screen alone, when the release offers the choice.
   const consoleChoice = (catalog?.console || []).includes(choice.console) ? choice.console : ''
+  // About how much of a slot the image takes (a release that measures it).
+  const weight = imageWeight(catalog, chosen, haproxy)
 
   // The schematic of the current choices (posted so the site knows it).
   useEffect(() => {
@@ -462,6 +464,7 @@ export default function Builder() {
                         </span>
                         <span className="muted small mono nowrap">
                           {e.version}
+                          {e.bytes > 0 && ` · ${bytes(e.bytes)}`}
                           <Downloads {...stats?.extensions?.[e.name]} days={days} />
                         </span>
                         <span className={`ext-check ${on ? 'on' : ''}`} aria-hidden="true">
@@ -501,6 +504,29 @@ export default function Builder() {
             <p className="small muted" role="status">
               {extNote}
             </p>
+          )}
+          {weight && (
+            <div className="slot-weight">
+              <div className="row small">
+                <span className="muted">Root filesystem</span>
+                <span className="mono">
+                  about {bytes(weight.bytes)} of the {Math.round(weight.slot / 1048576)} MiB slot
+                </span>
+              </div>
+              <Meter value={weight.bytes} max={weight.slot} />
+              {!weight.fits ? (
+                <p className="small warn-text" role="alert">
+                  <AlertTriangle size={13} /> Too big for a slot: this image can't be built. Leave an extension out.
+                </p>
+              ) : (
+                !weight.fitsOld && (
+                  <p className="muted small">
+                    More than the 64 MiB slots of a disk installed before 128 MiB ones: such a node takes this image by being{' '}
+                    <a href={`${DOCS}/guide/updates.md#when-a-release-doesnt-fit`}>replaced</a>.
+                  </p>
+                )
+              )}
+            </div>
           )}
         </Step>
       )}

@@ -87,6 +87,18 @@ mkdir -p "$V2_ROOTFS"
 V2_BUNDLE="$WORKDIR/bundle-v2"
 "$SELF_DIR/../image/release/assemble.sh" "$V2_BUNDLE" "$KERNEL" "$V2_ROOTFS"
 
+# Two bundles mixed from v1 and v2, served beside it: v2's UKIs with
+# v1's squashfs, then v2's squashfs with v1's hash tree - what a squashfs
+# swapped on its way (this is plain http) or a mix of two builds looks
+# like to the node.
+for mix in mixed-squashfs mixed-verity; do
+  mkdir "$V2_BUNDLE/$mix"
+  ln -s "$V2_BUNDLE/uki-a.efi" "$V2_BUNDLE/uki-b.efi" "$V2_BUNDLE/$mix/"
+done
+V1_ROOTFS="$(cd "$BUILD_DIR/rootfs" && pwd)" # absolute: the links live elsewhere
+ln -s "$V1_ROOTFS/rootfs.squashfs" "$V2_BUNDLE/rootfs.verity" "$V2_BUNDLE/mixed-squashfs/"
+ln -s "$V2_BUNDLE/rootfs.squashfs" "$V1_ROOTFS/rootfs.verity" "$V2_BUNDLE/mixed-verity/"
+
 # --- serve the v2 bundle over real HTTP from the host - bound to all
 # interfaces so slirp's NAT can actually reach it from the guest side,
 # not just 127.0.0.1 ---
@@ -181,6 +193,36 @@ echo "Slot A (v1) OK: real UEFI boot, HTTP 200 on :8080, PKI bootstrapped, root 
 # --- extract PKI material straight from disk.img's STATE partition ---
 state_pki "$DISK" "$WORKDIR" || { echo "Upgrade URL test FAILED: couldn't extract the node's pki/ from disk.img's STATE partition after slot A booted" >&2; exit 1; }
 
+# --- a bundle whose squashfs or hash tree isn't the one its UKI pins is
+# refused before anything is written (security audit 2026-09-30 #16):
+# the kernel would refuse it too, but at the next boot, from a slot the
+# ESP already points at - no root, no janusd to revert. Nothing written,
+# no switch, no reboot. ---
+refused_mix() {
+  local mix="$1" file="$2" out rc
+  set +e
+  out="$("$CTL" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" lifecycle upgrade -insecure-skip-signature-check "$BUNDLE_URL/$mix" 2>&1)"
+  rc=$?
+  set -e
+  echo "$out"
+  if [ "$rc" -eq 0 ] || ! grep -q "$file: .*nothing was written" <<<"$out"; then
+    echo "Upgrade URL test FAILED: the $mix bundle wasn't refused on $file (exit $rc)" >&2
+    exit 1
+  fi
+  if grep -qi "writing-data\|writing-hash\|switching-slot\|rebooting" <<<"$out"; then
+    echo "Upgrade URL test FAILED: the $mix bundle got as far as writing or rebooting" >&2
+    exit 1
+  fi
+}
+refused_mix mixed-squashfs rootfs.squashfs
+refused_mix mixed-verity rootfs.verity
+sleep 5 # longer than Upgrade's own delayed reboot
+if [ "$(grep -c "$MARKER" "$A_LOG")" -ne 1 ]; then
+  echo "Upgrade URL test FAILED: the node rebooted after refusing a mixed bundle" >&2
+  exit 1
+fi
+echo "Mixed bundles refused: v2's UKI with v1's squashfs, v2's squashfs with v1's hash tree - nothing written, no reboot"
+
 # --- call Upgrade for real, referencing the *URL*, not a local path -
 # this is the one line that actually differs from
 # hack/qemu-lifecycle-upgrade-test.sh's own equivalent call ---
@@ -208,4 +250,4 @@ if [ "$(grep -c "$FIRST_BOOT_MSG" "$A_LOG")" -ne 1 ]; then
 fi
 assert_last_boot "$A_LOG" PARTLABEL=BOOT-B-DATA PARTLABEL=BOOT-B-HASH "$V2_HASH" "post-upgrade boot"
 echo "Slot B (v2) OK: real gRPC Upgrade fetched the release bundle over real HTTP ($BUNDLE_URL) and wrote it (root hash $V2_HASH, BOOT-B-DATA/HASH), switched, and rebooted into it - HTTP healthy, STATE intact"
-echo "Upgrade URL test OK: LifecycleService.Upgrade's http(s):// fetch mode works end to end against a real HTTP server, not just local-path mode"
+echo "Upgrade URL test OK: LifecycleService.Upgrade's http(s):// fetch mode works end to end against a real HTTP server, not just local-path mode - and refuses a bundle whose squashfs or hash tree its UKI doesn't pin"

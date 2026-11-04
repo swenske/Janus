@@ -27,7 +27,7 @@ import (
 	"github.com/swenske/Janus/internal/haproxy"
 	"github.com/swenske/Janus/internal/releasetrust"
 	"github.com/swenske/Janus/internal/schematic"
-	"github.com/swenske/Janus/internal/slotimage"
+	"github.com/swenske/Janus/internal/verity"
 )
 
 // Lifecycle implements janusv1alpha1.LifecycleServiceServer.
@@ -58,14 +58,16 @@ type Lifecycle struct {
 	Version string
 }
 
-// Fixed partition sizes, matching image/disk/assemble.sh's own
-// DATA_MB/HASH_MB - Upgrade enforces the same limits that script does
-// at build time, rather than letting a write silently run past the end
-// of a partition and corrupt whatever comes after it (the next
-// partition, per image/disk/assemble.sh's fixed layout).
+// Upgrade writes no more than the target partition holds (its real
+// size: 64 MiB data slots on disks made before 128 MiB ones, see
+// lifecycle_slots.go), rather than letting a write run past the end of a
+// partition into the next one. The hash partition is 4 MiB on every
+// layout.
 const (
-	upgradeMaxDataBytes = 64 * 1024 * 1024
 	upgradeMaxHashBytes = 4 * 1024 * 1024
+	// maxSlotBytes caps an upload of rootfs.squashfs before the slot's
+	// own size does (uploadIntoSlot).
+	maxSlotBytes = 1 << 30
 	// uki-a.efi/uki-b.efi have no size check in fetchBundleFile itself
 	// (read once into memory and used immediately) - this one's for
 	// UploadReleaseFile specifically, which writes straight to
@@ -82,6 +84,9 @@ const (
 	// link, short enough that a hung/stalled download doesn't leave
 	// this streaming RPC (and its caller) blocked indefinitely.
 	upgradeFetchTimeout = 5 * time.Minute
+	// upgradeDataTimeout bounds the root filesystem's stream into the
+	// slot - up to 128 MiB, where the other files are a few.
+	upgradeDataTimeout = 10 * time.Minute
 )
 
 // releaseStagingDir is where UploadReleaseFile writes uploaded release-
@@ -105,7 +110,7 @@ var releaseStagingDir = "/etc/.state/upgrade-incoming"
 func releaseFileMaxBytes(filename string) int64 {
 	switch filename {
 	case "rootfs.squashfs":
-		return upgradeMaxDataBytes
+		return maxSlotBytes
 	case "rootfs.verity":
 		return upgradeMaxHashBytes
 	case "uki-a.efi", "uki-b.efi":
@@ -134,7 +139,7 @@ func releaseFileMaxBytes(filename string) int64 {
 // not a bundle that couldn't be reached.
 var errBundleFileMissing = errors.New("not in the bundle")
 
-func fetchBundleFile(ctx context.Context, bundleRef, filename string) ([]byte, error) {
+func fetchBundleFile(ctx context.Context, bundleRef, filename string, maxBytes int64) ([]byte, error) {
 	if strings.HasPrefix(bundleRef, "http://") || strings.HasPrefix(bundleRef, "https://") {
 		url := strings.TrimSuffix(bundleRef, "/") + "/" + filename
 		fetchCtx, cancel := context.WithTimeout(ctx, upgradeFetchTimeout)
@@ -154,11 +159,24 @@ func fetchBundleFile(ctx context.Context, bundleRef, filename string) ([]byte, e
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("GET %s: unexpected status %s", url, resp.Status)
 		}
-		return io.ReadAll(resp.Body)
+		return readCapped(resp.Body, filename, maxBytes)
 	}
-	data, err := os.ReadFile(filepath.Join(bundleRef, filename))
+	f, err := os.Open(filepath.Join(bundleRef, filename))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("%w: %w", err, errBundleFileMissing)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return readCapped(f, filename, maxBytes)
+}
+
+// readCapped reads a bundle file of at most maxBytes.
+func readCapped(r io.Reader, filename string, maxBytes int64) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
+	if err == nil && int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("%s is bigger than %s", filename, mib(uint64(maxBytes)))
 	}
 	return data, err
 }
@@ -309,9 +327,24 @@ func writePartitionFile(device string, data []byte) error {
 }
 
 func (l *Lifecycle) Rollback(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.RollbackResponse, error) {
+	unlock, err := lockSlots()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	bc, err := resolveBootContext()
 	if err != nil {
 		return nil, err
+	}
+
+	// The other slot must hold what its staged kernel image boots: an
+	// update may have written part of it and given up, and a slot that
+	// can't mount its root leaves nothing to come back from.
+	if err := verifySlotHook(bc, bc.targetSlot); err != nil {
+		if errors.Is(err, espswitch.ErrUKINotStaged) {
+			return nil, status.Errorf(codes.FailedPrecondition, "%v - was image/disk/activate-slot.sh ever run for this disk?", err)
+		}
+		return nil, status.Errorf(codes.FailedPrecondition, "slot %s doesn't hold what its kernel image boots - %v: an update to it failed or was refused part way. Rollback would leave the node unable to boot; update it again instead", bc.targetSlot, err)
 	}
 
 	if err := espswitch.Activate(bc.espDevice, bc.targetSlot); err != nil {
@@ -374,6 +407,11 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 		return stream.Send(&janusv1alpha1.UpgradeResponse{Stage: stage, Progress: progress, Message: message})
 	}
 
+	unlock, err := lockSlots()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	bc, err := resolveBootContext()
 	if err != nil {
 		return err
@@ -392,7 +430,7 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 	// command line pins the rootfs's dm-verity root hash), so a bundle
 	// that isn't trusted is refused before the rootfs is even downloaded.
 	ukiName := fmt.Sprintf("uki-%s.efi", strings.ToLower(bc.targetSlot))
-	uki, err := fetchBundleFile(ctx, bundleRef, ukiName)
+	uki, err := fetchBundleFile(ctx, bundleRef, ukiName, uploadMaxUKIBytes)
 	switch {
 	case errors.Is(err, errBundleFileMissing):
 		return status.Errorf(codes.FailedPrecondition, "%s: %v - does this bundle include a UKI for slot %s? (see image/release/assemble.sh)", ukiName, err, bc.targetSlot)
@@ -422,52 +460,105 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 		return err
 	}
 
-	squashfs, err := fetchBundleFile(ctx, bundleRef, "rootfs.squashfs")
+	// What the UKI boots - its dm-verity table, authenticated with it:
+	// the size of the root filesystem, and the root digest its hash tree
+	// must end in.
+	table, err := ukiVerityTable(ukiName, uki)
 	if err != nil {
-		return status.Errorf(codes.FailedPrecondition, "rootfs.squashfs: %v", err)
-	}
-	if len(squashfs) > upgradeMaxDataBytes {
-		return status.Errorf(codes.FailedPrecondition, "rootfs.squashfs is %d bytes, exceeds the %d-byte BOOT-*-DATA partition size", len(squashfs), upgradeMaxDataBytes)
-	}
-	if want := req.GetSource().GetSha256(); want != "" {
-		if got := sha256Hex(squashfs); got != want {
-			return status.Errorf(codes.FailedPrecondition, "rootfs.squashfs sha256 %s doesn't match requested %s", got, want)
-		}
-	}
-	// What the bundle is - its release, said before anything is written:
-	// an older one than this node runs is installed all the same (going
-	// back is allowed), but never without saying so.
-	image, imageErr := slotimage.Read(bytes.NewReader(squashfs), int64(len(squashfs)))
-	if err := send("verifying", 0.25, describeImage(image, imageErr, l.Version)); err != nil {
 		return err
 	}
+	targetDataDev, _ := bootslot.SlotDataDevice(bc.disk, bc.targetSlot)
+	targetHashDev, _ := bootslot.SlotHashDevice(bc.disk, bc.targetSlot)
+	slotBytes, err := partitionSize(targetDataDev)
+	if err != nil {
+		return status.Errorf(codes.Internal, "size of %s: %v", targetDataDev, err)
+	}
+	if table.DataBytes() > uint64(slotBytes) {
+		return slotTooSmall("this release's root filesystem", table.DataBytes(), uint64(slotBytes))
+	}
 
-	verity, err := fetchBundleFile(ctx, bundleRef, "rootfs.verity")
+	// The hash tree before the root filesystem: small, and checked
+	// against the root digest on its own - then each block of the root
+	// filesystem is checked against it before it's written.
+	hashTree, err := fetchBundleFile(ctx, bundleRef, "rootfs.verity", upgradeMaxHashBytes)
 	if err != nil {
 		return status.Errorf(codes.FailedPrecondition, "rootfs.verity: %v", err)
 	}
-	if len(verity) > upgradeMaxHashBytes {
-		return status.Errorf(codes.FailedPrecondition, "rootfs.verity is %d bytes, exceeds the %d-byte BOOT-*-HASH partition size", len(verity), upgradeMaxHashBytes)
+	// What a refusal leaves in the target slot: nothing written, or - a
+	// root filesystem uploaded into it - that upload, not the slot's
+	// previous release.
+	refused := refusedSuffix(stagedSlot(bundleRef, bc.targetSlot))
+	tree, err := checkHashTree(table, ukiName, hashTree, refused)
+	if err != nil {
+		return err
+	}
+	if err := send("verifying", 0.25, fmt.Sprintf("rootfs.verity: the hash tree %s pins (root hash %x…)", ukiName, table.RootDigest[:6])); err != nil {
+		return err
 	}
 
-	targetDataDev, _ := bootslot.SlotDataDevice(bc.disk, bc.targetSlot)
-	targetHashDev, _ := bootslot.SlotHashDevice(bc.disk, bc.targetSlot)
+	dataCtx, cancelData := context.WithTimeout(ctx, upgradeDataTimeout)
+	defer cancelData()
+	data, err := openBundleData(dataCtx, bundleRef, bc.targetSlot, targetDataDev)
+	if err != nil {
+		return status.Errorf(codes.FailedPrecondition, "rootfs.squashfs: %v", err)
+	}
+	defer data.Close()
+	if data.size >= 0 && uint64(data.size) != table.DataBytes() {
+		return notTheUKIs("rootfs.squashfs", fmt.Errorf("%d bytes, %s's table covers %d", data.size, ukiName, table.DataBytes()), ukiName, refused)
+	}
 
-	if err := send("writing-data", 0.3, fmt.Sprintf("writing rootfs.squashfs to slot %s (%s)", bc.targetSlot, targetDataDev)); err != nil {
+	// Streamed into the slot, each block checked first: a slot's worth
+	// of data is never held in memory. A block refused once others were
+	// written leaves the slot holding neither release - Rollback then
+	// refuses it (verifySlot) until an update completes.
+	writing := fmt.Sprintf("writing rootfs.squashfs to slot %s (%s), each block checked against the hash tree", bc.targetSlot, targetDataDev)
+	if data.staged {
+		writing = fmt.Sprintf("checking the rootfs.squashfs uploaded into slot %s (%s) against the hash tree", bc.targetSlot, targetDataDev)
+	}
+	if err := send("writing-data", 0.3, writing); err != nil {
 		return err
 	}
 	slotWriting(bc.targetSlot)
-	if err := writePartitionFile(targetDataDev, squashfs); err != nil {
-		slotWritten(bc.targetSlot, nil, nil, true)
+	written, sum, err := writeSlotData(targetDataDev, table, tree, data)
+	switch {
+	case errors.Is(err, verity.ErrData) && written == 0 && !data.staged:
+		slotWritten(bc.targetSlot, nil, nil, true) // as it was: read it again
+		return notTheUKIs("rootfs.squashfs", err, ukiName, nothingWritten)
+	case errors.Is(err, verity.ErrData) && data.staged:
+		slotWritten(bc.targetSlot, nil, errors.New("holds an uploaded root filesystem its update refused"), false)
+		return notTheUKIs("rootfs.squashfs", err, ukiName, refused)
+	case errors.Is(err, verity.ErrData):
+		slotWritten(bc.targetSlot, nil, errors.New("holds part of an update that was refused"), false)
+		return notTheUKIs("rootfs.squashfs", err, ukiName, fmt.Sprintf(
+			"; slot %s's data partition no longer holds its previous release (%s written): Rollback won't switch to it - update the node again with a sound bundle",
+			bc.targetSlot, mib(uint64(written))))
+	case err != nil:
+		slotWritten(bc.targetSlot, nil, errors.New("holds part of an update that failed"), false)
 		return status.Errorf(codes.Internal, "write %s: %v", targetDataDev, err)
 	}
+	if want := req.GetSource().GetSha256(); want != "" && sum != want {
+		slotWritten(bc.targetSlot, nil, errors.New("holds a root filesystem whose update was refused"), false)
+		return status.Errorf(codes.FailedPrecondition, "rootfs.squashfs sha256 %s doesn't match requested %s - it's the one %s pins, but not the one asked for: slot %s now holds it, and Rollback won't switch to it", sum, want, ukiName, bc.targetSlot)
+	}
+	// What the bundle is - its release: an older one than this node runs
+	// is installed all the same (going back is allowed), but never
+	// without saying so.
+	image, imageErr := readSlotImage(targetDataDev)
 	slotWritten(bc.targetSlot, image, imageErr, false)
+	if err := send("verifying", 0.45, describeImage(image, imageErr, l.Version)); err != nil {
+		return err
+	}
 
 	if err := send("writing-hash", 0.5, fmt.Sprintf("writing rootfs.verity to slot %s (%s)", bc.targetSlot, targetHashDev)); err != nil {
 		return err
 	}
-	if err := writePartitionFile(targetHashDev, verity); err != nil {
+	if err := writePartitionFile(targetHashDev, hashTree); err != nil {
 		return status.Errorf(codes.Internal, "write %s: %v", targetHashDev, err)
+	}
+	if data.staged {
+		if err := os.Remove(filepath.Join(releaseStagingDir, stagedMarker)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Printf("lifecycle: remove %s: %v", stagedMarker, err)
+		}
 	}
 	syscall.Sync()
 
@@ -588,6 +679,17 @@ func (l *Lifecycle) UploadReleaseFile(stream janusv1alpha1.LifecycleService_Uplo
 	maxBytes := releaseFileMaxBytes(filename)
 	if maxBytes == 0 {
 		return status.Errorf(codes.InvalidArgument, "invalid filename %q - must be one of rootfs.squashfs, rootfs.verity, uki-a.efi, uki-b.efi", filename)
+	}
+	unlock, err := lockSlots()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if filename == "rootfs.squashfs" {
+		return l.uploadIntoSlot(first, stream)
+	}
+	if n := first.GetSize(); n > uint64(maxBytes) {
+		return status.Errorf(codes.FailedPrecondition, "%s is %d bytes, over the %d-byte limit for this file", filename, n, maxBytes)
 	}
 
 	if err := os.MkdirAll(releaseStagingDir, 0o700); err != nil {

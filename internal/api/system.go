@@ -123,6 +123,7 @@ func (s *System) Version(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.Ve
 		}
 	}
 	resp.InactiveSlot = InactiveSlotImage()
+	resp.SlotBytes = SlotBytes()
 	if info := ImageInfo(); info != nil {
 		resp.Schematic = string(info.Schematic)
 		resp.Haproxy = imageComponent(info.HAProxy)

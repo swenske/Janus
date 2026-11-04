@@ -2,7 +2,14 @@ package nodeproxy
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"io"
+	"math/big"
 	"net"
 	"sync"
 	"testing"
@@ -10,6 +17,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -132,7 +140,7 @@ func TestOnceMoreAfterANodeReboot(t *testing.T) {
 		return client.TrustGet(ctx, &emptypb.Empty{}, opts...)
 	}
 
-	if _, err := onceMore(call); err != nil {
+	if _, err := onceMore(ctx, call); err != nil {
 		t.Fatalf("before the reboot: %v", err)
 	}
 
@@ -150,11 +158,11 @@ func TestOnceMoreAfterANodeReboot(t *testing.T) {
 		t.Fatalf("the first call on the dead connection: %v, want Unavailable", err)
 	}
 	// Once more, after another reboot: onceMore hides it.
-	for _, err := onceMore(call); err != nil; _, err = onceMore(call) {
+	for _, err := onceMore(ctx, call); err != nil; _, err = onceMore(ctx, call) {
 		t.Fatalf("recovering after the first reset: %v", err)
 	}
 	proxy.reboot()
-	st, err := onceMore(call)
+	st, err := onceMore(ctx, call)
 	if err != nil {
 		t.Fatalf("onceMore after the reboot: %v", err)
 	}
@@ -165,5 +173,162 @@ func TestOnceMoreAfterANodeReboot(t *testing.T) {
 	defer fake.mu.Unlock()
 	if fake.calls != 3+plainCalls {
 		t.Fatalf("the node served %d calls, want 3 (before, after the first reboot, after the second)", fake.calls)
+	}
+}
+
+// resettingTLSNode is a node that refuses the client's certificate the
+// way a TLS 1.3 server does when its alert is lost: the handshake looks
+// complete to the client (it sends its certificate in its last flight,
+// checked after), then the connection is reset - the client's HTTP/2
+// preface was already in the node's buffer, so closing sends a reset,
+// and the alert in flight is dropped with it (#483).
+func resettingTLSNode(t *testing.T) string {
+	t.Helper()
+	cert := selfSignedCert(t)
+	ln, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13,
+		ClientAuth: tls.RequestClientCert, NextProtos: []string{"h2"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				tc := c.(*tls.Conn)
+				if tc.Handshake() != nil {
+					_ = c.Close()
+					return
+				}
+				// Wait for the client's preface, then reset.
+				_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+				buf := make([]byte, 1)
+				_, _ = tc.Read(buf)
+				if raw, ok := tc.NetConn().(*net.TCPConn); ok {
+					_ = raw.SetLinger(0)
+				}
+				_ = c.Close()
+			}()
+		}
+	}()
+	return ln.Addr().String()
+}
+
+// TestRefusedWhenTheAlertIsLost: a node resetting the connection right
+// after the TLS handshake - before its HTTP/2 preface - refused the
+// certificate: the call says so at once, rather than waiting for the
+// connection to come up until the caller's deadline (#483).
+func TestRefusedWhenTheAlertIsLost(t *testing.T) {
+	addr := resettingTLSNode(t)
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
+		InsecureSkipVerify: true, MinVersion: tls.VersionTLS13, // #nosec G402 -- a test's throwaway server
+		Certificates: []tls.Certificate{selfSignedCert(t)},
+	})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	start := time.Now()
+	_, err = onceMore(ctx, func(opts ...grpc.CallOption) (*janusv1alpha1.TrustState, error) {
+		return janusv1alpha1.NewAccessServiceClient(conn).TrustGet(ctx, &emptypb.Empty{}, opts...)
+	})
+	t.Logf("after %v: %v", time.Since(start).Round(time.Millisecond), err)
+	if !RefusedCertificate(err) {
+		t.Errorf("a reset right after the handshake isn't taken for a refused certificate: %v", err)
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Errorf("took %v: waited for the connection instead of answering", time.Since(start))
+	}
+}
+
+// selfSignedCert is a throwaway ECDSA certificate.
+func selfSignedCert(t *testing.T) tls.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "test"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), DNSNames: []string{"localhost"}}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
+}
+
+// cutThenRefusingNode is a node whose first connection dies during the
+// TLS handshake - nothing that says a certificate was refused - and
+// which then refuses the client's certificate on every connection, its
+// alert lost to the reset (resettingTLSNode).
+func cutThenRefusingNode(t *testing.T) string {
+	t.Helper()
+	cert := selfSignedCert(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	conf := &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13,
+		ClientAuth: tls.RequestClientCert, NextProtos: []string{"h2"}}
+	go func() {
+		for n := 0; ; n++ {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(first bool) {
+				if first { // the ClientHello read, then gone
+					_, _ = c.Read(make([]byte, 512))
+					_ = c.Close()
+					return
+				}
+				tc := tls.Server(c, conf)
+				if tc.Handshake() != nil {
+					_ = c.Close()
+					return
+				}
+				_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+				_, _ = tc.Read(make([]byte, 1))
+				_ = c.(*net.TCPConn).SetLinger(0)
+				_ = c.Close()
+			}(n == 0)
+		}
+	}()
+	return ln.Addr().String()
+}
+
+// TestRefusedAfterACutConnection: the first try dies with nothing said
+// (a dead connection), and the next one is a refusal - which onceMore
+// reports at once, rather than waiting for the node until the deadline
+// and swallowing every refusal on the way (#483).
+func TestRefusedAfterACutConnection(t *testing.T) {
+	conn, err := grpc.NewClient(cutThenRefusingNode(t), grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
+		InsecureSkipVerify: true, MinVersion: tls.VersionTLS13, // #nosec G402 -- a test's throwaway server
+		Certificates: []tls.Certificate{selfSignedCert(t)},
+	})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	start := time.Now()
+	_, err = onceMore(ctx, func(opts ...grpc.CallOption) (*janusv1alpha1.TrustState, error) {
+		return janusv1alpha1.NewAccessServiceClient(conn).TrustGet(ctx, &emptypb.Empty{}, opts...)
+	})
+	t.Logf("after %v: %v", time.Since(start).Round(time.Millisecond), err)
+	if !RefusedCertificate(err) {
+		t.Errorf("the refusal after a cut connection isn't reported: %v", err)
+	}
+	if time.Since(start) > 8*time.Second {
+		t.Errorf("took %v: waited for the node instead of reporting the refusal", time.Since(start))
 	}
 }
