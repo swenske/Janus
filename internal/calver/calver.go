@@ -6,6 +6,7 @@ package calver
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 )
 
@@ -39,6 +40,42 @@ func Compare(release, running string) (cmp int, known bool) {
 		}
 	}
 	return 0, true
+}
+
+// SameDay reports whether two releases are of the same day: a
+// maintenance release of vYYYY.MM.DD[-N] takes one of that day's
+// versions, so it sorts between the release it fixes and the next day's.
+func SameDay(a, b string) bool {
+	va, oka := parse(releaseRE, a)
+	vb, okb := parse(releaseRE, b)
+	return oka && okb && [3]int(va[:3]) == [3]int(vb[:3])
+}
+
+// SortNewestFirst sorts s by the release version each element carries,
+// newest first; those whose version isn't a release keep their order,
+// after the releases. GitHub lists releases by the date of the commit
+// each tag names, not by version: a maintenance release - a fix of an
+// older release, tagged later on its own branch (docs/contributing/
+// releasing.md) - comes first there, though it is older than the newest.
+func SortNewestFirst[T any](s []T, version func(T) string) {
+	slices.SortStableFunc(s, func(a, b T) int {
+		va, oka := parse(releaseRE, version(a))
+		vb, okb := parse(releaseRE, version(b))
+		switch {
+		case oka && okb:
+			for i := range va {
+				if va[i] != vb[i] {
+					return vb[i] - va[i]
+				}
+			}
+			return 0
+		case oka:
+			return -1
+		case okb:
+			return 1
+		}
+		return 0
+	})
 }
 
 func parse(re *regexp.Regexp, v string) ([4]int, bool) {

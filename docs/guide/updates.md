@@ -10,8 +10,11 @@ healthy. How it works: [lifecycle](../private-cloud/lifecycle.md).
 The Controller checks for new releases and shows, on each node's card,
 whether an update is available - with a 🔒 when it fixes a
 vulnerability on that node (an extension's fix only for the nodes that
-have it). Only the latest release is supported: install security updates
-promptly ([security policy](../../SECURITY.md)).
+have it). The latest release is supported, and the previous one for 14
+days after the next one ships - the time to try the new release first;
+a vulnerability fixed in those days gets a
+[maintenance release](#maintenance-releases) of it. Install security
+updates promptly ([security policy](../../SECURITY.md)).
 
 ## From the Controller
 
@@ -169,6 +172,32 @@ tests is never promoted, and the next release replaces it.
 
 Pre-releases are on the [releases page](https://github.com/swenske/Janus/releases),
 marked; GitHub's **Watch → Custom → Releases** notifies them too.
+
+## Maintenance releases
+
+While the previous release is supported - 14 days after the next one
+ships - a vulnerability fixed in the latest release is fixed in it too,
+by a maintenance release: the previous release with that fix and
+nothing else. Its version is one of the previous release's day
+(`v2026.11.04-2` for `v2026.11.04`), and its name on the
+[releases page](https://github.com/swenske/Janus/releases) says
+"maintenance of" that release.
+
+- **It isn't the latest release.** A node on the newest release is never
+  offered it; the update the Controller offers stays the newest
+  release, and the 🔒 badge of a node on the maintenance release leaves
+  out the fixes it carries.
+- **Install it by its version**: `janusctl lifecycle upgrade` with its
+  download URL ([With janusctl](#with-janusctl)) - for a node with
+  extensions, the URL the image factory gives for its schematic and that
+  version -, a Terraform `janus_node`'s `version`, or a machine's
+  `version` (`PATCH /api/machines/{id}`).
+- **The Controller itself**: its update card offers the newest release;
+  to run the maintenance release's Controller instead, set
+  `JANUS_CONTROLLER_IMAGE` in its Compose `.env` to the image the release
+  names (`controller-image.txt`) and run `docker compose up -d`
+  ([the Controller's install](../../dashboard/README.md)).
+- From there, the next update offered is the newest release, as before.
 
 ## Going back
 

@@ -13,6 +13,10 @@
 //	go run ./hack/releases check-prerelease VERSION
 //	    fails unless VERSION is newer than the newest release: an older
 //	    pre-release could never become one
+//	go run ./hack/releases check-release [-maintenance] [-reachable-from REF] VERSION
+//	    fails unless VERSION may be published as a release: newer than
+//	    the newest release (or that release itself: a rerun) - or, with
+//	    -maintenance, a fix of the previous release (checkMaintenance)
 //	go run ./hack/releases info VERSION
 //	    VERSION's GitHub release as JSON (id, name, prerelease, draft,
 //	    the newest release and whether VERSION is newer, the assets with
@@ -29,6 +33,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -43,18 +48,21 @@ import (
 	"time"
 
 	"github.com/swenske/Janus/dashboard/updater/updaterapi"
+	"github.com/swenske/Janus/internal/calver"
 )
 
 type release struct {
-	ID         int64   `json:"id"`
-	Tag        string  `json:"tag_name"`
-	Commitish  string  `json:"target_commitish"`
-	Name       string  `json:"name"`
-	Draft      bool    `json:"draft"`
-	Prerelease bool    `json:"prerelease"`
-	HTMLURL    string  `json:"html_url"`
-	UploadURL  string  `json:"upload_url"` // "https://uploads.github.com/.../assets{?name,label}"
-	Assets     []asset `json:"assets"`
+	ID         int64  `json:"id"`
+	Tag        string `json:"tag_name"`
+	Commitish  string `json:"target_commitish"`
+	Name       string `json:"name"`
+	Draft      bool   `json:"draft"`
+	Prerelease bool   `json:"prerelease"`
+	// PublishedAt: when it was published (zero for a draft).
+	PublishedAt time.Time `json:"published_at"`
+	HTMLURL     string    `json:"html_url"`
+	UploadURL   string    `json:"upload_url"` // "https://uploads.github.com/.../assets{?name,label}"
+	Assets      []asset   `json:"assets"`
 }
 
 type asset struct {
@@ -248,6 +256,91 @@ func checkPrerelease(rels []release, version string) error {
 	return nil
 }
 
+// checkRelease refuses a release no newer than the newest release - but
+// that release itself, which a rerun of its publishing finds published.
+// A release older than the newest is a maintenance release
+// (checkMaintenance): published as one or not at all, never made the
+// latest by mistake.
+func checkRelease(rels []release, version string) error {
+	if !updaterapi.IsRelease(version) {
+		return fmt.Errorf("%s isn't a release version (vYYYY.MM.DD or vYYYY.MM.DD-N)", version)
+	}
+	latest, err := newest(rels, "")
+	if err != nil || latest == version {
+		return nil
+	}
+	if newer, _ := updaterapi.Newer(version, latest); !newer {
+		return fmt.Errorf("%s isn't newer than the newest release, %s: a fix of an older release is a maintenance release (docs/contributing/releasing.md)", version, latest)
+	}
+	return nil
+}
+
+// supportWindow is how long the previous release is supported once the
+// next one is out: it gets maintenance releases (SECURITY.md).
+const supportWindow = 14 * 24 * time.Hour
+
+// now is the time, for checkMaintenance's window (fixed in tests).
+var now = time.Now
+
+// checkMaintenance refuses a maintenance release that couldn't be one. A
+// maintenance release fixes the previous release - the one before the
+// newest - from a branch made at its tag (ref, HEAD in a workflow): its
+// version is one of that release's day, after it, so it sorts between
+// it and the newest - offered to the nodes on the previous release (the
+// Controller, the image factory), never to those on the newest, and
+// never the latest. A maintenance release of a maintenance release is
+// the same: the previous release is then the first. warn is what the
+// workflow should say: the support window over.
+func checkMaintenance(rels []release, version, ref string) (warn string, err error) {
+	if !updaterapi.IsRelease(version) {
+		return "", fmt.Errorf("%s isn't a release version (vYYYY.MM.DD or vYYYY.MM.DD-N)", version)
+	}
+	for _, r := range rels {
+		if r.Tag == version && r.Prerelease {
+			return "", fmt.Errorf("%s is a pre-release: take another of its day's versions", version)
+		}
+	}
+	// The releases without this one: a rerun finds it published, or its
+	// draft.
+	var others []release
+	for _, r := range rels {
+		if r.Tag != version {
+			others = append(others, r)
+		}
+	}
+	tags := stable(others)
+	if len(tags) < 2 {
+		return "", errors.New("no previous release to fix")
+	}
+	base, err := newest(others, ref)
+	if err != nil {
+		return "", err
+	}
+	latest, previous := tags[0], tags[1]
+	switch {
+	case base == latest:
+		return "", fmt.Errorf("%s is the newest release: its fixes are a release, not a maintenance release - newer than %s", base, latest)
+	case base != previous:
+		return "", fmt.Errorf("%s is neither the newest release (%s) nor the previous one (%s): only those are supported (SECURITY.md)", base, latest, previous)
+	case !calver.SameDay(version, base):
+		return "", fmt.Errorf("a maintenance release of %s takes a version of its day, after it (%s-N): it then sorts before %s", base, base, latest)
+	}
+	if newer, _ := updaterapi.Newer(version, base); !newer {
+		return "", fmt.Errorf("%s isn't newer than %s, which it fixes", version, base)
+	}
+	if newer, _ := updaterapi.Newer(version, latest); newer {
+		return "", fmt.Errorf("%s is newer than the newest release, %s: that is a release", version, latest)
+	}
+	for _, r := range others {
+		if r.Tag == latest && !r.PublishedAt.IsZero() {
+			if since := now().Sub(r.PublishedAt); since > supportWindow {
+				warn = fmt.Sprintf("%s came out %d days ago: %s's %d days of support are over (SECURITY.md)", latest, int(since.Hours()/24), base, int(supportWindow.Hours()/24))
+			}
+		}
+	}
+	return warn, nil
+}
+
 // infoDoc is info's answer.
 type infoDoc struct {
 	ID            int64                `json:"id"`
@@ -300,7 +393,8 @@ func run(args []string, out io.Writer) error {
 		return runPublish(args[1:], out)
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
-	ref := fs.String("reachable-from", "", "only a release whose tag is an ancestor of this ref")
+	ref := fs.String("reachable-from", "", "only a release whose tag is an ancestor of this ref (check-release -maintenance: HEAD by default)")
+	maintenance := fs.Bool("maintenance", false, "check-release: a maintenance release, a fix of the previous release")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -319,6 +413,15 @@ func run(args []string, out io.Writer) error {
 		return err
 	case args[0] == "check-prerelease" && fs.NArg() == 1:
 		return checkPrerelease(rels, fs.Arg(0))
+	case args[0] == "check-release" && fs.NArg() == 1 && !*maintenance:
+		return checkRelease(rels, fs.Arg(0))
+	case args[0] == "check-release" && fs.NArg() == 1:
+		warn, err := checkMaintenance(rels, fs.Arg(0), cmp.Or(*ref, "HEAD"))
+		if warn != "" {
+			// A workflow annotation, readable in a terminal too.
+			fmt.Fprintln(out, "::warning::"+warn)
+		}
+		return err
 	case args[0] == "info" && fs.NArg() == 1:
 		doc, err := info(rels, fs.Arg(0))
 		if err != nil {
@@ -331,4 +434,4 @@ func run(args []string, out io.Writer) error {
 	return errors.New(usage)
 }
 
-const usage = "usage: releases newest [-reachable-from REF] | check-prerelease VERSION | info VERSION | publish -commit SHA -name NAME -notes FILE [-prerelease] VERSION GLOB [GLOB...]"
+const usage = "usage: releases newest [-reachable-from REF] | check-prerelease VERSION | check-release [-maintenance] [-reachable-from REF] VERSION | info VERSION | publish -commit SHA -name NAME -notes FILE [-prerelease] [-latest=false] VERSION GLOB [GLOB...]"

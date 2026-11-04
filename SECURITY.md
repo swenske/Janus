@@ -2,10 +2,23 @@
 
 ## Supported versions
 
-Janus is alpha software: only the **latest release** gets security fixes.
-A node moves to it with its own A/B update (from the Controller, or
-`janusctl lifecycle upgrade`), signature checked and rolled back if it
-doesn't come up healthy.
+Janus is alpha software. Security fixes go to:
+
+- **the latest release**, always;
+- **the previous release, for 14 days** after the next one ships - the
+  time to try the new release before moving to it. A vulnerability
+  fixed in those days gets a **maintenance release** of the previous
+  release too: that release with the fix, nothing else of the new one
+  ([maintenance releases](docs/contributing/releasing.md#maintenance-releases)).
+
+After those 14 days, only the latest release is. A node moves to it
+with its own A/B update (from the Controller, or `janusctl lifecycle
+upgrade`), signature checked and rolled back if it doesn't come up
+healthy.
+
+**Release pace**: a release is first published as a pre-release and
+tested on the lab, then promoted - **at most once a week**. A security
+fix doesn't wait for the week: it ships within the targets below.
 
 **Pre-releases** - marked so on GitHub, published to be tested before
 they become a release - aren't supported: they are never offered as an
@@ -21,7 +34,8 @@ never in a public issue. Say what is affected (a node's API, HAProxy's
 configuration handling, the Controller, an image...), the release, and how
 to reproduce it.
 
-You get an answer within 3 days. The fix ships in a release:
+You get an answer within 3 days. The fix ships in a release - and in a
+maintenance release of the previous one while it is supported:
 
 | Severity | Target |
 |---|---|
@@ -55,6 +69,10 @@ A release that fixes vulnerabilities:
 - gets a GitHub security advisory (Security tab) for each vulnerability
   of Janus's own code it fixes, whatever its severity, and one for the
   components it updates when what they fix is rated high or critical.
+
+A maintenance release is named "Janus vX (Alpha) - maintenance of vY",
+never marked the latest; the advisories of its fixes - the latest
+release's - list it among their patched versions.
 
 To be notified, watch the repository: **Watch** → **Custom** →
 **Releases** (or follow the releases' Atom feed). GitHub's "Security
