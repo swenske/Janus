@@ -27,6 +27,7 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -87,12 +88,43 @@ type ReleaseInfo struct {
 	// pre-release changes its image to (PrereleaseTrack). Nil otherwise.
 	Prerelease *ReleaseInfo `json:"prerelease,omitempty"`
 
+	// MaintenanceOf is the release a maintenance release fixes, as its
+	// name says ("… - maintenance of vX", image-build.yml): a release
+	// older than the newest, on that release's day (docs/contributing/
+	// releasing.md). Empty for any other release.
+	MaintenanceOf string `json:"maintenance_of,omitempty"`
+
 	// tags are every published release, newest first; security what the
 	// ones with a security.json asset fix (SecurityUpdate) - pre-releases
 	// are in neither, only in prereleases.
 	tags        []string
 	security    map[string][]releaseFix
 	prereleases map[string]bool
+	// maintenance are the maintenance releases, newest first
+	// (MaintenanceFor).
+	maintenance []*ReleaseInfo
+}
+
+// maintenanceName is how a maintenance release's name says which release
+// it fixes (image-build.yml's RELEASE_NAME).
+var maintenanceName = regexp.MustCompile(` - maintenance of (v\d{4}\.\d{2}\.\d{2}(?:-\d+)?)\b`)
+
+// MaintenanceFor is the maintenance release a node or Controller running
+// version may install: the newest one of version's day, newer than it -
+// a fix of that release, or of a maintenance release of it. Offered
+// apart from the latest release, which stays the update (a node on the
+// newest release is never offered one). Nil for a version that isn't a
+// release (a development build) or has none.
+func (r *ReleaseInfo) MaintenanceFor(version string) *ReleaseInfo {
+	if !updaterapi.IsRelease(version) {
+		return nil
+	}
+	for _, m := range r.maintenance {
+		if newer, _ := updaterapi.Newer(m.TagName, version); newer && calver.SameDay(m.TagName, version) {
+			return m
+		}
+	}
+	return nil
 }
 
 // IsPrerelease reports whether version is a published pre-release - one
@@ -383,6 +415,7 @@ func sharedFetchContext(ctx context.Context) (context.Context, context.CancelFun
 
 type ghRelease struct {
 	TagName     string `json:"tag_name"`
+	Name        string `json:"name"`
 	HTMLURL     string `json:"html_url"`
 	PublishedAt string `json:"published_at"`
 	Prerelease  bool   `json:"prerelease"`
@@ -448,6 +481,14 @@ func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 			info.tags = append(info.tags, rel.TagName)
 			if err := info.readSecurity(ctx, rel); err != nil {
 				return nil, err
+			}
+			if m := maintenanceName.FindStringSubmatch(rel.Name); m != nil {
+				mi, err := releaseInfo(ctx, rel)
+				if err != nil {
+					return nil, err
+				}
+				mi.MaintenanceOf = m[1]
+				info.maintenance = append(info.maintenance, mi)
 			}
 			continue
 		}

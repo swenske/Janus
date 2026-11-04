@@ -187,11 +187,16 @@ nothing else. Its version is one of the previous release's day
   offered it; the update the Controller offers stays the newest
   release, and the 🔒 badge of a node on the maintenance release leaves
   out the fixes it carries.
-- **Install it by its version**: `janusctl lifecycle upgrade` with its
-  download URL ([With janusctl](#with-janusctl)) - for a node with
-  extensions, the URL the image factory gives for its schematic and that
-  version -, a Terraform `janus_node`'s `version`, or a machine's
-  `version` (`PATCH /api/machines/{id}`).
+- **The Controller offers it** to the nodes on the release it fixes: on
+  a node's **System › Update** page, under the update, **Maintenance
+  release vX of vY** - **Use this maintenance release** fills the usual
+  A/B installation in; for a node with extensions the image factory
+  builds it first, and the page follows the build.
+- **Or by its version**: `janusctl lifecycle upgrade` with its download
+  URL ([With janusctl](#with-janusctl)) - for a node with extensions, the
+  URL the image factory gives for its schematic and that version -, a
+  Terraform `janus_node`'s `version`, or a machine's `version` (`PATCH
+  /api/machines/{id}`).
 - **The Controller itself**: its update card offers the newest release;
   to run the maintenance release's Controller instead, set
   `JANUS_CONTROLLER_IMAGE` in its Compose `.env` to the image the release
