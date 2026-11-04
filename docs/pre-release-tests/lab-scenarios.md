@@ -69,7 +69,10 @@ release to the pre-release. Measured:
 - the update's length (the updater's job);
 - the seconds without an answer, from a probe of `/api/version` every
   0.1 s run on the lab's host (since v2026.10.14-2; from the workstation
-  before, whose path adds its own lost requests).
+  before, whose path adds its own lost requests);
+- since v2026.11.02-2, the update is made on a Controller that has been
+  a warm standby at some point (the campaign before switched over and
+  back): its data directory as a standby left it.
 
 Since v2026.11.04, what a past standby left in the data directory is
 read before and after: `ha/control.sock` and the set-asides in
@@ -111,7 +114,11 @@ Upgrade to back in service, `wrk`'s rate, 99th percentile and errors.
 Measured: requests per second and the 99th percentile, with the nodes'
 boot stages. When the release's runs couldn't be taken before the
 update, the nodes roll back to it for a few minutes (the other slot),
-then forward again - the report says so.
+then forward again - the report says so. Since v2026.11.02-2, when the
+other slot no longer holds the release to compare with (an update in
+place onto another image wrote it), node 01 is updated to that release
+first - its image asked of the image factory again if the site pruned
+it -, then `abrun` alternates them by rollbacks.
 
 ### Failovers
 
@@ -980,7 +987,12 @@ host, both still reaching the witness; `promote` (refused), `promote
 -force`, how long two actives answer and when the old one steps down
 through the witness, its log line; the link back and the copies. Back
 to the base after: switch over, the standby removed, Consul's settings
-as before. The nodes' janusd start times before and after.
+as before. The nodes' janusd start times before and after. Since
+v2026.11.02-2: after each switch-over, the new standby's `dashboardd ha
+status` and `/api/ha` every 5 s for 70 s (`switchover`: no "standby
+too" line, when its first copy came); each `promote` timed (`partition`:
+refused and forced within about 10 s when the active is out of reach);
+the old active's `ha/` directory once it is active again.
 
 ### Cluster updates: waiting for the balancer, the handoff
 
@@ -996,6 +1008,17 @@ members - under the probes, the router watched; the connections cut,
 the journal, `janusctl cluster get`'s handoff line; the nodes' health
 after. Waiting for the balancer needs a balancer hook (RouterOS
 read-only for the lab's BGP anycast, or a webhook): not set up yet.
+Since v2026.11.02-2: the cluster made on the release before, the handoff
+greyed with its reason (`upgrade-options`, an update asking for it,
+`janusctl cluster get`); the update in place onto the pre-release
+without it, under load; then two updates with it (another HAProxy
+branch and back) under `longconn.py`; after the cluster's deletion,
+`janusctl cluster get` on both members (no handoff line), the members'
+`ClusterFlows` calls stopped, the live ruleset, and every configuration
+compared with before the cluster (`snapcfg`). The Update dialog's
+greyed reason in headless Chromium needs a member on the release
+before: a throwaway Controller machine on it, in a throwaway cluster
+with a Controller machine, deleted after.
 
 ### The update path: what writes it, and its memory
 
@@ -1235,6 +1258,15 @@ ran:
   body under `longconn.py`, the probes and `rwatch`, its stages and
   journal; `ctl-login HOST JAR`: a sign-in to a second Controller with
   the lab's account (v2026.11.02).
+- `switchover NAME FROM TO JAR`: Switch over from FROM's card, both
+  `/api/ha/active` every 0.1 s, then the new standby's `ha status` and
+  `/api/ha` every 5 s for 70 s; `partition NAME`: the two Controllers cut
+  apart on the standby's host, `promote` then `promote -force` timed,
+  the old active watched until it steps down; `witness-setup`: the
+  Consul witness on its VM and the Controller's Consul settings (tokens
+  kept out of the scenario's directory); `snapcfg DIR`: both nodes'
+  configurations; `u-check` takes `PALETTES=janus,<one>`
+  (v2026.11.02-2).
 - `aup NAME NODE url|relay|upload REF [SHA256]` (`ALLOW=1`: another
   schematic): a node updated by URL, the Controller's relay or an
   upload, every progress line stamped, janusd's memory and the node's
