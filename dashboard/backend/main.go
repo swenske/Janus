@@ -400,6 +400,9 @@ func (a *app) routes(spa http.Handler) *http.ServeMux {
 	// The node pages' hashed assets, the same for every node: one path,
 	// cached once (nodeproxy.Static); public like the pages themselves.
 	mux.Handle("/node-app/", http.StripPrefix("/node-app", nodeAssets))
+	// What the Content Security Policy blocked, from the browsers
+	// (security_headers.go): logged, public like the pages.
+	mux.HandleFunc(cspReportPath, cspReport())
 	a.registerTokenRoutes(mux)
 	a.registerEnrollRoutes(mux)
 	a.registerUserRoutes(mux)
