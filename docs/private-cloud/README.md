@@ -6,8 +6,32 @@ one difference that shapes everything here: there is no shell to log
 into. A node is configured through its API, by the Controller,
 `janusctl` or Terraform, and an integration automates those, never a
 login. This section is for platform engineers bringing Janus into a
-private cloud: on libvirt/KVM or Proxmox VE - VMware and bare metal
-are suspended, waiting for testers.
+private cloud: on libvirt/KVM or Proxmox VE, the platforms
+[Janus supports](#what-janus-supports) - VMware and bare metal are
+experimental, waiting for testers.
+
+## What Janus supports
+
+**amd64 virtual machines on KVM/libvirt and Proxmox VE**, with or
+without the Controller. That is what releases are built and tested
+for - the images and their updates, the Controller creating nodes on
+libvirt (in the lab, before each release) and on Proxmox VE (a real
+Proxmox VE 9.2 host), the Terraform provider driving it - and what the
+beta will cover.
+
+Everything else is **experimental**:
+
+- **Bare metal, VMware ESXi and the Raspberry Pi** were proven under
+  QEMU only, never on real hardware: they are
+  [suspended](../internals/image-build.md#suspended-targets) since
+  2026-10-30 - no release builds or publishes their images - until
+  someone verifies them. The
+  [image builder](https://janus.sw-servers.net/builder) links the forms
+  to offer it.
+- **arm64 nodes** get no updates: no A/B update was ever proven on
+  arm64, and the image factory serves updates for amd64 only.
+- **Other hypervisors** may boot the qcow2 - any UEFI machine with a
+  virtio, SATA or NVMe disk - but nothing tests them.
 
 ## The pieces
 
@@ -28,8 +52,8 @@ And one end-to-end guide per platform, each with a complete example:
 |---|---|---|---|
 | [libvirt/KVM](platforms/kvm-libvirt.md) | `janus-kvm.qcow2` | the Controller, over SSH - Terraform drives it | `make terraform-provider-test` applies the example as written, on a real libvirt host |
 | [Proxmox VE](platforms/proxmox.md) | `janus.qcow2` | the Controller, through Proxmox's API - Terraform drives it | a real Proxmox VE 9.2 node |
-| [Bare metal](platforms/bare-metal.md) - **suspended**, waiting for testers | `janus.iso` | the installer, driven by `janusctl` | `make qemu-iso-install-test`, `make qemu-baremetal-test` (UEFI; NVMe, SATA, USB and virtio-scsi disks; Intel NICs) - not yet a physical machine |
-| [VMware vSphere](platforms/vmware.md) - **suspended**, waiting for testers | `janus.vmdk` | hand or `govc` | QEMU with VMware's devices (pvscsi, vmxnet3) - not yet a real ESXi host |
+| [Bare metal](platforms/bare-metal.md) - **experimental**, waiting for testers | `janus.iso` | the installer, driven by `janusctl` | `make qemu-iso-install-test`, `make qemu-baremetal-test` (UEFI; NVMe, SATA, USB and virtio-scsi disks; Intel NICs) - not yet a physical machine |
+| [VMware vSphere](platforms/vmware.md) - **experimental**, waiting for testers | `janus.vmdk` | hand or `govc` | QEMU with VMware's devices (pvscsi, vmxnet3) - not yet a real ESXi host |
 
 ## A typical deployment
 

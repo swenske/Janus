@@ -54,6 +54,13 @@ function Downloads({ images = 0, updates = 0, days }) {
   )
 }
 
+// SupportBadge says whether Janus supports a platform - amd64 virtual
+// machines on KVM/libvirt and Proxmox VE, what the beta covers - or it is
+// experimental (docs/private-cloud/README.md "What Janus supports").
+function SupportBadge({ p }) {
+  return p.supported ? <Badge tone="ok">supported</Badge> : <Badge tone="warn">experimental</Badge>
+}
+
 // SuspendedPlatform is a target variants.mk suspends: shown, never
 // selectable, saying why in plain text (read on a phone and by a screen
 // reader alike), with a "Need tester" link to its issue form.
@@ -62,7 +69,7 @@ function SuspendedPlatform({ p }) {
   return (
     <div className="choice suspended" role="group" aria-labelledby={`${id}-name`} aria-describedby={`${id}-why`}>
       <span className="choice-title" id={`${id}-name`}>
-        {p.name} {p.experimental && <Badge tone="warn">experimental</Badge>}
+        {p.name} <SupportBadge p={p} />
       </span>
       <span className="small">{p.description}</span>
       <span className="small suspended-why" id={`${id}-why`}>
@@ -303,6 +310,10 @@ export default function Builder() {
       <ErrorBox error={error} />
 
       <Step n={1} title="Where will it run?" done={!!platform}>
+        <p className="muted small support-note">
+          Janus supports amd64 virtual machines on Proxmox VE and KVM/libvirt, with or without the Controller - the other platforms are experimental (
+          <a href={`${DOCS}/private-cloud/README.md#what-janus-supports`}>what Janus supports</a>).
+        </p>
         {groups.map((g) => (
           <div key={g} className="platform-group">
             <div className="muted small group-label">{g}</div>
@@ -315,7 +326,7 @@ export default function Builder() {
                   ) : (
                   <button key={p.id} className={`choice ${choice.platform === p.id ? 'selected' : ''}`} onClick={() => update({ platform: p.id })}>
                     <span className="choice-title">
-                      {p.name} {p.experimental && <Badge tone="warn">experimental</Badge>}
+                      {p.name} <SupportBadge p={p} />
                     </span>
                     <span className="muted small">{p.description}</span>
                     <span className="choice-meta">

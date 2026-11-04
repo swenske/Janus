@@ -32,6 +32,11 @@ it creates the virtual machine with a NoCloud volume of its own (method
 3, plus a one-time registration token) and admits the node without the
 approval step - see [hypervisors.md](hypervisors.md).
 
+> [!NOTE]
+> Janus supports amd64 virtual machines on KVM/libvirt and Proxmox VE
+> ([what Janus supports](private-cloud/README.md#what-janus-supports)):
+> the installer ISO (method 4) and physical machines are experimental.
+
 The Controller's address and CA certificate are in its **Provision new
 nodes with this Controller** panel (or `GET /api/controller-info`) - and,
 once its fleet is set up, the fleet's root (`fleet-root.crt`). Give a node
@@ -517,7 +522,10 @@ volume (method 3) to the installed disk's first boot.
 
 ## Physical hardware
 
-The images boot whatever the disk is called: their UKIs name the
+Physical machines are experimental
+([what Janus supports](private-cloud/README.md#what-janus-supports)):
+the drivers below are built in, proven under QEMU's emulated devices
+only. The images boot whatever the disk is called: their UKIs name the
 partitions by GPT label (`PARTLABEL=BOOT-A-DATA`...), and the kernel
 waits for them (`dm-mod.waitfor`) - virtio (`/dev/vda`), SATA/SAS/USB
 (`/dev/sda`), NVMe (`/dev/nvme0n1`).

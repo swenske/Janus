@@ -6,6 +6,8 @@ the nodes, their network and their HAProxy configuration, all as code -
 then a virtual IP between them.
 
 > [!NOTE]
+> One of the two platforms
+> [Janus supports](../README.md#what-janus-supports), with Proxmox VE.
 > Proven: `make terraform-provider-test` applies this example as written,
 > on every image build: its two nodes created and admitted, serving its
 > `haproxy.cfg`, on a real Controller and a real libvirt host. The

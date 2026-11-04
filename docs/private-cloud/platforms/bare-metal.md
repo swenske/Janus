@@ -7,7 +7,7 @@ with no approval to click through. The same steps install a virtual
 machine from the ISO.
 
 > [!WARNING]
-> **Suspended since 2026-10-30, waiting for testers.** Janus was never
+> **Experimental - suspended since 2026-10-30, waiting for testers.** Janus was never
 > installed on a physical machine. Until someone can test one, nothing
 > builds or tests the installer ISO, PXE or HTTP Boot, and releases
 > don't publish `janus.iso` - v2026.10.30's is the last; `make

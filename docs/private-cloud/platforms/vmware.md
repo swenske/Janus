@@ -6,7 +6,7 @@ CD-ROM for its first boot - then the same Controller, `janusctl` and
 HAProxy configuration as on any platform.
 
 > [!WARNING]
-> **Suspended since 2026-10-30, waiting for testers.** Janus was never
+> **Experimental - suspended since 2026-10-30, waiting for testers.** Janus was never
 > run on a real ESXi host: VMware's devices - the PVSCSI disk
 > controller, the VMXNET 3 network card - and the screen console were
 > proven under QEMU only. Until someone can test it, nothing builds or
