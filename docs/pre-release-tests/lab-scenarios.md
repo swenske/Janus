@@ -79,6 +79,12 @@ read before and after: `ha/control.sock` and the set-asides in
 `ha/previous/`; then a stale socket (a Unix socket nothing listens on)
 is put at `ha/control.sock` and the Controller restarted, to see it go.
 
+Since v2026.11.04-2, Docker Compose's version in the Controller's and
+the updater's containers (`/usr/local/bin/docker-compose version`)
+before and after the update - the updater recreates only the
+Controller's container -, then after `docker compose up -d` in the
+Compose directory, the way its README gives the updater the new image.
+
 ### The image factory
 
 A node's Update page offers the pre-release apart; asked to, the factory
@@ -1086,6 +1092,41 @@ the AVC denials after the boot and after the plug, the console's "USB
 disconnect", when the tablet is enumerated against when the policy is
 loaded.
 
+### The Content Security Policy
+
+Since v2026.11.04-2. The headers of the Controller's page, its API, a
+node's page and its API and the node app (`curl -D -`): the blocking
+`Content-Security-Policy` with its `report-uri`, no report-only one
+left. Then the pinned Chromium over the Controller's node list,
+machines and settings, a node's Overview, Metrics and Traffic flow and
+another's Overview and Update, light and dark: console errors, failed
+requests, axe, and the `csp:` lines in the Controller's log during the
+walk (none expected). A positive control: an inline script and a
+script from a public CDN added to the DOM of the page and of a node's
+page - neither may run, and the Controller must log each report.
+
+### CPU mitigations
+
+Since v2026.11.04-2 (#498: the x86 kernels are built without
+`CONFIG_CPU_MITIGATIONS`). The default track's kernel built with it
+(kbuild's default `MITIGATION_*` options, checked in the resolved
+`.config`), and the default schematic's bundle built by
+`image/schematic/build.sh` from the pre-release's published inputs
+with that kernel - its `rootfs.squashfs` the release's bytes, only the
+UKIs differ, unsigned. On one machine the Controller makes from the
+pre-release's image (2 vCPU, host CPU, HAProxy answering on the node
+itself in HTTP and TLS): the release, then the mitigated bundle
+(uploaded, installed without the signature check), a rollback, a
+rollback again - two passes of each kernel, two rounds each. Measured:
+`/sys/devices/system/cpu/vulnerabilities/*` and the CPU's model, bugs
+and flags as the guest sees them; from a runner keep-alive with 64
+connections, a new connection per request (32), a TLS handshake per
+request (32), and the four clients at once with 256 keep-alive
+connections each - 30 s each, requests per second, p50 and p99, the
+node's CPU time per request from its `/proc/stat` (user, system,
+interrupts); then three firmware reboots on each kernel, their boot
+stages. The gaps in %; the machine destroyed afterwards.
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -1280,3 +1321,9 @@ ran:
   tablet and the live keyboard; `ndmesg NAME`: a node's kernel log
   through its page; `rbench-short NAME`: keep-alive 64 and a new
   connection per request, three rounds (v2026.11.04).
+- `csp-probe.mjs`: the scripts injected into the Controller's page and
+  a node's page, what ran and the browser's violations; `mitab NAME
+  NODE FRONTIP`: the CPU mitigations' runs on one node (`ROUNDS=`), the
+  vulnerabilities first; `haproxy-ab.cfg`: that node's HAProxy (HTTP,
+  TLS, the backends); `bstage` with `MADDR=`: a machine whose exporter
+  listens on its default-route network only (v2026.11.04-2).
