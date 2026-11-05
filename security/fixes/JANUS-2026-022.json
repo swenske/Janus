@@ -1,0 +1,11 @@
+{
+  "id": "JANUS-2026-022",
+  "title": "A release or pre-release could be published from any branch",
+  "severity": "low",
+  "cvss": "CVSS:3.1/AV:N/AC:H/PR:H/UI:N/S:U/C:N/I:L/A:N",
+  "cwe": [
+    "CWE-862"
+  ],
+  "target": "node",
+  "description": "image-build.yml's publish checks the release version and its notes but not the branch it runs on. A pre-release dispatched from any branch pushed Docker Hub `latest`, and a non-maintenance release from a branch other than main only had to be newer than the newest release to become GitHub's latest, Docker Hub `latest`, apt stable and the docs - all from an unreviewed ref. A collaborator's mistake, or the image factory's workflow-dispatch token (which can dispatch any workflow on any branch), could publish images the fleet trusts from code that never reached main.\n\n**Affected**: the publish pipeline, hence the images every node installs or updates to.\n\n**Fix**: a release or pre-release is refused unless it is dispatched on `refs/heads/main`, and a maintenance release unless on a `refs/heads/release/*` branch, in the early validation before the build.\n\n**Besides updating**: nothing on nodes; the change is in the CI workflow."
+}

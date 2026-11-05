@@ -73,6 +73,26 @@ jobs:
           echo "::error::maintenance needs release_version, and is never a pre-release (docs/contributing/releasing.md)"
           exit 1
 
+      # A release or pre-release must be cut from main, a maintenance
+      # release from its release/<version> branch: a build on any other
+      # ref would push Docker Hub latest and publish a release from an
+      # unreviewed ref (security review 2026-11-05 #26).
+      - name: A release is cut from the right branch
+        if: ${{ inputs.release_version != '' }}
+        env:
+          REF: ${{ github.ref }}
+          MAINTENANCE: ${{ inputs.maintenance }}
+        run: |
+          if [ "$MAINTENANCE" = "true" ]; then
+            case "$REF" in
+              refs/heads/release/*) ;;
+              *) echo "::error::a maintenance release must be dispatched on a release/<version> branch, not $REF"; exit 1 ;;
+            esac
+          elif [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::a release or pre-release must be dispatched on main, not $REF"
+            exit 1
+          fi
+
       - uses: ./.github/actions/runner-setup
 
       # A pre-release older than the newest release could never be
