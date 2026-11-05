@@ -67,6 +67,12 @@ defaults
 		{"a program section", good + "\nprogram cmd\n  command /bin/true\n", `program section isn't allowed`},
 		{"a forbidden keyword in a comment", strings.Replace(good, "  uid 1000\n", "  uid 1000\n  # daemon\n", 1), ""},
 		{"the keywords outside global", good + "frontend f\n  bind *:80\n  # a frontend may say what it likes\n  daemon\n", ""},
+		{"a quoted forbidden keyword", strings.Replace(good, "  uid 1000\n", "  uid 1000\n  \"daemon\"\n", 1), `"daemon" isn't allowed`},
+		{"a forbidden keyword split by quotes", strings.Replace(good, "  uid 1000\n", "  uid 1000\n  set\"env\" X Y\n", 1), `"setenv" isn't allowed`},
+		{"a forbidden keyword behind an escape", strings.Replace(good, "  uid 1000\n", "  uid 1000\n  \\daemon\n", 1), `"daemon" isn't allowed`},
+		{"a conditional block", strings.Replace(good, "  uid 1000\n", "  uid 1000\n  .if defined(X)\n  tune.bufsize 16384\n  .endif\n", 1), `.if`},
+		{"a required line hidden in a false conditional",
+			"global\n.if 0\n  chroot /var/empty\n  uid 1000\n  gid 1000\n.endif\n  stats socket /run/janus/haproxy-admin.sock mode 660 level admin\n", `.if`},
 	}
 	for _, tc := range tests {
 		err := nodeTestPolicy().Check([]byte(tc.cfg))

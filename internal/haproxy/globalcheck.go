@@ -73,9 +73,19 @@ func (p *GlobalPolicy) Check(cfg []byte) error {
 	seen := map[string]bool{}
 	inGlobal := false
 	for _, raw := range strings.Split(string(cfg), "\n") {
-		fields := strings.Fields(uncomment(raw))
+		fields := parseLine(raw)
 		if len(fields) == 0 {
 			continue
+		}
+		// HAProxy's configuration preprocessor (.if/.elif/.else/.endif,
+		// 2.4+) would let a required line sit in a block HAProxy skips -
+		// the Policy would count it, HAProxy wouldn't apply it - so the
+		// node drops HAProxy's privileges or opens its admin socket as the
+		// configuration never meant. A node's configuration is applied
+		// whole and needs no conditionals: refuse them (security review
+		// 2026-11-05 #4, JANUS-2026-010).
+		if strings.HasPrefix(fields[0], ".") {
+			return fmt.Errorf("%q isn't allowed on a node: HAProxy's configuration conditionals (.if/.elif/.else/.endif) could hide what a node requires", fields[0])
 		}
 		if sectionKeywords[fields[0]] {
 			if fields[0] == "program" {
@@ -178,13 +188,73 @@ func bindsPort(addrs string, port int) bool {
 	return false
 }
 
-// uncomment drops a line's comment: from the first "#" not escaped as
-// "\#", the way HAProxy reads it.
-func uncomment(line string) string {
-	for i := 0; i < len(line); i++ {
-		if line[i] == '#' && (i == 0 || line[i-1] != '\\') {
-			return line[:i]
+// parseLine splits a configuration line into HAProxy's arguments the way
+// src/tools.c parse_line does for what the Policy needs: it unquotes
+// "..." and '...' and backslash escapes, concatenating runs into one
+// argument, and stops at an unquoted '#'. So a forbidden keyword can't
+// hide behind quotes or an escape - `"daemon"`, `da"emon"`, `set\env` all
+// tokenize to the word HAProxy itself acts on (security review 2026-11-05
+// #4). Environment expansion (${VAR}) is left as is: the environment is
+// janusd's, not the operator's.
+func parseLine(line string) []string {
+	var args []string
+	var cur strings.Builder
+	inArg := false
+	flush := func() {
+		if inArg {
+			args = append(args, cur.String())
+			cur.Reset()
+			inArg = false
 		}
 	}
-	return line
+	for i := 0; i < len(line); {
+		c := line[i]
+		switch c {
+		case '#':
+			flush()
+			return args
+		case ' ', '\t', '\r':
+			flush()
+			i++
+		case '\\':
+			inArg = true
+			if i+1 < len(line) {
+				cur.WriteByte(line[i+1])
+				i += 2
+			} else {
+				i++
+			}
+		case '"':
+			inArg = true
+			i++
+			for i < len(line) && line[i] != '"' {
+				if line[i] == '\\' && i+1 < len(line) {
+					cur.WriteByte(line[i+1])
+					i += 2
+					continue
+				}
+				cur.WriteByte(line[i])
+				i++
+			}
+			if i < len(line) {
+				i++ // the closing quote
+			}
+		case '\'':
+			inArg = true
+			i++
+			for i < len(line) && line[i] != '\'' {
+				cur.WriteByte(line[i])
+				i++
+			}
+			if i < len(line) {
+				i++
+			}
+		default:
+			inArg = true
+			cur.WriteByte(c)
+			i++
+		}
+	}
+	flush()
+	return args
 }
