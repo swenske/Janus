@@ -103,9 +103,9 @@ var Required = map[string][]string{
 	// HAProxyService
 	"/janus.v1alpha1.HAProxyService/GetConfig":              readers,
 	"/janus.v1alpha1.HAProxyService/ApplyConfig":            operators,
-	"/janus.v1alpha1.HAProxyService/ValidateConfig":         readers, // no side effects - validates the caller's own input
-	"/janus.v1alpha1.HAProxyService/ConfigHistory":          readers, // masked like GetConfig
-	"/janus.v1alpha1.HAProxyService/ConfigVersion":          readers, // masked like GetConfig
+	"/janus.v1alpha1.HAProxyService/ValidateConfig":         operators, // runs `haproxy -c` on the caller's input - an operator's to apply, not a reader's
+	"/janus.v1alpha1.HAProxyService/ConfigHistory":          readers,   // masked like GetConfig
+	"/janus.v1alpha1.HAProxyService/ConfigVersion":          readers,   // masked like GetConfig
 	"/janus.v1alpha1.HAProxyService/Reload":                 operators,
 	"/janus.v1alpha1.HAProxyService/Stats":                  readers,
 	"/janus.v1alpha1.HAProxyService/ShowInfo":               readers,

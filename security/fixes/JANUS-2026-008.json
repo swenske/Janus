@@ -1,0 +1,12 @@
+{
+  "id": "JANUS-2026-008",
+  "title": "An HAProxy configuration could read the node's private keys and credentials, turning an operator into an admin",
+  "severity": "high",
+  "cvss": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:H/A:N",
+  "cwe": [
+    "CWE-269",
+    "CWE-552"
+  ],
+  "target": "node",
+  "description": "HAProxy parses its configuration as root, before it chroots and drops to uid 1000, and several directives open a file at that point and then serve or expose its bytes (for example the `file` payload of an `http-request return` rule, or pattern files the runtime API lists back). janusd's `GlobalPolicy` constrained only the `global` section, not the paths a configuration names, and SELinux let `haproxy_t` read every file on STATE (`state_t`), so a configuration could name any of them. Whoever may apply a configuration - an `os:operator` on the node, a Controller operator through the node page, or an operator API token - could therefore have HAProxy read back the node CA's private key (`pki/ca.key`), and with it sign themselves an `os:admin` certificate for that node; or the cluster member key, the ACME account key and DNS credentials, the log-forwarding credentials and the Controller registration token under `config/`. This defeated the rule that the file RPCs never serve a node's secrets (`internal/api/secretfiles.go`, docs/haproxy-files.md) and the operator/admin split.\n\n**Affected**: every release - the broad SELinux read rule dates from the first policy. A node whose HAProxy an operator (direct `os:operator`, Controller operator, or operator API token) can configure.\n\n**Fix**: janusd now runs HAProxy - the serving process and every `haproxy -c` validation - in a private mount namespace where STATE and its bind mounts are detached, so the node CA key and the `config/` secrets are simply absent from the paths a configuration can name; a configuration that names one is rejected with \"error opening file\" and nothing is served. The defense does not depend on parsing the configuration, so it holds even where the `global`-section check can be evaded. `ValidateConfig` is now an operator call, not a reader's.\n\n**Besides updating**: nothing - the fix is entirely on the node, applied by the update."
+}
