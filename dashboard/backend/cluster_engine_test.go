@@ -764,7 +764,7 @@ func TestClusterReconcile(t *testing.T) {
 	if st1 := a.clusters.Store.State(c.ID).Members["lb-1"]; len(st1.Drift) > 0 {
 		t.Errorf("lb-1 drifted: %+v", st1)
 	}
-	view := a.clusterView(c)
+	view := a.clusterView(c, nil)
 	if !slices.ContainsFunc(view.Problems, func(p string) bool { return strings.Contains(p, "lb-2 has drifted: haproxy") }) {
 		t.Errorf("problems: %v", view.Problems)
 	}
@@ -886,7 +886,7 @@ func TestClusterTicketsRenewedWhenAMemberLeaves(t *testing.T) {
 	if c.Member("lb-2") != nil || !slices.Equal(a.clusters.Store.State(c.ID).TicketsRenew, []string{"lb-2"}) {
 		t.Fatalf("after a failed renewal: members %v, state %+v", c.Members, a.clusters.Store.State(c.ID))
 	}
-	if v := a.clusterView(c); !slices.ContainsFunc(v.Problems, func(p string) bool { return strings.Contains(p, "still the one lb-2 knew") }) {
+	if v := a.clusterView(c, nil); !slices.ContainsFunc(v.Problems, func(p string) bool { return strings.Contains(p, "still the one lb-2 knew") }) {
 		t.Errorf("problems: %v", v.Problems)
 	}
 	delete(f.fail, "lb-1 RotateTickets")
@@ -1129,7 +1129,7 @@ func TestClusterKeepsTheDrain(t *testing.T) {
 	if st := a.clusters.Store.State(c.ID).Members["lb-2"]; !st.Drained || !strings.Contains(st.Error, "draining it again failed") {
 		t.Errorf("lb-2 after a failed drain: %+v", st)
 	}
-	view := a.clusterView(c)
+	view := a.clusterView(c, nil)
 	if !slices.ContainsFunc(view.Problems, func(p string) bool { return strings.Contains(p, "draining it again failed") }) {
 		t.Errorf("problems: %v", view.Problems)
 	}

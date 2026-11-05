@@ -189,7 +189,7 @@ func TestClusterUpgradeThroughTheAPI(t *testing.T) {
 	if ev := eventsOf(got); !strings.Contains(ev, "updating: cluster edge's update to Janus "+upgradeTo) || !strings.Contains(ev, "the node runs Janus "+upgradeTo+" - updated") {
 		t.Errorf("the machine's history: %s", ev)
 	}
-	view := a.clusterView(cur)
+	view := a.clusterView(cur, nil)
 	for _, mv := range view.Members {
 		if mv.State.Stage != "" || mv.State.Drained {
 			t.Errorf("%s in the view: %+v", mv.Name, mv.State)
