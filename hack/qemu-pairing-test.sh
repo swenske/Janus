@@ -8,8 +8,9 @@
 #     code pairs it - it trusts the fleet, janusctl reaches its API with
 #     the fleet's certificate, its CA pinned -; the window's port closes;
 #     restarted, it opens no window;
-#   - Q: five wrong secrets close its window - the right code is refused
-#     then -; restarted, a new code pairs it;
+#   - Q: five wrong secrets from one source pause that source - the right
+#     code from it is refused then, the window stays open -; restarted, a
+#     new code pairs it;
 #   - N (the fleet from a NoCloud volume) and C (a Controller from one)
 #     open no window;
 #   - no AVC denial on any of them.
@@ -143,16 +144,17 @@ if grep -aq "pairing: code" "$WORKDIR/p.log"; then fail "P, paired, shows a code
 alice -n edge-p version >/dev/null || fail "P, restarted, doesn't let the fleet in"
 echo "  ok: P restarted trusts the fleet, opens no window"
 
-# --- Q: five wrong secrets close the window ---
+# --- Q: five wrong codes from one source pause it, not the window ---
 CODE_Q="$(code_of q)"
 [ "${#CODE_Q}" = 24 ] || fail "node Q shows no pairing code"
 for i in 1 2 3 4 5; do
   WRONG="$(go run ./hack/pairingcode wrong "$CODE_Q" "$i")"
   if out="$(adopt q "$WRONG")"; then fail "Q adopted with a wrong secret: $out"; fi
 done
-check "the fifth wrong secret closes the window" "the window is closed until the node restarts" "$out"
-if out="$(adopt q "$CODE_Q")"; then fail "Q paired after five wrong codes: $out"; fi
-if window_open q; then fail "Q's window still answers after five wrong codes"; fi
+check "the fifth wrong secret pauses the source" "wrong pairing codes from your address" "$out"
+if out="$(adopt q "$CODE_Q")"; then fail "Q paired from a paused source: $out"; fi
+check "the right code from the paused source is refused" "from your address" "$out"
+window_open q || fail "Q's window stopped answering - a source's failures must not close it for everyone"
 halt q
 boot q
 up q
@@ -160,10 +162,10 @@ NEW_Q="$(code_of q)"
 [ "${#NEW_Q}" = 24 ] && [ "$NEW_Q" != "$CODE_Q" ] || fail "Q restarted: no new code ($NEW_Q)"
 out="$(adopt q "$NEW_Q")" || fail "pairing Q with its new code: $out"
 alice -n edge-q version >/dev/null || fail "alice can't reach Q's API"
-echo "  ok: five wrong codes closed Q's window, the right one refused then; restarted, a new code paired it"
+echo "  ok: five wrong codes paused the source (the window stayed open), the right one refused then; restarted, a new code paired it"
 
 for n in p q n c; do
   denials="$(grep -a "avc:.*denied" "$WORKDIR/$n.log" || true)"
   [ -z "$denials" ] || { echo "$denials" >&2; fail "AVC denials on node $n"; }
 done
-echo "Pairing test OK: a node that trusts nothing paired with the code its console shows - checked by janusctl before anything was sent, a wrong one counted, five closing the window -, provisioned nodes open none, zero AVC denials"
+echo "Pairing test OK: a node that trusts nothing paired with the code its console shows - checked by janusctl before anything was sent, a wrong one counted, five pausing the source (the window stayed open) -, provisioned nodes open none, zero AVC denials"

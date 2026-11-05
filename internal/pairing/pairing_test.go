@@ -65,37 +65,49 @@ func TestCode(t *testing.T) {
 func TestWindow(t *testing.T) {
 	secret := []byte{1, 2, 3, 4, 5}
 	w := NewWindow(secret, 0)
+	const src = "10.0.0.9"
+	// Wrong codes from one source are counted; the window stays open.
 	for i := 1; i < MaxFailures; i++ {
 		var wrong *ErrWrong
-		if err := w.Check([]byte{9, 9, 9, 9, 9}); !errors.As(err, &wrong) || wrong.Left != MaxFailures-i {
+		if err := w.Check(src, []byte{9, 9, 9, 9, 9}); !errors.As(err, &wrong) || wrong.Left != MaxFailures-i || wrong.Blocked {
 			t.Fatalf("wrong secret %d: %v", i, err)
 		}
 	}
-	if err := w.Check(secret); err != nil {
-		t.Fatalf("the right secret after %d wrong ones: %v", MaxFailures-1, err)
+	// The right secret still works from another source.
+	if err := w.Check("10.0.0.1", secret); err != nil {
+		t.Fatalf("the right secret from another source: %v", err)
 	}
-	if err := w.Check([]byte{9}); err == nil || IsClosed(err) {
-		t.Fatalf("the last try: %v", err)
+	// The source's MaxFailures-th wrong code pauses it alone.
+	if err := w.Check(src, []byte{9}); !IsBlocked(err) {
+		t.Fatalf("the %dth wrong one should pause the source: %v", MaxFailures, err)
 	}
-	if err := w.Check(secret); !IsClosed(err) || !strings.Contains(err.Error(), "5 wrong codes") {
-		t.Errorf("after %d wrong ones: %v", MaxFailures, err)
+	if w.Closed() != "" {
+		t.Error("a source's failures closed the window for everyone")
 	}
-	select {
-	case <-w.Done():
-	default:
-		t.Error("Done not closed")
+	// The paused source is turned away even with the right code...
+	if err := w.Check(src, secret); !IsBlocked(err) {
+		t.Errorf("the paused source: %v", err)
+	}
+	// ...while another source still pairs.
+	if err := w.Check("10.0.0.2", secret); err != nil {
+		t.Errorf("another source after one was paused: %v", err)
+	}
+	// After the pause, the source may try again.
+	w.now = func() time.Time { return time.Now().Add(FailurePause + time.Second) }
+	if err := w.Check(src, secret); err != nil {
+		t.Errorf("after the pause: %v", err)
 	}
 
 	w = NewWindow(secret, 0)
 	w.Close("paired")
 	w.Close("again")
-	if w.Closed() != "paired" || !IsClosed(w.Check(secret)) {
+	if w.Closed() != "paired" || !IsClosed(w.Check(src, secret)) {
 		t.Errorf("closed: %q", w.Closed())
 	}
 
 	w = NewWindow(secret, time.Minute)
 	w.now = func() time.Time { return time.Now().Add(2 * time.Minute) }
-	if err := w.Check(secret); !IsClosed(err) {
+	if err := w.Check(src, secret); !IsClosed(err) {
 		t.Errorf("past its time: %v", err)
 	}
 }

@@ -795,9 +795,21 @@ func main() {
 			log.Printf("rescue: a rescue volume, but no pairing address (-pairing-addr) - no rescue window")
 		}
 	case rescue != nil:
-		pw = openPairing(a, local, access, fleet, hostname, rescueUntil, func() { markRescued(rescuePathV) })
+		// When the rescue window closes, put the saved firewall ruleset
+		// back if this boot skipped it (firewall: skip) - it must not
+		// outlive the window (security review 2026-11-05 #18).
+		onClose := func(string) {
+			if *manageHost && rescue.Firewall == "skip" {
+				if err := fwMgr.Boot(); err != nil {
+					log.Printf("firewall: applying the saved ruleset after the rescue window closed: %v - the node runs without it", err)
+				} else {
+					log.Printf("firewall: the rescue window closed - the saved ruleset is applied now")
+				}
+			}
+		}
+		pw = openPairing(a, local, access, fleet, hostname, rescueUntil, func() { markRescued(rescuePathV) }, onClose)
 	case pairingWanted(fleet, fleetErr, *pkiDir):
-		pw = openPairing(a, local, access, fleet, hostname, time.Time{}, nil)
+		pw = openPairing(a, local, access, fleet, hostname, time.Time{}, nil, nil)
 	}
 
 	log.Printf("janusd %s listening on %s (mTLS required)", version, *addr)

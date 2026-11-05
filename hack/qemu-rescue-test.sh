@@ -179,6 +179,9 @@ check "the wrong code audited" $'PairingService/Rescue\tpairing code\t[0-9.:]+\t
 check "the rescue audited" $'PairingService/Rescue\tpairing code\t[0-9.:]+\tOK' "$audit"
 sleep 35 # the window lingers for a lost answer (api.PairReplay)
 if window_open; then fail "the rescue window still answers once used"; fi
+# #18: the skipped firewall must not outlive the window - it's applied
+# once the window closes, in this same boot.
+check "the skipped firewall is applied when the window closes" "firewall: the rescue window closed - the saved ruleset is applied now" "$(cat "$LOG")"
 as_rescued "$WORKDIR/r1" access trust-reset >/dev/null || fail "trust-reset with the rescue certificate"
 bob -context home fleet init -name home -issuer bob-laptop -user bob -yes "$WORKDIR/bob-kit.age" >/dev/null 2>&1 || fail "bob's fleet"
 bob fleet adopt edge-r -endpoint "127.0.0.1:$API" -ca "$WORKDIR/r1/ca.crt" -cert "$WORKDIR/r1/admin.crt" -key "$WORKDIR/r1/admin.key" >/dev/null || fail "bob adopting R"
