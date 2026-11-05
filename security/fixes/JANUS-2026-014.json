@@ -1,0 +1,12 @@
+{
+  "id": "JANUS-2026-014",
+  "title": "A node operator could make the Controller fetch an arbitrary URL through the update relay",
+  "severity": "medium",
+  "cvss": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:L/I:N/A:N",
+  "cwe": [
+    "CWE-918",
+    "CWE-862"
+  ],
+  "target": "controller",
+  "description": "A node page's `POST /api/lifecycle/upgrade-relay` has the Controller download a release bundle from the `http(s)://` reference the caller gives, then push it to the node (`UploadReleaseFile`) and install it (`Upgrade`), both admin-only on the node. The Controller fetched the reference before the node refused the admin-only calls, and the node page required only the operator role for a POST, so an `os:operator` on a node - including one scoped to a domain other than lifecycle - could point the reference at an internal or metadata address and read the status and connection errors back in the relay's progress stream: a blind request from the Controller's network position (an SSRF oracle). The fetch also followed redirects to any host.\n\n**Affected**: a Controller whose nodes an operator can reach.\n\n**Fix**: the relay refuses, before any fetch, a caller who may not call both `Upgrade` and `UploadReleaseFile` on the node; and it follows a redirect only to the same host.\n\n**Besides updating**: nothing."
+}
