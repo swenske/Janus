@@ -459,6 +459,15 @@ func (s *Store) AcceptMember(chain []*x509.Certificate) (member string, err erro
 	if id != s.m.ID {
 		return "", fmt.Errorf("a member of another cluster (%s)", id)
 	}
+	// The certificate names a member, but is it still one? A member
+	// removed from the cluster keeps its (30-day) certificate; without
+	// this it could go on calling ClusterExport on the others and read
+	// every cluster key. A removal updates the remaining members'
+	// composition (the engine's RemoveMember), so a departed name is no
+	// longer found here (security review 2026-11-05 #6, JANUS-2026-017).
+	if s.m.Find(name) == nil {
+		return "", fmt.Errorf("%q is not a current member of this cluster", name)
+	}
 	return name, nil
 }
 
