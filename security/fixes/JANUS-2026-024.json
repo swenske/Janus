@@ -1,0 +1,11 @@
+{
+  "id": "JANUS-2026-024",
+  "title": "An unauthenticated client could fill the SSO pending-sign-in table and block sign-ins",
+  "severity": "medium",
+  "cvss": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+  "cwe": [
+    "CWE-770"
+  ],
+  "target": "controller",
+  "description": "The SSO sign-ins under way are bounded by a global cap of 10000 entries kept for 10 minutes, and the per-source limit is coarse (per exact IP), so an IPv6 /64 or about 90 IPv4 addresses could fill the table with unfinished sign-ins. Every SSO sign-in then answered \"too many sign-ins under way\" for up to 10 minutes. Password sign-in was unaffected.\n\n**Affected**: a Controller with SSO enabled, reachable by an unauthenticated client.\n\n**Fix**: when the table is full, the oldest sign-in under way is evicted and the new one is kept, so a flood only churns its own entries instead of blocking everyone's for the table's lifetime.\n\n**Besides updating**: nothing."
+}
