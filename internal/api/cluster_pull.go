@@ -44,6 +44,12 @@ const (
 	exportACME         = "acme/"
 	exportACMEConfig   = "acme-config.json"
 	exportTicketKeys   = "tls-ticket-keys"
+
+	// A pulled export is a cluster's small state (config, certs, ticket
+	// ring): capped so a member can't exhaust memory or install a
+	// silently truncated file (security review 2026-11-05 #27).
+	maxClusterExport = 64 << 20
+	maxClusterItem   = 4 << 20
 )
 
 var allItems = []janusv1alpha1.ClusterItem{
@@ -181,7 +187,8 @@ func (c *Cluster) ClusterPull(req *janusv1alpha1.ClusterPullRequest, stream janu
 		return status.Errorf(codes.Unavailable, "member %s: %v", from.Name, err)
 	}
 	// The whole tar first: a member that stops answering halfway leaves
-	// nothing half installed.
+	// nothing half installed. Capped so a member that streams without end
+	// can't exhaust memory (security review 2026-11-05 #27).
 	var archive bytes.Buffer
 	for {
 		chunk, err := exp.Recv()
@@ -190,6 +197,9 @@ func (c *Cluster) ClusterPull(req *janusv1alpha1.ClusterPullRequest, stream janu
 		}
 		if err != nil {
 			return status.Errorf(codes.Unavailable, "member %s: %v", from.Name, err)
+		}
+		if archive.Len()+len(chunk.GetBytes()) > maxClusterExport {
+			return status.Errorf(codes.ResourceExhausted, "the export from %s is over %d bytes", from.Name, maxClusterExport)
 		}
 		archive.Write(chunk.GetBytes())
 	}
@@ -207,9 +217,14 @@ func (c *Cluster) ClusterPull(req *janusv1alpha1.ClusterPullRequest, stream janu
 		if err != nil {
 			return status.Errorf(codes.Internal, "the export from %s: %v", from.Name, err)
 		}
-		data, err := io.ReadAll(io.LimitReader(tr, 4<<20))
+		data, err := io.ReadAll(io.LimitReader(tr, maxClusterItem+1))
 		if err != nil {
 			return status.Errorf(codes.Internal, "the export from %s: %v", from.Name, err)
+		}
+		if len(data) > maxClusterItem {
+			// Don't install a silently truncated file (security review
+			// 2026-11-05 #27).
+			return status.Errorf(codes.ResourceExhausted, "the export from %s has an entry over %d bytes (%s)", from.Name, maxClusterItem, path.Clean(h.Name))
 		}
 		name := path.Clean(h.Name)
 		switch {
