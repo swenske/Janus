@@ -167,6 +167,12 @@ echo "128 MiB node up ($MEMORY of memory), version says so"
 
 CMD=(lifecycle upgrade -insecure-skip-signature-check "$BUNDLE_URL/bad")
 refused "$LOG" "v2 with a byte changed 2 MiB in" "rootfs.squashfs: " "block 512 " "no longer holds its previous release" "Rollback won't switch to it"
+# The inactive slot's state settles a moment after the refused upload's
+# RPC returns; poll rather than read it once (a CI flake, 2026-11-05).
+for _ in $(seq 1 20); do
+  "$CTL" "${CTL_ARGS[@]}" version | grep -q "^Other slot: B - .*refused" && break
+  sleep 0.5
+done
 "$CTL" "${CTL_ARGS[@]}" version | grep -q "^Other slot: B - .*refused" || fail "version doesn't say slot B holds a refused update: $("$CTL" "${CTL_ARGS[@]}" version | grep '^Other slot')"
 CMD=(lifecycle rollback)
 refused "$LOG" "Rollback to the half-written slot B" "slot B doesn't hold what its kernel image boots" "update it again"
