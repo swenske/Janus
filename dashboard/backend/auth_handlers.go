@@ -722,6 +722,10 @@ var auditedReads = map[string]bool{"/api/fleet/recovery-kit": true}
 
 // auditedRead reports whether reading path is recorded: auditedReads,
 // and a node's diagnostic bundle - its logs leaving the Controller.
+// maxAuditPath caps the request path (with its query) an audit entry
+// records.
+const maxAuditPath = 512
+
 func auditedRead(path string) bool {
 	return auditedReads[path] || strings.HasPrefix(path, "/nodes/") && strings.HasSuffix(path, "/api/support")
 }
@@ -752,8 +756,27 @@ func (a *app) audited(next http.Handler) http.Handler {
 		if r.URL.RawQuery != "" {
 			path += "?" + r.URL.RawQuery
 		}
-		e := audit.Entry{Time: time.Now().UTC(), User: n.user, Via: n.via, Method: r.Method, Path: path, Status: rec.status, Client: clientAddr(r), Subject: n.subject}
-		log.Printf("audit: %s %s %d: %s (%s) from %s%s", e.Method, e.Path, e.Status, or(e.User, "-"), or(e.Via, "no credential"), e.Client, aboutSubject(e.Subject))
+		// Cap the recorded path: an attacker-chosen path of tens of
+		// kilobytes would otherwise rotate the audit file in a few
+		// requests and erase its history (security review 2026-11-05 #10).
+		if len(path) > maxAuditPath {
+			path = path[:maxAuditPath] + "…"
+		}
+		client := clientAddr(r)
+		// An unauthenticated flood from one address can't keep rotating
+		// the file: rate-limit entries that carry no account. Entries with
+		// an account - the ones worth keeping - are never limited.
+		if n.user == "" && n.via == "" && a.auditLimiter != nil {
+			if ok, _ := a.auditLimiter.Allow(client); !ok {
+				return
+			}
+		}
+		e := audit.Entry{Time: time.Now().UTC(), User: n.user, Via: n.via, Method: r.Method, Path: path, Status: rec.status, Client: client, Subject: n.subject}
+		// Quote the attacker-controlled fields (the path, and an account
+		// name or provider an IdP chose on a failed SSO sign-in): a
+		// newline in one would otherwise forge a line in the process log
+		// and in the forwarded "controller" records (security review #10).
+		log.Printf("audit: %s %q %d: %q (%q) from %s%s", e.Method, e.Path, e.Status, or(e.User, "-"), or(e.Via, "no credential"), e.Client, aboutSubject(e.Subject))
 		if a.audit == nil {
 			return
 		}

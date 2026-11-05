@@ -259,6 +259,7 @@ func main() {
 		loginLimiter:          auth.NewLoginLimiter(),
 		registerLimiter:       ratelimit.New(registerBurst, registerEvery),
 		audit:                 auditLog,
+		auditLimiter:          ratelimit.New(60, time.Second),
 		backups:               backupStore,
 		masterKeyPath:         masterKey.Path,
 		identity:              controllerIdentity,
@@ -435,7 +436,12 @@ type app struct {
 	// registration port (register.go); nil in tests that don't care.
 	registerLimiter *ratelimit.Limiter
 	audit           *audit.Log
-	backups         *backup.Store
+	// auditLimiter caps how fast one address adds audit entries that
+	// carry no account, so an unauthenticated flood can't rotate the
+	// audit file and erase its history (security review 2026-11-05 #10);
+	// nil in tests means no limit.
+	auditLimiter *ratelimit.Limiter
+	backups      *backup.Store
 	// sso is the single sign-on: providers, sign-ins under way
 	// (sso_login.go); nil in tests that don't use it.
 	sso *singleSignOn
