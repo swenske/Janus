@@ -1,0 +1,11 @@
+{
+  "id": "JANUS-2026-028",
+  "title": "A state import could install an haproxy.cfg that bypassed the global policy",
+  "severity": "low",
+  "cvss": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:N/I:L/A:N",
+  "cwe": [
+    "CWE-20"
+  ],
+  "target": "node",
+  "description": "A node's haproxy.cfg is normally applied through HAProxyService.ApplyConfiguration, which runs the global policy (a chroot, uid/gid 1000, exactly janusd's stats socket, no second socket, no daemon/master-worker/program section). `SystemService.StateImport` staged a node's STATE straight onto disk, including haproxy/haproxy.cfg, and janusd applied it at its next start without that check, so an admin could durably install a configuration the policy forbids (no uid/chroot, or a second stats socket).\n\n**Affected**: a node an os:admin can reach, with `-manage-host` (a real node).\n\n**Fix**: the import checks the haproxy.cfg against the node's global policy before it is staged and rejects the whole import if it fails; off a managed node (native janusd) there is no policy and no check.\n\n**Besides updating**: nothing."
+}

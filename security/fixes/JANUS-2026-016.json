@@ -1,11 +1,12 @@
 {
   "id": "JANUS-2026-016",
-  "title": "A state import could install an haproxy.cfg that bypassed the global policy",
-  "severity": "low",
-  "cvss": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:N/I:L/A:N",
+  "title": "A node reader could read stick-table keys, including clients' session tokens",
+  "severity": "medium",
+  "cvss": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:N/A:N",
   "cwe": [
-    "CWE-20"
+    "CWE-200",
+    "CWE-522"
   ],
   "target": "node",
-  "description": "A node's haproxy.cfg is normally applied through HAProxyService.ApplyConfiguration, which runs the global policy (a chroot, uid/gid 1000, exactly janusd's stats socket, no second socket, no daemon/master-worker/program section). `SystemService.StateImport` staged a node's STATE straight onto disk, including haproxy/haproxy.cfg, and janusd applied it at its next start without that check, so an admin could durably install a configuration the policy forbids (no uid/chroot, or a second stats socket).\n\n**Affected**: a node an os:admin can reach, with `-manage-host` (a real node).\n\n**Fix**: the import checks the haproxy.cfg against the node's global policy before it is staged and rejects the whole import if it fails; off a managed node (native janusd) there is no policy and no check.\n\n**Besides updating**: nothing."
+  "description": "`HAProxyService.TableShow` returned a stick table's entries, keys included, to any `os:reader`. A table keyed on a string or binary expression - `req.cook(SESSIONID)`, `req.hdr(authorization)`, an API key - therefore let a reader harvest end users' session tokens and credentials, the class of secret GetConfig masks for readers (JANUS-2026-006). `TableClear` (operators) also published the cleared key in the reader-readable `haproxy.table.cleared` event, which is shipped to the log targets.\n\n**Affected**: a node with a string- or binary-keyed stick table and an `os:reader` (direct, or a Controller reader through the node page).\n\n**Fix**: TableShow masks the key of a string- or binary-keyed table for a caller who may not apply a configuration; the counters stay, and an address-keyed table (ip/ipv6/integer) is shown as before, as Netstat shows connections. The `table.cleared` event no longer carries the key, only that one was targeted.\n\n**Besides updating**: nothing. (A configuration's maps can also hold secrets a reader may read through MapGet - tracked separately.)"
 }
