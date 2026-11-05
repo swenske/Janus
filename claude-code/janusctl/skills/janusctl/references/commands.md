@@ -78,7 +78,7 @@ janusctl -endpoint HOST:PORT -ca FILE -cert FILE -key FILE COMMAND ...
 - `janusctl haproxy show-info` - reads - version, uptime, connections
 - `janusctl haproxy stats` - reads - raw 'show stat' CSV
 - `janusctl haproxy backends` - reads - backends, their servers and states
-- `janusctl haproxy server-state BACKEND SERVER ready|drain|maint` - **changes** - set a server ready, drain or maint - until HAProxy's next reload. Drain and maint take the server out of the traffic; HAProxy's next reload (apply-config, file-put -reload...) takes haproxy.cfg's state again
+- `janusctl haproxy server-state BACKEND SERVER ready|drain|maint` - **critical** - set a server ready, drain or maint - until HAProxy's next reload. Drain and maint take the server out of the traffic; HAProxy's next reload (apply-config, file-put -reload...) takes haproxy.cfg's state again
 - `janusctl haproxy reload` - **changes** - reload HAProxy seamlessly: haproxy.cfg and its files read again, the runtime changes (server-state, map-set, acl-add) gone. Seamless, but what server-state, map-set and acl-add changed is gone: a drained server takes traffic again - check haproxy backends first
 - `janusctl haproxy get-config [-version ID]` - reads - the running haproxy.cfg, or a version of its history
 - `janusctl haproxy apply-config FILE` - **changes** - validate, apply and reload seamlessly. Validated on the node first, reloaded without dropping connections
@@ -96,7 +96,7 @@ janusctl -endpoint HOST:PORT -ca FILE -cert FILE -key FILE COMMAND ...
 - `janusctl haproxy table [-key KEY] [-filter DATA:OP:VALUE,...] [-limit N] TABLE` - reads - a stick table's entries
 - `janusctl haproxy table-clear [-key KEY] [-filter DATA:OP:VALUE,...] [-all] TABLE` - **changes** - remove stick table entries - a blocked client let through
 - `janusctl haproxy sessions [-frontend NAME] [-backend NAME] [-source ADDRESS] [-limit N]` - reads - the streams HAProxy is processing
-- `janusctl haproxy session-kill ID` - **changes** - end a stream, its ID from sessions
+- `janusctl haproxy session-kill ID` - **critical** - end a stream, its ID from sessions. Closes the live connections it names
 - `janusctl haproxy errors [-proxy NAME] [-direction request|response]` - reads - the last invalid request and response of each proxy (credentials masked)
 - `janusctl haproxy cert-list` - reads - certificates in HAProxy's store
 - `janusctl haproxy cert-upload [-crt-list PATH] [-sni HOST,HOST] NAME FILE` - **changes** - upload a PEM certificate and key as NAME. Pass the PEM by path, never print it
@@ -134,11 +134,11 @@ janusctl -endpoint HOST:PORT -ca FILE -cert FILE -key FILE COMMAND ...
 - `janusctl network vrrp status` - reads - each instance's state and virtual IPs
 - `janusctl network vrrp get` - reads - the saved keepalived.conf
 - `janusctl network vrrp check FILE` - reads - have keepalived check it
-- `janusctl network vrrp apply FILE` - **changes** - check, save and reload it. No trial: a priority change can move the virtual IPs at once
+- `janusctl network vrrp apply FILE` - **critical** - check, save and reload it. No trial: a priority change can move the virtual IPs at once
 - `janusctl network bgp status` - reads - protocols, sessions, routes
 - `janusctl network bgp get` - reads - the saved bird.conf
 - `janusctl network bgp check FILE` - reads - have BIRD check it
-- `janusctl network bgp apply FILE` - **changes** - check, save and reconfigure. No trial: routes change at once
+- `janusctl network bgp apply FILE` - **critical** - check, save and reconfigure. No trial: routes change at once
 - `janusctl network consul status` - reads - the service, the node, its cluster
 - `janusctl network consul get` - reads - the saved configuration
 - `janusctl network consul check [-file NAME=PATH] [-only-files] FILE` - reads - have consul validate it

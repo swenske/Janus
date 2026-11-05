@@ -51,6 +51,10 @@ func TestEffectDecisions(t *testing.T) {
 		{"janusctl -n edge-1 haproxy get-config > haproxy.cfg", none, none, ""},
 		{"janusctl -n edge-1 system support -o /tmp/b.tar.gz", none, none, ""},
 		{"janusctl -n edge-1 system cp /etc/haproxy -o x.tar", none, none, ""},
+		// pcap/support without -o stream clients'/node data to stdout
+		// (security review 2026-11-05 #25): a read, but never auto-allowed.
+		{"janusctl -n edge-1 system pcap eth0", none, none, ""},
+		{"janusctl -n edge-1 system support", none, none, ""},
 		{"JANUSCONFIG=~/.config/janus/janusctl.json janusctl -n edge-1 system info", none, none, ""},
 		{"janusctl -endpoint 10.0.0.1:9505 -ca ca.crt -cert a.crt -key a.key system info", none, none, ""},
 		{"env janusctl system info", none, none, ""},
@@ -61,7 +65,6 @@ func TestEffectDecisions(t *testing.T) {
 
 		// Changes: the permission rules decide.
 		{"janusctl -n edge-1 haproxy apply-config haproxy.cfg", none, none, ""},
-		{"janusctl -n edge-1 haproxy server-state app app2 drain", none, none, ""},
 		{"janusctl -n edge-1 haproxy apply-config /dev/stdin <<'EOF'\nglobal\n  # it's the config\nEOF", none, none, ""},
 		{"janusctl -n edge-1 network apply net.json && janusctl -n edge-1 network status", none, none, ""},
 
@@ -97,6 +100,13 @@ func TestEffectDecisions(t *testing.T) {
 		{"eval janusctl system reboot", ask, ask, "system reboot"},
 		{"janusctl -n edge-1 system \\\n  reboot", ask, ask, "system reboot"},
 		{"janusctl -n edge-1 pki generate-client-config -role os:admin -o x", ask, ask, "pki generate-client-config"},
+		// Critical because they move traffic or print secrets (security
+		// review 2026-11-05 #25).
+		{"janusctl -n edge-1 haproxy server-state app app2 drain", ask, ask, "server-state on edge-1 is critical"},
+		{"janusctl -n edge-1 haproxy session-kill 0x5", ask, ask, "session-kill"},
+		{"janusctl -n edge-1 network vrrp apply v.json", ask, ask, "vrrp apply"},
+		{"janusctl -n edge-1 network bgp apply b.json", ask, ask, "bgp apply"},
+		{"janusctl login -kit", ask, ask, "recovery kit"},
 
 		{"bash <<'EOF'\njanusctl -n edge-1 system reboot\nEOF", ask, ask, "system reboot on edge-1"},
 		{"sh -s <<EOF\necho \"it's\"\njanusctl -n $N system shutdown\nEOF", ask, ask, "system shutdown"},
@@ -114,6 +124,13 @@ func TestEffectDecisions(t *testing.T) {
 		{"echo 'janusctl system reboot' | bash -o pipefail -e", ask, ask, "from the pipe"},
 		{"bash ./check.sh janusctl", none, none, ""},
 		{"J=janusctl; $J system reboot", ask, ask, "not known before it runs"},
+		// A whole janusctl command held in a variable, run through eval or
+		// a shell: its value is inspected (security review 2026-11-05 #25).
+		{"X='janusctl system reset'; eval \"$X\"", ask, ask, "system reset"},
+		{"X='janusctl -n edge-1 system reboot'; bash -c \"$X\"", ask, ask, "system reboot"},
+		{"X='janusctl system info'; eval \"$X\"", none, none, ""},
+		// The program is a janusctl variable but the command is dynamic.
+		{"J=janusctl; $J system $SUB", ask, ask, "not known before it runs"},
 		{"$JANUSCTL -n edge-1 system info", ask, ask, "not known before it runs"},
 		{"$NODE_CMD -n edge-1 system info", none, none, ""},
 		{`"${JANUSCTL:-janusctl}" system info`, ask, ask, "not known before it runs"},

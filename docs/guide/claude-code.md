@@ -91,8 +91,8 @@ Each command is marked in the skill with what it does to the node:
 | | Commands | Claude runs them |
 |---|---|---|
 | reads | `system info`, `system logs`, `haproxy backends`, `haproxy get-config`, `network status`... | when they help answer |
-| changes | `haproxy apply-config`, `haproxy server-state`, `haproxy map-set`, `network apply`, `system sysctl set`, `cluster apply`... | when you asked for that change - shown first, checked after |
-| critical | `system reboot`, `system reset`, `lifecycle upgrade`, `cluster drain`, `access trust-reset`, `fleet adopt`... | when you asked for exactly that, after a yes |
+| changes | `haproxy apply-config`, `haproxy map-set`, `network apply`, `system sysctl set`, `cluster apply`... | when you asked for that change - shown first, checked after |
+| critical | `system reboot`, `system reset`, `lifecycle upgrade`, `haproxy server-state`, `network vrrp apply`, `cluster drain`, `access trust-reset`, `fleet adopt`... | when you asked for exactly that, after a yes |
 
 The full list is the skill's
 [references/commands.md](../../claude-code/janusctl/skills/janusctl/references/commands.md).
@@ -285,6 +285,10 @@ repository's `.claude/settings.json`:
       "Bash(janusctl *system reboot*)",
       "Bash(janusctl *system shutdown*)",
       "Bash(janusctl *system reset*)",
+      "Bash(janusctl *haproxy server-state *)",
+      "Bash(janusctl *haproxy session-kill *)",
+      "Bash(janusctl *network vrrp apply *)",
+      "Bash(janusctl *network bgp apply *)",
       "Bash(janusctl *access trust-set *)",
       "Bash(janusctl *access trust-reset*)",
       "Bash(janusctl *access rotate-ca *)",
