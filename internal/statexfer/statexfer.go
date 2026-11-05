@@ -278,7 +278,15 @@ func InUse(root string) string {
 type ImportOptions struct {
 	Identity     bool
 	ApplyNetwork bool
+	// ValidateConfig, when set, checks the imported haproxy.cfg before it
+	// is staged - the node's global policy, so an import can't install a
+	// configuration that bypasses the checks Apply enforces (security
+	// review 2026-11-05 #16).
+	ValidateConfig func([]byte) error
 }
+
+// haproxyConfigRel is the carried path of the node's haproxy.cfg.
+const haproxyConfigRel = "haproxy/haproxy.cfg"
 
 // Staged is what Stage put aside.
 type Staged struct {
@@ -390,6 +398,22 @@ func stage(dir string, opts ImportOptions, r io.Reader) (*Staged, error) {
 			st.HeldNetwork = body
 			st.Skipped = append(st.Skipped, rel+": held back, not applied")
 			continue
+		case rel == haproxyConfigRel && opts.ValidateConfig != nil:
+			// Check the imported haproxy.cfg against the node's policy
+			// before it reaches disk: an import must not install a config
+			// Apply would refuse (security review 2026-11-05 #16).
+			body, err := readChecked(tr, f)
+			if err != nil {
+				return nil, err
+			}
+			if err := opts.ValidateConfig(body); err != nil {
+				return nil, fmt.Errorf("the imported %s: %w", rel, err)
+			}
+			if err := stageBytes(filepath.Join(dir, stagedFiles), rel, f, body); err != nil {
+				return nil, err
+			}
+			st.Files = append(st.Files, rel)
+			continue
 		}
 		if err := stageFile(filepath.Join(dir, stagedFiles), rel, f, tr); err != nil {
 			return nil, err
@@ -444,6 +468,15 @@ func checkSum(h hash.Hash, f File) error {
 }
 
 // stageFile writes f under files, durably, checked against its hash.
+// stageBytes writes an already-read, validated file to the staging area.
+func stageBytes(files, rel string, f File, body []byte) error {
+	p := filepath.Join(files, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		return err
+	}
+	return writeDurable(p, body, fileMode(f.Mode))
+}
+
 func stageFile(files, rel string, f File, r io.Reader) error {
 	p := filepath.Join(files, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {

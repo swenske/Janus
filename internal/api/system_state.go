@@ -128,8 +128,17 @@ func (s *System) StateImport(stream janusv1alpha1.SystemService_StateImportServe
 
 // stageState stages the state r streams (StateImport, StateImportFrom -
 // from: how it came, for the log).
+// haproxyPolicyCheck is the node's global haproxy.cfg policy, or nil off
+// a managed node (native janusd) - used to check an imported config.
+func (s *System) haproxyPolicyCheck() func([]byte) error {
+	if s.HAProxy != nil && s.HAProxy.Policy != nil {
+		return s.HAProxy.Policy.Check
+	}
+	return nil
+}
+
 func (s *System) stageState(caller Caller, opts *janusv1alpha1.StateImportOptions, r io.Reader, from string) (*janusv1alpha1.StateImportResponse, error) {
-	st, err := statexfer.Stage(s.StateRoot, statexfer.ImportOptions{Identity: opts.GetReuseIdentity(), ApplyNetwork: opts.GetApplyNetwork()}, r)
+	st, err := statexfer.Stage(s.StateRoot, statexfer.ImportOptions{Identity: opts.GetReuseIdentity(), ApplyNetwork: opts.GetApplyNetwork(), ValidateConfig: s.haproxyPolicyCheck()}, r)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "the state: %v", err)
 	}
