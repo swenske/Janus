@@ -142,20 +142,38 @@ jobs:
       - name: Build the images
         env:
           SECUREBOOT_SIGNING_KEY: ${{ secrets.SECUREBOOT_SIGNING_KEY }}
+          SOURCE_RUN: ${{ inputs.source_run }}
           JANUS_VERSION: ${{ inputs.version }}
           ARCH: ${{ inputs.arch }}
           GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          if [ -z "$SECUREBOOT_SIGNING_KEY" ]; then
-            echo "::error::SECUREBOOT_SIGNING_KEY isn't set - refusing to build an unsigned update bundle"
-            exit 1
+          if [ -n "$SOURCE_RUN" ]; then
+            # A test build takes its inputs from an arbitrary run - an
+            # outsider's fork PR could have produced them - and is never
+            # uploaded to the site (kept only as this run's artifact; its
+            # boot test boots the disk, verifying no signature). Sign it
+            # with a throwaway key, never the production one, so no run an
+            # outsider can influence can yield a production-signed,
+            # fleet-trusted bundle (security review 2026-11-05 #3,
+            # JANUS-2026-018).
+            KEYDIR="$(mktemp -d)"
+            trap 'rm -rf "$KEYDIR"' EXIT
+            ./image/secureboot/gen-test-key.sh "$KEYDIR" >/dev/null
+            KEY="$KEYDIR/key.pem"
+            CERT="$KEYDIR/cert.pem"
+          else
+            if [ -z "$SECUREBOOT_SIGNING_KEY" ]; then
+              echo "::error::SECUREBOOT_SIGNING_KEY isn't set - refusing to build an unsigned update bundle"
+              exit 1
+            fi
+            KEY="$(mktemp)"
+            trap 'rm -f "$KEY"' EXIT
+            printf '%s' "$SECUREBOOT_SIGNING_KEY" > "$KEY"
+            CERT=image/secureboot/production-cert.pem
           fi
-          KEY="$(mktemp)"
-          trap 'rm -f "$KEY"' EXIT
-          printf '%s' "$SECUREBOOT_SIGNING_KEY" > "$KEY"
           ./image/schematic/build.sh build/schematic/inputs "$ARCH" build/schematic/schematic.json build/schematic/out \
-            "$KEY" image/secureboot/production-cert.pem
+            "$KEY" "$CERT"
           ls -lh build/schematic/out
 
       - name: Boot test
