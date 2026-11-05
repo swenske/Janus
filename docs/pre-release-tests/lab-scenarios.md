@@ -1127,6 +1127,21 @@ node's CPU time per request from its `/proc/stat` (user, system,
 interrupts); then three firmware reboots on each kernel, their boot
 stages. The gaps in %; the machine destroyed afterwards.
 
+### The 2026-11-05 security fixes
+
+Since v2026.11.05, each fix tried on the lab's nodes and Controller -
+on the release first where the hole can be seen without exploiting it:
+
+| Fix | How | Measured |
+|---|---|---|
+| HAProxy without STATE's secrets (#008) | the node's configuration plus a loopback frontend answering with a file (`http-request return ... file`): the node CA key under `/etc/janus/pki` and `/etc/.state/pki`, the other STATE secrets, a harmless file - through `ValidateConfig` (the node page) and `ApplyConfig` (`janusctl`) | valid or `error opening file`; the configuration unchanged; AVC denials; then reloads under load and janusd restarted on the master |
+| The ordering policy (#009) | the Let's Encrypt machine ordered by the Controller from the private CA; renewals asked with no policy, the CA's directory alone, a rule for one name plus a rule by labels the node lacks, then the label | what is ordered, the error each certificate shows on the node's page, the new serials served and verified; invalid rules refused; the tab's Policy in the browser |
+| The global section (#010) | `"daemon"` in quotes and an `.if` block in `global`, then the node's own configuration | the refusals' messages; the legitimate one applied |
+| A DHCP server's domain (#011) | a Controller machine with its management interface by DHCP; the lab router's DHCP given a domain, then one with a newline and a `nameserver` line, the machine rebooted | `resolv.conf`, janusd's line, HAProxy's health; the router put back |
+| Readers (#013, #016) | a Controller reader account and a reader token's `janusctl` certificate; a cluster version with a string-keyed stick table and a `userlist` password | a version's files and the members' variables, the cluster's other read routes, a table's keys from `janusctl` and the node page, the table-cleared event - against an admin's |
+| The audit trail (#015) | from a host with no credential: a path with a quote and a newline, a 3,000-character path, 200 POSTs at once; 120 with an admin's session | the log line, the recorded path's length, the entries kept |
+| A removed member (#017) | node 02's API cut from the Controller only (a nftables trial on node 02, never confirmed), node 02 removed with `force`; the trial over, node 02 pulls from node 01 | the removal's steps; node 02's view; the pull's answer; node 01's view; the probes |
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -1327,3 +1342,12 @@ ran:
   vulnerabilities first; `haproxy-ab.cfg`: that node's HAProxy (HTTP,
   TLS, the backends); `bstage` with `MADDR=`: a machine whose exporter
   listens on its default-route network only (v2026.11.04-2).
+- `sec008 NAME NODE [apply]`: the loopback frontend answering with a
+  STATE file, validated (and applied) for each path, the configuration's
+  SHA-256 and the AVC denials after; `le-policy RULES DIRECTORIES`: the
+  Controller's ACME name policy and directories set; `cv-sec
+  add|remove`: the cluster version with the string-keyed table and the
+  `userlist`; `r17 NAME` (`TRIAL=`, `FORCE_ONLY=`): a member cut from the
+  Controller by a firewall trial, removed, then its pull from the other;
+  `new-dhcp-machine71`: a DHCP machine with no DNS given; `abrun` with
+  `RUN=`: the A/B's second series (v2026.11.05).
