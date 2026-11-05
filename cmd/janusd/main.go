@@ -82,6 +82,15 @@ var version = "dev"
 const serviceLogLines = 5000
 
 func main() {
+	// Before anything else: the hidden re-exec that runs HAProxy in a
+	// mount namespace with STATE's secrets detached (haproxyjail.go, set
+	// as the Manager's Spawn under -manage-host). It exec's haproxy or
+	// exits - it never returns here.
+	if len(os.Args) > 1 && os.Args[1] == haproxyJailArg {
+		runHAProxyJail(os.Args[2:])
+		return
+	}
+
 	showVersion := flag.Bool("version", false, "print the daemon version and exit")
 	addr := flag.String("addr", ":9505", "gRPC listen address")
 	rescueFile := flag.String("rescue-file", "auto", "what init found on this boot's rescue volume (internal/nocloud.Rescue): a rescue window opens, whatever the node trusts - \"auto\": "+nocloud.RescueRunFile+" with -manage-host, none without")
@@ -354,6 +363,17 @@ func main() {
 		// nothing (internal/haproxy.GlobalPolicy). On a host, in CI, the
 		// configuration is whatever the test needs.
 		haproxyMgr.Policy = haproxy.NodePolicy(*haproxyChrootDir, *haproxySock)
+		// And HAProxy - the real process and every `haproxy -c` - runs in
+		// a mount namespace where STATE's secrets are absent, so a
+		// configuration an operator applies cannot have HAProxy open and
+		// serve them (security review 2026-11-05 #1). On a host or in CI
+		// (no -manage-host) HAProxy is exec'd directly: nothing there to
+		// protect, and the mount dance needs CAP_SYS_ADMIN.
+		if self, err := os.Executable(); err != nil {
+			log.Fatalf("locate the janusd binary for the HAProxy jail: %v", err)
+		} else {
+			haproxyMgr.Spawn = haproxyJailSpawn(self)
+		}
 		// And HAProxy runs with the peers section generated from the
 		// membership - the node alone when it is in none, so a reload keeps
 		// the stick tables - and this node's name as its local peer. Only on
