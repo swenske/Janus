@@ -280,10 +280,18 @@ func (c *Config) MergeSecrets(saved Config) {
 			continue
 		}
 		s := saved.Targets[idx]
+		// A write-only secret is reused only when the target still points
+		// at the same server with the same trust: a changed address, URL
+		// or TLS trust must re-send it, or an admin who can't read the
+		// secret would send it to a server of their choice (security
+		// review 2026-11-05 #19).
+		if !sameLogDestination(*t, s) || !sameServerTrust(t.TLS, s.TLS) {
+			continue
+		}
 		if t.TLS.ClientKeyPEM == "" && t.TLS.ClientCertPEM != "" && t.TLS.ClientCertPEM == s.TLS.ClientCertPEM {
 			t.TLS.ClientKeyPEM = s.TLS.ClientKeyPEM
 		}
-		if e, se := t.Elasticsearch, s.Elasticsearch; e != nil && se != nil && e.URL == se.URL {
+		if e, se := t.Elasticsearch, s.Elasticsearch; e != nil && se != nil {
 			if e.APIKey == "" && e.Username == "" && se.APIKey != "" {
 				e.APIKey = se.APIKey
 			}
@@ -292,4 +300,21 @@ func (c *Config) MergeSecrets(saved Config) {
 			}
 		}
 	}
+}
+
+// sameServerTrust: the non-secret trust (which server certificate the
+// client accepts) is unchanged - a change must re-send the secret (#19).
+func sameServerTrust(a, b tlstrust.Trust) bool {
+	return a.CAPEM == b.CAPEM && a.Fingerprint == b.Fingerprint && a.ServerName == b.ServerName
+}
+
+// sameLogDestination: both targets send to the same address or URL (#19).
+func sameLogDestination(a, b Target) bool {
+	switch {
+	case a.Syslog != nil && b.Syslog != nil:
+		return a.Syslog.Address == b.Syslog.Address && a.Syslog.Transport == b.Syslog.Transport
+	case a.Elasticsearch != nil && b.Elasticsearch != nil:
+		return a.Elasticsearch.URL == b.Elasticsearch.URL
+	}
+	return false
 }

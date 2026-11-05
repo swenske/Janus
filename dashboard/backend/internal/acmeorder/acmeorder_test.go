@@ -149,3 +149,32 @@ func TestAllowOrder(t *testing.T) {
 		t.Errorf("Validate missed the bad suffix and directory: %v", errs)
 	}
 }
+
+// TestMergeSecretsVisibleChange: a DNS provider's kept secret setting is
+// reused only when no visible setting changed, so a kept credential can't
+// be pointed at an endpoint of the admin's choice (security review
+// 2026-11-05 #19).
+func TestMergeSecretsVisibleChange(t *testing.T) {
+	saved := Settings{DNSProviders: []DNSProvider{{
+		Name: "route53", Type: "route53",
+		Settings: map[string]string{"AWS_REGION": "eu-west-1", "AWS_SECRET_ACCESS_KEY": "s3cret"},
+	}}}
+	// A visible setting changed, the secret left empty: not reused.
+	moved := Settings{DNSProviders: []DNSProvider{{
+		Name: "route53", Type: "route53",
+		Settings: map[string]string{"AWS_REGION": "us-east-1", "AWS_SECRET_ACCESS_KEY": ""},
+	}}}
+	moved.mergeSecrets(saved)
+	if moved.DNSProviders[0].Settings["AWS_SECRET_ACCESS_KEY"] != "" {
+		t.Error("the secret followed a changed visible setting")
+	}
+	// Nothing visible changed: the secret is reused.
+	kept := Settings{DNSProviders: []DNSProvider{{
+		Name: "route53", Type: "route53",
+		Settings: map[string]string{"AWS_REGION": "eu-west-1", "AWS_SECRET_ACCESS_KEY": ""},
+	}}}
+	kept.mergeSecrets(saved)
+	if kept.DNSProviders[0].Settings["AWS_SECRET_ACCESS_KEY"] != "s3cret" {
+		t.Error("the secret was dropped though nothing visible changed")
+	}
+}

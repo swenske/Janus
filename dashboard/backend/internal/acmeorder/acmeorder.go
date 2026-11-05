@@ -177,6 +177,20 @@ func (s *Settings) mergeSecrets(saved Settings) {
 		if !ok || old.Type != p.Type {
 			continue
 		}
+		// Reuse a kept (empty) setting only when no visible setting
+		// changed: else an admin could point a kept credential at an
+		// endpoint of their choice while leaving the secret blank
+		// (security review 2026-11-05 #19).
+		changed := false
+		for k, v := range p.Settings {
+			if v != "" && v != old.Settings[k] {
+				changed = true
+				break
+			}
+		}
+		if changed {
+			continue
+		}
 		for k, v := range p.Settings {
 			if v == "" {
 				s.DNSProviders[i].Settings[k] = old.Settings[k]

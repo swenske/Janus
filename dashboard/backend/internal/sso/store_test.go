@@ -183,3 +183,24 @@ func TestLogins(t *testing.T) {
 		t.Fatalf("swept: %v", err)
 	}
 }
+
+// TestSecretReenterOnIssuerChange: the client secret must be given again
+// when the issuer changes, so a kept secret can't be redirected to a
+// provider of the admin's choice (security review 2026-11-05 #19).
+func TestSecretReenterOnIssuerChange(t *testing.T) {
+	s, _ := openStore(t)
+	p := keycloak(t)
+	if _, err := s.Put(p, ptr("s3cret")); err != nil {
+		t.Fatal(err)
+	}
+	p.Issuer = "https://evil.example.com/realms/x"
+	if _, err := s.Put(p, nil); err == nil || !strings.Contains(err.Error(), "give the client secret again") {
+		t.Fatalf("issuer change kept the secret: %v", err)
+	}
+	if _, err := s.Put(p, ptr("s3cret2")); err != nil {
+		t.Fatalf("re-entered secret refused: %v", err)
+	}
+	if got, _ := s.Secret("kc"); got != "s3cret2" {
+		t.Fatalf("secret %q", got)
+	}
+}

@@ -163,6 +163,14 @@ func (s *Store) indexLocked(id string) int {
 // Put saves p - a new provider, or one's new settings -, and the client
 // secret when secret isn't nil ("": none, a public client). It answers
 // the saved provider, its Version moved on.
+// secretRedirected reports whether a change between old and next would
+// send the kept client secret somewhere else: a different issuer, client
+// or TLS trust (security review 2026-11-05 #19).
+func secretRedirected(old, next Provider) bool {
+	return old.Issuer != next.Issuer || old.ClientID != next.ClientID ||
+		old.TLS.CAPEM != next.TLS.CAPEM || old.TLS.Fingerprint != next.TLS.Fingerprint || old.TLS.ServerName != next.TLS.ServerName
+}
+
 func (s *Store) Put(p Provider, secret *string) (Provider, error) {
 	if err := p.Validate(); err != nil {
 		return Provider{}, err
@@ -195,8 +203,16 @@ func (s *Store) Put(p Provider, secret *string) (Provider, error) {
 	} else {
 		next.Version = s.providers[i].Version + 1
 		next.SecretSealed = s.providers[i].SecretSealed
-		if secret != nil {
+		switch {
+		case secret != nil:
 			next.SecretSealed = sealed
+		case len(next.SecretSealed) > 0 && secretRedirected(s.providers[i].Provider, p):
+			// The client secret is sent to the issuer's token endpoint: if
+			// the issuer, the client ID or the TLS trust changed, it must
+			// be given again, or an admin who can't read it would send it
+			// to a provider of their choice (security review 2026-11-05 #19).
+			s.providers = old
+			return Provider{}, errors.New("the issuer, client ID or TLS trust changed: give the client secret again")
 		}
 		s.providers[i] = next
 	}

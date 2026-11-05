@@ -123,6 +123,25 @@ func TestSecretsStayOnTheNode(t *testing.T) {
 	}
 }
 
+// TestSecretDropsOnTrustChange: a secret isn't reused when only the TLS
+// trust changes, even at the same URL (security review 2026-11-05 #19).
+func TestSecretDropsOnTrustChange(t *testing.T) {
+	saved := Config{Targets: []Target{
+		{Name: "es", Elasticsearch: &ElasticsearchTarget{URL: "https://e", APIKey: "secret-key"}, TLS: tlstrust.Trust{Fingerprint: "sha256//AAAA"}},
+	}}
+	shown := saved.Redacted()
+	shown.Targets[0].TLS.Fingerprint = "sha256//BBBB" // same URL, a different server cert accepted
+	shown.MergeSecrets(saved)
+	if shown.Targets[0].Elasticsearch.APIKey != "" {
+		t.Fatal("the API key followed a changed TLS trust")
+	}
+	same := saved.Redacted()
+	same.MergeSecrets(saved)
+	if same.Targets[0].Elasticsearch.APIKey != "secret-key" {
+		t.Fatal("the key was dropped though nothing changed")
+	}
+}
+
 func TestSyslogEncoding(t *testing.T) {
 	r := Record{Time: time.Date(2026, 10, 15, 17, 39, 9, 123456789, time.UTC), Source: SourceJanusd, Service: "janusd", Severity: SevNotice, Message: "api: SystemService/Reboot: admin\nsecond line"}
 	s := &syslogSink{cfg: SyslogTarget{Format: "rfc5424", Facility: "local0"}}
