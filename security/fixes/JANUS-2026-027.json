@@ -1,0 +1,11 @@
+{
+  "id": "JANUS-2026-027",
+  "title": "A cluster pull kept an unbounded export in memory, and the site hit GitHub for every unknown version",
+  "severity": "low",
+  "cvss": "CVSS:3.1/AV:N/AC:H/PR:H/UI:N/S:U/C:N/I:L/A:L",
+  "cwe": [
+    "CWE-770"
+  ],
+  "target": "node",
+  "description": "Two missing caps. On a node, `ClusterPull` buffered a member's whole export in memory with no total cap, and read each tar entry through a 4 MiB `io.LimitReader` that silently truncated a larger file, so a member (one that must already belong to the cluster) could exhaust memory or get a truncated file installed. On the site, `gitHub.Release` asked GitHub for a release tag it didn't already know and never cached a 404, so a loop polling an unknown (but valid-format) version spent one request per poll against the token's quota.\n\n**Affected**: a node pulling from a cluster member, and the public site's GitHub token.\n\n**Fix**: the pulled export is capped (64 MiB total, 4 MiB per entry, a larger entry is an error, not a silent truncation); the site remembers a 404 for a version for ten minutes in a size-bounded negative cache.\n\n**Besides updating**: nothing."
+}
