@@ -165,8 +165,8 @@ PEBBLE_VERSION := v2.10.1
 # balancer to keep its routes on (never shipped). Checked against the
 # sha256 MikroTik publishes beside it (chr-<version>.img.zip.sha256, over
 # HTTPS); the newest stable is upgrade.mikrotik.com's NEWESTa7.stable.
-ROUTEROS_CHR_VERSION := 7.25
-ROUTEROS_CHR_SHA256  := 6b981288350de2a2c7a3218bd820ab702633b8cd6cd339f2bb34dda1f1a2550e
+ROUTEROS_CHR_VERSION := 7.25.1
+ROUTEROS_CHR_SHA256  := c78e8e24ca78d7f13496140e600702df07fe5c57d1a5d6d025654c8476ed2ed2
 
 # versitygw, Versity's S3 gateway: the bucket hack/qemu-dashboard-test.sh
 # backs the Controller up to and restores it from - it checks S3's
