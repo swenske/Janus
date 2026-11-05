@@ -91,6 +91,7 @@ for (const palette of PALETTES) {
       ['hypervisors', '/#/hypervisors'],
       ['clusters', '/#/clusters'],
       ['cluster', `/#/clusters/${edge}`],
+      ['letsencrypt', '/#/letsencrypt'],
       ['consul', '/#/consul'],
       ...NODE_PAGES.map((p) => [`node${p.replace(/\//g, '-') || '-'}`, `/nodes/${edge1}/#${p}`]),
     ]) {

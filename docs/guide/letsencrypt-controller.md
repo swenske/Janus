@@ -129,6 +129,20 @@ On the tab, **Ordering for the nodes**:
 - **DNS providers**: what a node's `dns-01` certificate names, by name -
   the same types and settings as on a node ([DNS-01: DNS providers](../letsencrypt.md#dns-01-dns-providers)).
   Their settings are secrets: never shown again, kept when left empty.
+- **Policy** - which names, and from which CA. A node's own
+  configuration names the domains, the challenge, the DNS provider and
+  the CA, and an operator may put the node in this mode, so the policy
+  says what the Controller will order:
+  - **Name rules** - a node is ordered a name only if a rule whose
+    labels match the node covers the name's suffix. A suffix
+    `example.com` allows `example.com`, `www.example.com` and
+    `*.example.com`; a rule with no labels matches every node.
+    **With no name rule, nothing is ordered** - so that an operator
+    can't have the Controller order, with its shared DNS credentials, a
+    wildcard of your zone or another node's name.
+  - **Allowed CA directories** - the directories a node's configuration
+    may name. Empty allows Let's Encrypt's production and staging
+    directories.
 
 Every 10 minutes - at once when a node's page saves its configuration
 or asks for a renewal, or on **Order what's due now** - the Controller

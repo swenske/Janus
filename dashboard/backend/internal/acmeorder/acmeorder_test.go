@@ -103,3 +103,49 @@ func TestStore(t *testing.T) {
 		t.Errorf("succeeded: %+v", o)
 	}
 }
+
+func TestAllowOrder(t *testing.T) {
+	s := Settings{NamePolicy: []NameRule{
+		{Suffixes: []string{"site.test"}},
+		{Selector: map[string]string{"team": "web"}, Suffixes: []string{"web.example.com"}},
+	}}
+
+	// Default directories: Let's Encrypt is allowed, a custom CA isn't.
+	if err := s.AllowOrder(nil, []string{"site.test", "www.site.test"}, "letsencrypt"); err != nil {
+		t.Errorf("LE prod + covered names: %v", err)
+	}
+	if err := s.AllowOrder(nil, []string{"site.test"}, "https://ca.evil.test/dir"); err == nil {
+		t.Error("a CA directory outside the default allowlist was allowed")
+	}
+
+	// A name only a labelled node may get.
+	if err := s.AllowOrder(nil, []string{"web.example.com"}, "letsencrypt"); err == nil {
+		t.Error("a label-scoped name was allowed for an unlabelled node")
+	}
+	if err := s.AllowOrder(map[string]string{"team": "web"}, []string{"*.web.example.com"}, "letsencrypt"); err != nil {
+		t.Errorf("a wildcard under a covered suffix for the right node: %v", err)
+	}
+	if err := s.AllowOrder(nil, []string{"other.test"}, "letsencrypt"); err == nil {
+		t.Error("a name under no suffix was allowed")
+	}
+
+	// An explicit directory allowlist replaces the default.
+	s.Directories = []string{"https://ca.example.test/dir"}
+	if err := s.AllowOrder(nil, []string{"site.test"}, "https://ca.example.test/dir"); err != nil {
+		t.Errorf("an explicitly allowed directory: %v", err)
+	}
+	if err := s.AllowOrder(nil, []string{"site.test"}, "letsencrypt"); err == nil {
+		t.Error("Let's Encrypt was allowed although the allowlist names only a custom CA")
+	}
+
+	// Fail closed: no policy, nothing ordered.
+	if err := (Settings{}).AllowOrder(nil, []string{"site.test"}, "letsencrypt"); err == nil {
+		t.Error("with no name policy a name was allowed - not fail-closed")
+	}
+
+	// Validate catches a bad suffix and a bad directory.
+	bad := Settings{NamePolicy: []NameRule{{Suffixes: []string{"not a domain"}}}, Directories: []string{"ftp://x"}}
+	if errs := bad.Validate(); len(errs) < 2 {
+		t.Errorf("Validate missed the bad suffix and directory: %v", errs)
+	}
+}

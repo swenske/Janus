@@ -162,7 +162,13 @@ echo "  ok: the Controller runs, the node added"
 
 out="$(api "$NODE/haproxy/acme/controller")"
 check "not set up yet" '"ready": ?false' "$out"
+# The ordering policy (security review 2026-11-05 #2): the Controller
+# orders a name only if a rule covers it, and against an allowed CA
+# directory - here the test CA. Without them it orders nothing (fail
+# closed).
 api -X PUT "$API/api/acme" -d "{\"email\": \"ops@site.test\", \"accept_terms\": true,
+  \"directories\": [\"https://127.0.0.1:$P_ACME/dir\"],
+  \"name_policy\": [{\"suffixes\": [\"site.test\", \"wild.test\", \"orphan.test\"]}],
   \"dns_providers\": [{\"name\": \"lab\", \"type\": \"httpreq\", \"settings\": {\"HTTPREQ_ENDPOINT\": \"http://127.0.0.1:$P_SHIM\"}, \"propagation_wait_seconds\": 2}]}" > "$WORKDIR/acme.json"
 check "the account set up" '"ready": ?true' "$(cat "$WORKDIR/acme.json")"
 if grep -q "127.0.0.1:$P_SHIM" "$WORKDIR/acme.json"; then fail "the provider's settings came back: $(cat "$WORKDIR/acme.json")"; fi
