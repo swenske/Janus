@@ -38,6 +38,13 @@ func TestRedactConfigLines(t *testing.T) {
 		{"    http-request deny unless { req.hdr(authorization) -m str \"Bearer t0k\" } || { src 10.0.0.1 }", "    http-request deny unless { req.hdr(authorization) -m str <redacted> } || { src 10.0.0.1 }"},
 		{"    http-request set-var(txn.k) req.hdr(x-api-key) if { src 10.0.0.1 }", "    http-request set-var(txn.k) req.hdr(x-api-key) if { src 10.0.0.1 }"},
 		{"    acl api path_beg /api", "    acl api path_beg /api"},
+		// more credential fetches and tcp-check (security review #21)
+		{"    acl ok http_auth_bearer -m str t0k", "    acl ok http_auth_bearer -m str <redacted>"},
+		{"    acl s req.cook(SESSIONID) -m str abc", "    acl s req.cook(SESSIONID) -m str <redacted>"},
+		{"    acl t url_param(token) -m str xyz", "    acl t url_param(token) -m str <redacted>"},
+		{"    tcp-check send s3cret", "    tcp-check send <redacted>"},
+		{"    tcp-check send-binary 41555448", "    tcp-check send-binary <redacted>"},
+		{"    tcp-check connect port 6379", "    tcp-check connect port 6379"},
 		// untouched
 		{"# stats auth admin:in-a-comment", "# stats auth admin:in-a-comment"},
 		{"", ""},

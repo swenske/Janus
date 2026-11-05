@@ -61,6 +61,13 @@ func streamLog(ctx context.Context, l *events.Log, since uint64, send func(*janu
 // thousand lines); a previous boot's (boot < 0) comes from the LOGS
 // partition.
 func (s *System) Logs(req *janusv1alpha1.LogsRequest, stream janusv1alpha1.SystemService_LogsServer) error {
+	// The kernel log is Dmesg's, admin-only: Logs (operators) must not
+	// serve it under the id "kernel" (security review 2026-11-05 #20).
+	if req.GetId() == "kernel" {
+		if err := checkRole(stream.Context(), janusv1alpha1.SystemService_Dmesg_FullMethodName); err != nil {
+			return err
+		}
+	}
 	if req.GetBoot() != 0 {
 		if req.GetFollow() {
 			return status.Error(codes.InvalidArgument, "follow is for this boot's logs only")
@@ -159,10 +166,22 @@ func (s *System) bootNumber(offset int32) (uint32, error) {
 
 // sendPrevious sends what service printed during a previous boot: its
 // last tail lines, or everything when tail <= 0.
+// maxPreviousTail caps the records a previous-boot Logs/Dmesg tail reads
+// into memory at once.
+const maxPreviousTail = 500_000
+
 func (s *System) sendPrevious(offset int32, service string, tail int, send func(*janusv1alpha1.Data) error) error {
 	boot, err := s.bootNumber(offset)
 	if err != nil {
 		return err
+	}
+	// Cap the tail: Tail collects that many records before sending, so an
+	// unbounded count would read a whole boot of LOGS into memory, and the
+	// OOM killer hits HAProxy (-500) before janusd (-900) - security
+	// review 2026-11-05 #20. tail <= 0 still streams it all, but in bounded
+	// batches below.
+	if tail > maxPreviousTail {
+		tail = maxPreviousTail
 	}
 	keep := func(r logvol.Record) bool { return r.Service == service }
 	var batch []byte

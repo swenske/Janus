@@ -1,0 +1,11 @@
+{
+  "id": "JANUS-2026-023",
+  "title": "A reader could read secrets through logs, the probe event and gaps in the config masking",
+  "severity": "low",
+  "cvss": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:L/I:N/A:N",
+  "cwe": [
+    "CWE-200"
+  ],
+  "target": "node",
+  "description": "Several narrow ways a node reader (or an operator, for the kernel log) could reach data meant to be hidden. The `probe.run` event published the probe's target verbatim, so a target like `https://user:pass@host/` put the credentials in the event log readers can read and in the shipped logs. `GetConfig`'s masking left visible a `tcp-check send` payload (a Redis AUTH, for one) and the ACL patterns compared against `http_auth_bearer`, `req.cook(...)` and `url_param(...)` (session tokens, bearer tokens); and `ConfigHistory`/`ConfigVersion` returned the real, unmasked SHA-256 when the stored text wasn't available to mask, reopening the offline oracle JANUS-2026-006 removed. The previous-boot `Logs` call served the stored kernel log to operators (`Dmesg` is admin-only) and let a huge `tail_lines` read a whole boot of LOGS into memory, where the OOM killer hits HAProxy before janusd.\n\n**Affected**: a node with an `os:reader` (direct or a Controller reader), or an operator for the kernel log.\n\n**Fix**: the probe event's target has its credentials stripped; the config masking covers `tcp-check send`/`send-binary` and the bearer/cookie/url-param fetches, and blanks the SHA-256 when the text can't be masked; `Logs` refuses the `kernel` id unless the caller may call `Dmesg`, and a previous-boot tail is capped.\n\n**Besides updating**: nothing."
+}
