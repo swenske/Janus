@@ -169,14 +169,21 @@ func TestLogins(t *testing.T) {
 	if _, ok := l.TakeDone(key); ok {
 		t.Fatal("done taken after its time")
 	}
-	// Full: refused, until the old ones expire.
+	// Full: the oldest is evicted, not refused, so a flood can't block
+	// new sign-ins (security review 2026-11-05 #23).
 	for range maxLogins {
 		if _, err := l.Start(Login{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := l.Start(Login{}); err != ErrBusy {
-		t.Fatalf("full: %v", err)
+	if _, err := l.Start(Login{}); err != nil {
+		t.Fatalf("full should evict, not refuse: %v", err)
+	}
+	l.mu.Lock()
+	n := len(l.pending) + len(l.done)
+	l.mu.Unlock()
+	if n > maxLogins {
+		t.Fatalf("grew past the cap: %d", n)
 	}
 	now = now.Add(loginTTL)
 	if _, err := l.Start(Login{}); err != nil {

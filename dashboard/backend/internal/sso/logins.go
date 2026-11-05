@@ -106,12 +106,41 @@ func (l *Logins) Start(login Login) (string, error) {
 	defer l.mu.Unlock()
 	now := l.now()
 	l.sweepLocked(now)
-	if len(l.pending)+len(l.done) >= maxLogins {
+	// Full: evict the oldest sign-in under way rather than refuse, so a
+	// flood of unfinished sign-ins (easy from a few addresses - the
+	// per-source limit is coarse) can't block everyone's for the table's
+	// lifetime; it only churns its own (security review 2026-11-05 #23).
+	if len(l.pending)+len(l.done) >= maxLogins && !l.evictOldestLocked() {
 		return "", ErrBusy
 	}
 	login.Created = now
 	l.pending[key] = &login
 	return key, nil
+}
+
+// evictOldestLocked forgets the oldest sign-in under way - a pending one
+// first, else a done one - and reports whether it removed one. l.mu held.
+func (l *Logins) evictOldestLocked() bool {
+	key, oldest := "", time.Time{}
+	for k, p := range l.pending {
+		if key == "" || p.Created.Before(oldest) {
+			key, oldest = k, p.Created
+		}
+	}
+	if key != "" {
+		delete(l.pending, key)
+		return true
+	}
+	for k, d := range l.done {
+		if key == "" || d.Created.Before(oldest) {
+			key, oldest = k, d.Created
+		}
+	}
+	if key != "" {
+		delete(l.done, key)
+		return true
+	}
+	return false
 }
 
 // Take is key's sign-in under way - once: it's forgotten.
