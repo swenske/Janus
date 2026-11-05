@@ -106,10 +106,13 @@ func (s Settings) clone() Settings {
 	return out
 }
 
-// MergeSecrets fills the token s leaves empty from saved's, for the
-// same address.
+// MergeSecrets fills the token s leaves empty from saved's, for the same
+// address and TLS trust.
 func (s *Settings) MergeSecrets(saved Settings) {
-	if s.Token == "" && strings.TrimRight(s.Address, "/") == strings.TrimRight(saved.Address, "/") {
+	// A changed address or TLS trust must re-send the token, or an admin
+	// who can't read it would send it to a server of their choice
+	// (security review 2026-11-05 #19).
+	if s.Token == "" && strings.TrimRight(s.Address, "/") == strings.TrimRight(saved.Address, "/") && s.TLS == saved.TLS {
 		s.Token = saved.Token
 	}
 }

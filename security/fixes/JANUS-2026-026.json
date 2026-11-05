@@ -1,0 +1,11 @@
+{
+  "id": "JANUS-2026-026",
+  "title": "A write-only secret followed a changed URL or TLS trust to a server of the admin's choice",
+  "severity": "medium",
+  "cvss": "CVSS:3.1/AV:N/AC:H/PR:H/UI:N/S:U/C:H/I:N/A:N",
+  "cwe": [
+    "CWE-522"
+  ],
+  "target": "controller",
+  "description": "Several settings keep a secret an admin can set but not read back: it is sent empty to mean \"keep the saved one\". The reuse checked too little, so an admin could change a non-secret field of the same entry and keep the secret, sending it to a server of their choice. Found: a log target's credentials (API key, password, client key) when only the TLS trust changed (`internal/logship`); a RouterOS router's password when the URL, user or TLS trust changed (`internal/clusters/balancer.go`); a Controller ACME DNS provider's credentials when a visible setting changed (`internal/acmeorder`); the Consul token when the TLS trust changed at the same address (`internal/consulctl`); and the SSO client secret when the issuer, client ID or TLS trust changed (`internal/sso`).\n\n**Affected**: a Controller admin (or, for logs, an admin scoped to a single label) who can set but not read these secrets.\n\n**Fix**: the saved secret is reused only when the whole non-secret identity of the entry - destination and TLS trust (and for SSO the issuer/client) - is unchanged; any change re-requires the secret.\n\n**Besides updating**: nothing."
+}

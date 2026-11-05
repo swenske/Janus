@@ -191,3 +191,24 @@ func TestClientTest(t *testing.T) {
 		t.Error("plain HTTP accepted")
 	}
 }
+
+// TestMergeSecretsTrust: the token is reused only when the address and
+// the TLS trust are both unchanged (security review 2026-11-05 #19).
+func TestMergeSecretsTrust(t *testing.T) {
+	saved := consulctl.Settings{Address: "https://consul", Token: "tok", TLS: consulctl.Trust{Fingerprint: "AA"}}
+	s := consulctl.Settings{Address: "https://consul", TLS: consulctl.Trust{Fingerprint: "AA"}}
+	s.MergeSecrets(saved)
+	if s.Token != "tok" {
+		t.Error("token dropped though nothing changed")
+	}
+	s = consulctl.Settings{Address: "https://consul", TLS: consulctl.Trust{Fingerprint: "BB"}}
+	s.MergeSecrets(saved)
+	if s.Token != "" {
+		t.Error("token followed a changed TLS trust")
+	}
+	s = consulctl.Settings{Address: "https://other", TLS: consulctl.Trust{Fingerprint: "AA"}}
+	s.MergeSecrets(saved)
+	if s.Token != "" {
+		t.Error("token followed a changed address")
+	}
+}

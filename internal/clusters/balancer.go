@@ -506,6 +506,15 @@ func (e *Engine) SetBalancer(ctx context.Context, id string, b *Balancer, secret
 		empty := ""
 		secret = &empty
 	}
+	// The router's password must not follow the URL, the user or the TLS
+	// trust to a different device: require it again when any of them
+	// changes, or an admin who can't read it would send it to a router of
+	// their choice (security review 2026-11-05 #19).
+	if prev != nil && b != nil && b.IsRouterOS() && prev.IsRouterOS() && secret == nil &&
+		(prev.URL != b.URL || prev.User != b.User || prev.CACert != b.CACert || prev.Fingerprint != b.Fingerprint) {
+		empty := ""
+		secret = &empty
+	}
 	if b.IsRouterOS() {
 		has, err := e.Store.BalancerSecret(id)
 		if err != nil {
