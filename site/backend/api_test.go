@@ -346,27 +346,33 @@ func TestBuildLimits(t *testing.T) {
 	b := newBuildLimiter()
 	b.perIP, b.global = 2, 3
 	for i, want := range []bool{true, true, false} {
-		start, err := b.allow("k"+string(rune('a'+i)), "1.1.1.1", false)
+		start, err := b.allow("k"+string(rune('a'+i)), "1.1.1.1", false, false)
 		if start != want || (err != nil) == want {
 			t.Errorf("request %d: start=%v err=%v", i, start, err)
 		}
 	}
-	if start, err := b.allow("ka", "1.1.1.1", false); start || err != nil {
+	if start, err := b.allow("ka", "1.1.1.1", false, false); start || err != nil {
 		t.Errorf("a pending build requested again: %v %v", start, err)
 	}
-	if start, _ := b.allow("kz", "2.2.2.2", false); !start {
+	if start, _ := b.allow("kz", "2.2.2.2", false, false); !start {
 		t.Error("another client refused under the global limit")
 	}
-	if _, err := b.allow("ky", "3.3.3.3", false); err == nil {
+	if _, err := b.allow("ky", "3.3.3.3", false, false); err == nil {
 		t.Error("the global limit didn't apply")
+	}
+	// A visitor whose IP is the string "prebuild" is still a visitor,
+	// held to the visitors' limits (here the global one) - not given the
+	// prebuild budget (security review #14).
+	if _, err := b.allow("spoof", "prebuild", false, false); err == nil {
+		t.Error("the prebuild sentinel as an IP escaped the visitors' limits")
 	}
 	b.prebuilds = 4
 	for i := range 4 {
-		if start, err := b.allow("p"+string(rune('a'+i)), prebuildClient, false); !start || err != nil {
+		if start, err := b.allow("p"+string(rune('a'+i)), "", true, false); !start || err != nil {
 			t.Errorf("prebuild %d, past the visitors' limits: %v %v", i, start, err)
 		}
 	}
-	if _, err := b.allow("pz", prebuildClient, false); err == nil {
+	if _, err := b.allow("pz", "", true, false); err == nil {
 		t.Error("prebuild's own budget didn't apply")
 	}
 }
@@ -391,7 +397,7 @@ func TestPrebuildBudget(t *testing.T) {
 	if len(gh.dispatches) != 2 {
 		t.Fatalf("prebuild dispatched %d builds, want its budget's 2", len(gh.dispatches))
 	}
-	if start, err := a.builds.allow("visitor", "1.1.1.1", false); !start || err != nil {
+	if start, err := a.builds.allow("visitor", "1.1.1.1", false, false); !start || err != nil {
 		t.Errorf("a visitor after the prebuilds: %v %v", start, err)
 	}
 }
