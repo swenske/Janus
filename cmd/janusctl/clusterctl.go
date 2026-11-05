@@ -884,7 +884,7 @@ func writeVersion(o *clusterCtl, id string, n int, dir string) {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			log.Fatal(err)
 		}
-		if err := os.WriteFile(path, data, 0o644); err != nil {
+		if err := os.WriteFile(path, data, 0o600); err != nil { // the cluster's config: owner-only (security review 2026-11-05 #28)
 			log.Fatal(err)
 		}
 	}

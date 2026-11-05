@@ -35,7 +35,8 @@ var SecretPaths = []string{
 	"/etc/janus/config/letsencrypt.json", "/etc/.state/config/letsencrypt.json", // DNS provider credentials, EAB key
 	"/etc/janus/config/logforward", "/etc/.state/config/logforward", // log servers' API keys, passwords, client keys
 	"/etc/janus/config/consul-managed.json", "/etc/.state/config/consul-managed.json", // the Consul agent's ACL token, the gossip key
-	"/run/janus/consul", // the agent's configuration as it reads it (the same secrets), its files and data
+	"/run/janus/consul",                       // the agent's configuration as it reads it (the same secrets), its files and data
+	"/etc/janus/import", "/etc/.state/import", // a staged state import: another node's identity keys and secrets (security review 2026-11-05 #28)
 }
 
 // privateKeyBlock is the line opening a PEM private key: "PRIVATE KEY",

@@ -43,7 +43,7 @@ func runSupport(conn *grpc.ClientConn, args []string) {
 	hcancel()
 	name := *out
 	if name == "" {
-		name = fmt.Sprintf("janus-support-%s-%s.tar.gz", firstOr(host, "node"), time.Now().UTC().Format("20060102T150405Z"))
+		name = fmt.Sprintf("janus-support-%s-%s.tar.gz", firstOr(safeFilePart(host), "node"), time.Now().UTC().Format("20060102T150405Z"))
 	}
 	var w io.Writer = os.Stdout
 	if name != "-" {
@@ -82,4 +82,22 @@ func allowedFor(role string) func(string) bool {
 	return func(method string) bool {
 		return rbac.Allowed("/janus.v1alpha1."+strings.TrimPrefix(method, "/janus.v1alpha1."), []string{role})
 	}
+}
+
+// safeFilePart keeps a node-provided string (its hostname) to safe
+// filename characters, so the default bundle name can't hold a path
+// separator or odd bytes (security review 2026-11-05 #28).
+func safeFilePart(s string) string {
+	s = strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-', r == '_':
+			return r
+		default:
+			return '_'
+		}
+	}, s)
+	if len(s) > 64 {
+		s = s[:64]
+	}
+	return strings.Trim(s, "._")
 }
