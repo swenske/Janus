@@ -168,15 +168,44 @@ func TestPairingTries(t *testing.T) {
 	defer cancel()
 	for i := range pairing.MaxFailures {
 		wrong := pairing.Code{Prefix: code.Prefix, Secret: code.Secret ^ uint64(i+1)}
-		if _, _, err := pairing.Pair(ctx, addr, wrong.String(), rootPEM, bundle); status.Code(err) != codes.PermissionDenied {
+		want := codes.PermissionDenied
+		if i == pairing.MaxFailures-1 {
+			want = codes.ResourceExhausted // the last wrong one pauses the source
+		}
+		if _, _, err := pairing.Pair(ctx, addr, wrong.String(), rootPEM, bundle); status.Code(err) != want {
 			t.Fatalf("wrong secret %d: %v", i, err)
 		}
 	}
-	if _, _, err := pairing.Pair(ctx, addr, code.String(), rootPEM, bundle); status.Code(err) != codes.FailedPrecondition {
-		t.Errorf("the right one after %d wrong: %v", pairing.MaxFailures, err)
+	// The source is paused: even the right code is turned away, and the
+	// window stays open for other sources (security review 2026-11-05 #17).
+	if _, _, err := pairing.Pair(ctx, addr, code.String(), rootPEM, bundle); status.Code(err) != codes.ResourceExhausted {
+		t.Errorf("the right one from a paused source: %v", err)
 	}
-	if fleet.Root() != nil || w.Closed() == "" {
-		t.Error("the window isn't closed, or a fleet was taken")
+	if fleet.Root() != nil {
+		t.Error("a fleet was taken")
+	}
+	if w.Closed() != "" {
+		t.Error("a source's failures closed the window for everyone")
+	}
+}
+
+// TestPairingAuditNotFlooded: once a source is paused, its further wrong
+// calls aren't audited, so a flood can't evict the audit (security review
+// 2026-11-05 #17).
+func TestPairingAuditNotFlooded(t *testing.T) {
+	saved := AuditLog
+	AuditLog = events.NewLog("audit", AuditCapacity)
+	t.Cleanup(func() { AuditLog = saved })
+	addr, code, _, _, _ := pairingNode(t)
+	rootPEM, bundle := testFleet(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for i := 0; i < pairing.MaxFailures+5; i++ {
+		wrong := pairing.Code{Prefix: code.Prefix, Secret: code.Secret ^ uint64(i+1)}
+		_, _, _ = pairing.Pair(ctx, addr, wrong.String(), rootPEM, bundle)
+	}
+	if evs, _ := AuditLog.Since(0); len(evs) > pairing.MaxFailures {
+		t.Errorf("a paused source was audited %d times, want at most %d", len(evs), pairing.MaxFailures)
 	}
 }
 

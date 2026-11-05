@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"log"
+	"net"
 	"regexp"
 	"strings"
 	"sync"
@@ -71,12 +72,17 @@ func callKey(parts ...[]byte) [32]byte {
 // check takes a call's secret: the window's error as the call's, a
 // wrong one logged.
 func (p *Pairing) check(ctx context.Context, secret []byte) error {
-	err := p.Window.Check(secret)
+	err := p.Window.Check(peerIP(ctx), secret)
 	if err == nil {
 		return nil
 	}
 	var wrong *pairing.ErrWrong
 	if errors.As(err, &wrong) {
+		if wrong.Blocked {
+			// A paused source: rate-limited, and not audited again - the
+			// interceptor drops ResourceExhausted (security review #17).
+			return status.Error(codes.ResourceExhausted, err.Error())
+		}
 		log.Printf("pairing: a wrong code from %s - %d tries left", peerAddr(ctx), wrong.Left)
 		return status.Error(codes.PermissionDenied, err.Error())
 	}
@@ -117,6 +123,12 @@ var rescueName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@-]{0,62}$`)
 
 func (p *Pairing) Rescue(ctx context.Context, req *janusv1alpha1.RescueRequest) (*janusv1alpha1.RescueResponse, error) {
 	if !p.RescueVolume {
+		// Count it against the source: a repeated Rescue on a pairing
+		// window would otherwise be audited without limit and evict the
+		// audit (security review 2026-11-05 #17).
+		if pairing.IsBlocked(p.Window.Fail(peerIP(ctx))) {
+			return nil, status.Error(codes.ResourceExhausted, "too many attempts from your address: wait and try again")
+		}
 		return nil, status.Error(codes.FailedPrecondition, "no rescue volume: only a node started with one (janusctl image rescue-volume) gives a rescue certificate")
 	}
 	p.mu.Lock()
@@ -163,7 +175,9 @@ func (p *Pairing) Rescue(ctx context.Context, req *janusv1alpha1.RescueRequest) 
 func PairingInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 	start := time.Now()
 	resp, err := handler(ctx, req)
-	if AuditLog != nil {
+	// A paused source (ResourceExhausted) is already rate-limited: not
+	// audited again, so a flood can't evict the audit (security review #17).
+	if AuditLog != nil && status.Code(err) != codes.ResourceExhausted {
 		st := status.Convert(err)
 		e := AuditEntry{Caller: "pairing code", Peer: peerAddr(ctx), Code: st.Code().String(), Denied: err != nil, DurationMs: time.Since(start).Milliseconds()}
 		if err != nil {
@@ -179,4 +193,15 @@ func peerAddr(ctx context.Context) string {
 		return p.Addr.String()
 	}
 	return "?"
+}
+
+// peerIP is the caller's address without the ephemeral port: the key the
+// window counts wrong codes under, so a flood from one host (which opens a
+// fresh port each call) is one source (security review 2026-11-05 #17).
+func peerIP(ctx context.Context) string {
+	addr := peerAddr(ctx)
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		return host
+	}
+	return addr
 }

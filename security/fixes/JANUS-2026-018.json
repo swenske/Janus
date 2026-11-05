@@ -1,11 +1,11 @@
 {
   "id": "JANUS-2026-018",
-  "title": "A test image build could be signed with the production Secure Boot key",
-  "severity": "medium",
-  "cvss": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:N/I:H/A:N",
+  "title": "A rescue volume's firewall: skip left the node without its firewall for the whole boot",
+  "severity": "low",
+  "cvss": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N",
   "cwe": [
-    "CWE-347"
+    "CWE-693"
   ],
   "target": "node",
-  "description": "schematic-build.yml's test mode (`source_run`) builds a schematic's images from the build inputs of an arbitrary workflow run and signs the UKIs with the production Secure Boot key (the `SECUREBOOT_SIGNING_KEY` secret), the same key nodes' release trust and Secure Boot anchor on. The run is only checked to be numeric, so the inputs could come from a fork PR's `pull_request` run - an outsider's - and the signed result is kept as a downloadable 7-day artifact. With a maintainer dispatching such a build, or the site's workflow-dispatch token, an attacker could obtain a production-signed bundle whose signed command line pins a root filesystem of their choosing, which Install/Upgrade and Secure Boot would accept on every node.\n\n**Affected**: the build pipeline, hence the integrity anchor of every node that installs or updates.\n\n**Fix**: a `source_run` (test) build now signs with a throwaway key generated on the spot, never the production key. Its output is never uploaded to the site and its boot test boots the disk without verifying a signature, so a test key is enough; a production-signed bundle can only come from a release build, whose inputs this repository produced.\n\n**Besides updating**: nothing on nodes; the change is in the CI workflow."
+  "description": "A rescue volume made with -skip-firewall tells a node to boot without applying its saved nftables ruleset, so the rescue window's port is reachable. Nothing put the ruleset back when the rescue window closed, so the node ran without its firewall for the rest of the boot - long after the rescue was done.\n\n**Affected**: a node booted with a -skip-firewall rescue volume.\n\n**Fix**: when the rescue window closes, janusd applies the saved firewall ruleset (fwMgr.Boot()) if this boot skipped it, so the skip lasts only as long as the window.\n\n**Besides updating**: nothing."
 }

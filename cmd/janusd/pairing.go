@@ -75,7 +75,7 @@ type pairingWindow struct {
 // can't (nothing then lets in but what did before: say so). With a
 // rescueUntil, it's a rescue volume's (rescue.go): Rescue answers too,
 // whatever the node trusts, until then - rescued is called once it did.
-func openPairing(addr string, local *pki.Local, access *api.Access, fleet *pki.Fleet, hostname string, rescueUntil time.Time, rescued func()) *pairingWindow {
+func openPairing(addr string, local *pki.Local, access *api.Access, fleet *pki.Fleet, hostname string, rescueUntil time.Time, rescued func(), onClose func(why string)) *pairingWindow {
 	leaf, err := pairing.NewLeaf(local.CA(), hostname, pki.LocalIPs())
 	if err != nil {
 		log.Printf("pairing: the window's certificate: %v - no pairing window", err)
@@ -132,6 +132,9 @@ func openPairing(addr string, local *pki.Local, access *api.Access, fleet *pki.F
 		}
 		why := w.window.Closed()
 		log.Printf("pairing: the window on %s is closed: %s", addr, why)
+		if onClose != nil {
+			onClose(why)
+		}
 		if why == "paired" || why == "rescued" {
 			// The call that paired it may come again, its answer lost.
 			time.Sleep(api.PairReplay)

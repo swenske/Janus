@@ -1,12 +1,11 @@
 {
   "id": "JANUS-2026-017",
-  "title": "A cluster member removed from the cluster kept its member access",
+  "title": "Anyone reaching the pairing or rescue window could close it and flood the audit",
   "severity": "medium",
-  "cvss": "CVSS:3.1/AV:N/AC:H/PR:H/UI:N/S:U/C:H/I:L/A:N",
+  "cvss": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:L",
   "cwe": [
-    "CWE-862",
-    "CWE-613"
+    "CWE-307"
   ],
   "target": "node",
-  "description": "A node authorizes a cluster peer's privileged calls (ClusterExport, which returns every cluster TLS key, the ACME credentials and the ticket ring; ClusterFlows; the peers listener) by `AcceptMember`, which checked that the presented certificate is signed by the cluster's CA and names this cluster - but not that the name is still a member. Removing a member renews the ticket ring but neither revokes its certificate (valid 30 days) nor rotates the CA, so a member removed from the cluster - especially one removed with force because it was unreachable, stolen or compromised - could go on calling ClusterExport on the remaining members and read every cluster key, defeating the renewal docs/cluster.md promises.\n\n**Affected**: a cluster from which a member was removed, within that member's certificate lifetime.\n\n**Fix**: `AcceptMember` now refuses a name that isn't in the node's current membership. A removal updates the remaining members' composition (the engine's RemoveMember), so a departed name is no longer accepted. Pinning each member's public key and issuing a CRL or rotating the cluster CA on a forced removal remain as deeper hardening.\n\n**Besides updating**: nothing on nodes; a cluster whose member was removed before updating should be re-applied so the composition is current everywhere."
+  "description": "A node that trusts no fleet, or booted with a rescue volume, opens a short-lived window on :9506 with no client certificate. Wrong codes were counted globally, so five from anyone closed the window until the node restarted - a denial of service against provisioning or rescue from anyone who could reach the port. And a Rescue call on a pairing window was audited without counting a failure, so repeated calls filled the node's 2000-entry audit ring and evicted real entries.\n\n**Affected**: a node with its pairing or rescue window open, reachable on :9506.\n\n**Fix**: wrong codes are counted per source address; past five, that source is paused for a minute while the window stays open for everyone else, and a paused source's further calls are rate-limited (ResourceExhausted) and no longer audited; a Rescue on a pairing window is counted the same way.\n\n**Besides updating**: nothing."
 }
