@@ -1,0 +1,11 @@
+{
+  "id": "JANUS-2026-020",
+  "title": "Sessions and certificates could outlive a deleted, disabled or demoted account",
+  "severity": "low",
+  "cvss": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:L/I:L/A:N",
+  "cwe": [
+    "CWE-613"
+  ],
+  "target": "controller",
+  "description": "Three ways a credential outlived the account it belonged to. (1) `DeleteUser` removed the account but left its session entries in memory; since a new account starts at epoch 0 (and an SSO account is created automatically on sign-in), reusing the deleted name could bring an old session cookie back to life with the new account's role. (2) A `janusctl login` browser or device approval captured the account's role when the sign-in was approved and issued a 12-hour certificate minutes later, so an account disabled, deleted, demoted or lapsed in that window still got a certificate with the old role. (3) Disabling an SSO provider ended its accounts' browser sessions but not their API tokens or SSH keys, so with `sign_in_every_days: 0` those kept working - disabling a provider is the usual response to a compromised IdP.\n\n**Affected**: a Controller where an account is deleted and its name reused, a sign-in is approved then the account changes before the certificate is issued, or an SSO provider is disabled.\n\n**Fix**: `DeleteUser` drops the account's sessions; `issueForCSR` re-reads the account and refuses a certificate for one disabled/deleted/lapsed, capping its role at the account's current role; disabling an SSO provider lapses its accounts (tokens and SSH keys stop, the next sign-in restores them).\n\n**Besides updating**: nothing."
+}

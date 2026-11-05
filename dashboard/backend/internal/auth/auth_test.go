@@ -347,6 +347,38 @@ func TestSessionsSweptOnCreate(t *testing.T) {
 	}
 }
 
+// TestDeleteUserDropsSessions: a deleted account's session doesn't come
+// back when the name is reused (security review 2026-11-05 #22).
+func TestDeleteUserDropsSessions(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Setup("root", "long-enough", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateUser("bob", Operator, "given-by-admin", nil); err != nil {
+		t.Fatal(err)
+	}
+	tok, _ := s.NewSession("bob", false)
+	if _, _, ok := s.Session(tok, true); !ok {
+		t.Fatal("bob's session isn't valid")
+	}
+	if err := s.DeleteUser("bob"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.sessions[tok]; ok {
+		t.Error("the deleted account's session entry wasn't dropped")
+	}
+	// The name reused at Epoch 0: the old token must not revive.
+	if _, err := s.CreateUser("bob", Operator, "given-by-admin", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := s.Session(tok, true); ok {
+		t.Error("the old session revived when the name was reused")
+	}
+}
+
 func readFile(t *testing.T, dir string) ([]byte, error) {
 	t.Helper()
 	return os.ReadFile(filepath.Join(dir, usersFile))
