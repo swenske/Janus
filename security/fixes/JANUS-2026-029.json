@@ -1,0 +1,11 @@
+{
+  "id": "JANUS-2026-029",
+  "title": "Anyone reaching the pairing or rescue window could close it and flood the audit",
+  "severity": "medium",
+  "cvss": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:L",
+  "cwe": [
+    "CWE-307"
+  ],
+  "target": "node",
+  "description": "A node that trusts no fleet, or booted with a rescue volume, opens a short-lived window on :9506 with no client certificate. Wrong codes were counted globally, so five from anyone closed the window until the node restarted - a denial of service against provisioning or rescue from anyone who could reach the port. And a Rescue call on a pairing window was audited without counting a failure, so repeated calls filled the node's 2000-entry audit ring and evicted real entries.\n\n**Affected**: a node with its pairing or rescue window open, reachable on :9506.\n\n**Fix**: wrong codes are counted per source address; past five, that source is paused for a minute while the window stays open for everyone else, and a paused source's further calls are rate-limited (ResourceExhausted) and no longer audited; a Rescue on a pairing window is counted the same way.\n\n**Besides updating**: nothing."
+}

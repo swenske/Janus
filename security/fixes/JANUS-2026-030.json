@@ -1,0 +1,11 @@
+{
+  "id": "JANUS-2026-030",
+  "title": "A rescue volume's firewall: skip left the node without its firewall for the whole boot",
+  "severity": "low",
+  "cvss": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N",
+  "cwe": [
+    "CWE-693"
+  ],
+  "target": "node",
+  "description": "A rescue volume made with -skip-firewall tells a node to boot without applying its saved nftables ruleset, so the rescue window's port is reachable. Nothing put the ruleset back when the rescue window closed, so the node ran without its firewall for the rest of the boot - long after the rescue was done.\n\n**Affected**: a node booted with a -skip-firewall rescue volume.\n\n**Fix**: when the rescue window closes, janusd applies the saved firewall ruleset (fwMgr.Boot()) if this boot skipped it, so the skip lasts only as long as the window.\n\n**Besides updating**: nothing."
+}
