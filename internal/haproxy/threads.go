@@ -9,7 +9,7 @@ import "strings"
 func PinnedThreads(cfg []byte) string {
 	inGlobal := false
 	for _, raw := range strings.Split(string(cfg), "\n") {
-		fields := strings.Fields(uncomment(raw))
+		fields := parseLine(raw)
 		if len(fields) == 0 {
 			continue
 		}
