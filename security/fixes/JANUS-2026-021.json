@@ -1,7 +1,7 @@
 {
   "id": "JANUS-2026-021",
   "title": "The hypervisor SSH key and Proxmox token were stored in clear in the Controller's data directory",
-  "severity": "low",
+  "severity": "medium",
   "cvss": "CVSS:3.1/AV:L/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N",
   "cwe": [
     "CWE-312"
