@@ -250,7 +250,10 @@ func (s *standby) status() map[string]any {
 		out["last_copy"] = p.Last.At
 	}
 	if p.Error != "" {
-		out["error"] = p.Error
+		// Not the raw error on this open endpoint: it can name the active's
+		// address (security review 2026-11-05 #28). The reason is in
+		// `dashboardd ha status` on the host.
+		out["pull_failing"] = true
 	}
 	if st.Peer != nil {
 		out["active"] = st.Peer.Name
@@ -275,7 +278,7 @@ var standbyPage = template.Must(template.New("standby").Funcs(template.FuncMap{
 <dl><dt>Epoch</dt><dd>{{.Epoch}}</dd>
 <dt>Last copy</dt><dd>{{if .Last}}{{ago .Last.At}}{{else}}none yet{{end}}</dd>
 <dt>The active last answered</dt><dd>{{ago .Pulls.LastContact}}</dd>
-{{if .Pulls.Error}}<dt>Last pull</dt><dd class="err">{{.Pulls.Error}}</dd>{{end}}</dl>
+{{if .Pulls.Error}}<dt>Last pull</dt><dd class="err">failing - run <code>dashboardd ha status</code> on this host for the reason</dd>{{end}}</dl>
 <p>To take over: <code>dashboardd promote</code> on this host, or the active's switchover (Settings, High availability).</p>
 </body></html>`))
 

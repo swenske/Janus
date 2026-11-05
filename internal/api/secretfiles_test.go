@@ -165,3 +165,13 @@ func TestKeyGuardSplitMarker(t *testing.T) {
 		t.Errorf("handed over %q", got)
 	}
 }
+
+// TestImportIsSecret: a staged state import (another node's keys) is a
+// secret path (security review 2026-11-05 #28).
+func TestImportIsSecret(t *testing.T) {
+	for _, p := range []string{"/etc/.state/import", "/etc/.state/import/files/pki/ca.key", "/etc/janus/import/x"} {
+		if !isSecretPath(p) {
+			t.Errorf("%s isn't treated as a secret path", p)
+		}
+	}
+}
