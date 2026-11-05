@@ -252,7 +252,7 @@ func TestHypervisorLabelsAPI(t *testing.T) {
 	}
 
 	// Persisted.
-	again, err := hypervisor.Open(a.dataDir)
+	again, err := hypervisor.Open(a.dataDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +267,7 @@ func TestHypervisorLabelsAPI(t *testing.T) {
 // change; the log forwarding page lists the effective labels.
 func TestInheritedLabelsScopes(t *testing.T) {
 	a := newAuthApp(t)
-	hvs, err := hypervisor.Open(t.TempDir())
+	hvs, err := hypervisor.Open(t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

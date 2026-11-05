@@ -1,0 +1,11 @@
+{
+  "id": "JANUS-2026-021",
+  "title": "The hypervisor SSH key and Proxmox token were stored in clear in the Controller's data directory",
+  "severity": "low",
+  "cvss": "CVSS:3.1/AV:L/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N",
+  "cwe": [
+    "CWE-312"
+  ],
+  "target": "controller",
+  "description": "The Controller sealed its other secrets with the master key (Consul, ACME, log forwarding, SSO, HA, the UI TLS key), but wrote a hypervisor's libvirt SSH private key (`hypervisors/<id>/ssh.key`) and its Proxmox API token (`hypervisors/<id>/token`) as plaintext (0600). The `-master-key-file` promise - keep it outside the data directory so a copy of the data holds nothing usable - did not hold for these two files, so a volume snapshot or a copy of the data directory gave an attacker the ability to create and destroy VMs on the configured hypervisors.\n\n**Affected**: a Controller with a configured hypervisor, whose data directory can be copied or snapshotted.\n\n**Fix**: the hypervisor store now seals the SSH key and the token with the master key (purposes `hypervisor/<id>/ssh` and `hypervisor/<id>/token`); a file written in clear before this is read and re-sealed in place when it is loaded.\n\n**Besides updating**: nothing - existing hypervisor secrets are re-sealed on the first start after updating."
+}

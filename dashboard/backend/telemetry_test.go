@@ -21,7 +21,7 @@ func withTelemetry(t *testing.T, a *authApp) {
 	t.Helper()
 	dir := t.TempDir()
 	var err error
-	if a.hypervisors, err = hypervisor.Open(dir); err != nil {
+	if a.hypervisors, err = hypervisor.Open(dir, nil); err != nil {
 		t.Fatal(err)
 	}
 	if a.telemetry, err = telemetry.Open(dir, false); err != nil {

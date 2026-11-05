@@ -194,7 +194,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("controller ID: %v", err)
 	}
-	hypervisorStore, err := hypervisor.Open(*dataDir)
+	hypervisorStore, err := hypervisor.Open(*dataDir, masterKey)
 	if err != nil {
 		log.Fatalf("open hypervisor store: %v", err)
 	}
