@@ -86,6 +86,13 @@ func (a *app) handleSSOProviderPut(w http.ResponseWriter, r *http.Request) {
 	}
 	if !saved.Enabled {
 		a.auth.EndProviderSessions(saved.ID)
+		// Also lapse its accounts, so their API tokens and SSH keys stop
+		// working, not only their browser sessions - disabling a provider
+		// is the response to a compromised IdP (security review
+		// 2026-11-05 #22). The next sign-in restores the account.
+		if err := a.auth.LapseProvider(saved.ID); err != nil {
+			log.Printf("sso: %s: lapse its accounts on disable: %v", saved.ID, err)
+		}
 	}
 	if n, err := a.auth.ResyncSSO(saved.ID, saved.Evaluate, time.Duration(saved.SignInEveryDays)*24*time.Hour); err != nil {
 		log.Printf("sso: %s: apply the rules to its accounts: %v", saved.ID, err)
