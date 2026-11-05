@@ -317,6 +317,24 @@ func TestQuotedEcho(t *testing.T) {
 	}
 }
 
+// TestParseNoPanic: a crafted or short ICMP message (the kind the
+// ICMP_FILTER now also drops) must not panic the parser - it ran in the
+// gRPC handler with no recovery before (security review 2026-11-05 #15).
+func TestParseNoPanic(t *testing.T) {
+	s := &icmpSock{id: 0x1234}
+	for _, msg := range [][]byte{
+		nil, {}, {0x4f}, {0x45},
+		append([]byte{0x4f}, make([]byte, 19)...), // type 0x4f, 20 bytes
+		append([]byte{0x4f}, make([]byte, 58)...), // type 0x4f, 59 bytes
+		append([]byte{0x40}, make([]byte, 30)...),
+		make([]byte, 8),
+	} {
+		if _, ok := s.parse(msg); ok {
+			t.Errorf("a crafted message %x was taken as ours", msg)
+		}
+	}
+}
+
 // TestPingLoopback needs a raw socket: root (CI's containers), skipped
 // otherwise.
 func TestPingLoopback(t *testing.T) {
