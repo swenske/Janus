@@ -245,6 +245,13 @@ func (a *app) orderOne(ctx context.Context, n *store.Node, c janusv1alpha1.HAPro
 		}
 		return o
 	}
+	// The node's configuration names the domains, the challenge, the DNS
+	// provider and the CA. The Controller's ordering policy says which
+	// names this node may be ordered, and which CA (security review
+	// 2026-11-05 #2) - checked before the node even makes a key.
+	if err := set.AllowOrder(a.nodeLabels(n), cert.Domains, cfg.GetAccount().GetDirectory()); err != nil {
+		return fail(err.Error())
+	}
 	cctx, cancel := call()
 	csr, err := c.ACMECertificateRequest(cctx, &janusv1alpha1.ACMECertificateRequestRequest{Name: cert.Name})
 	cancel()

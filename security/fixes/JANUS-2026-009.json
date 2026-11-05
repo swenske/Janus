@@ -1,0 +1,12 @@
+{
+  "id": "JANUS-2026-009",
+  "title": "A node operator could make the Controller order a certificate for any name, wildcards included",
+  "severity": "high",
+  "cvss": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:C/C:L/I:H/A:N",
+  "cwe": [
+    "CWE-863",
+    "CWE-918"
+  ],
+  "target": "controller",
+  "description": "When a Controller admin set up \"Ordering for the nodes\", the Controller took the certificate's domains, the challenge, the DNS provider and the CA directory from the node's own configuration, and checked only that the node answered HTTP-01 for the Controller's account - a value that is not secret (node pages are shown it). An `os:operator` on any node (including a Controller operator, a scoped grant, or anyone holding an enrollment token for a machine they control) could put their node in \"ordered\" mode and have the Controller order, with its shared DNS credentials, a wildcard of the organization's zone (`*.example.com` over DNS-01) or a name belonging to another node or the Controller itself (over HTTP-01, since every ordered node answers any token with the Controller's thumbprint). The private key stays on the operator's node, which can then serve the name. The node could also name an arbitrary CA directory URL, which the Controller's `janus-acme` would fetch - a blind request from the Controller's network position, with the Controller's account key and external-account binding sent to it.\n\n**Affected**: a Controller with \"Ordering for the nodes\" set up (terms accepted, usually at least one DNS provider), with a node reachable by an operator.\n\n**Fix**: the Controller now has an ordering policy an admin sets. Name rules say which names a node - matched by its labels - may be ordered; with no rule, nothing is ordered (fail closed). An allowed-directories list bounds the CA a node may name, defaulting to Let's Encrypt's production and staging. An order outside the policy is refused before `janus-acme` runs, and the node is told why.\n\n**Besides updating**: after updating, set the name rules and (if you use a CA other than Let's Encrypt) the allowed directories under \"Ordering for the nodes\" - ordering is paused for your nodes until a rule covers their names."
+}
