@@ -320,7 +320,7 @@ func TestClusterOnHypervisors(t *testing.T) {
 	if len(c.Members) != 2 || c.SecretsFrom != "edgep-1" || c.Placement == nil || c.Placement.AntiAffinity != clusters.AntiAffinityPreferred {
 		t.Fatalf("preferred cluster: %+v", c)
 	}
-	v := a.clusterView(c)
+	v := a.clusterView(c, nil)
 	if v.Members[0].HostID != "libvirt:aaaa" || !slices.ContainsFunc(v.Problems, func(p string) bool { return strings.Contains(p, "edgep-1 and edgep-2 run on the same host") }) {
 		t.Errorf("preferred view: hosts %q %q, problems %q", v.Members[0].HostID, v.Members[1].HostID, v.Problems)
 	}
@@ -336,7 +336,7 @@ func TestClusterOnHypervisors(t *testing.T) {
 	if !slices.Equal(on, []string{h1.ID, h2.ID}) {
 		t.Errorf("required on two hosts: %v", on)
 	}
-	if v := a.clusterView(c); slices.ContainsFunc(v.Problems, func(p string) bool { return strings.Contains(p, "same host") }) {
+	if v := a.clusterView(c, nil); slices.ContainsFunc(v.Problems, func(p string) bool { return strings.Contains(p, "same host") }) {
 		t.Errorf("problems: %q", v.Problems)
 	}
 
@@ -388,7 +388,7 @@ func TestRecyclePreferredKeepsHostsApart(t *testing.T) {
 		t.Errorf("the replacement went to %s, beside %s, not to the replaced member's host", repl.Spec.HypervisorID, alone[h2.ID])
 	}
 	c, _ = a.clusters.Store.Get(c.ID)
-	if v := a.clusterView(c); slices.ContainsFunc(v.Problems, func(p string) bool { return strings.Contains(p, "same host") }) {
+	if v := a.clusterView(c, nil); slices.ContainsFunc(v.Problems, func(p string) bool { return strings.Contains(p, "same host") }) {
 		t.Errorf("problems after: %q", v.Problems)
 	}
 	// Off: elsewhere first, as before - the replaced member's host frees

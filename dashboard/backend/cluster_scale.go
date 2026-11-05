@@ -280,7 +280,7 @@ func (a *app) handleClusterAutoscale(w http.ResponseWriter, r *http.Request) {
 	// A new policy starts over: no simulated count, no steps of the old.
 	_ = a.clusters.Store.UpdateState(c.ID, func(st *clusters.State) { st.Scale, st.ScaleStatus = clusters.ScaleState{}, "" })
 	a.clusterScaler.forget(c.ID)
-	writeJSON(w, http.StatusOK, a.clusterView(c))
+	writeJSON(w, http.StatusOK, a.clusterView(c, r))
 }
 
 // --- the engine ---

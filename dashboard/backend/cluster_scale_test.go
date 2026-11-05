@@ -213,8 +213,8 @@ func TestClusterScaler(t *testing.T) {
 	// Controller's metrics -, nothing judged, nothing journaled.
 	entries := len(a.clusters.Store.Entries(c.ID, 1000))
 	run(2)
-	if cur, _ := a.clusters.Store.Get(c.ID); a.clusterView(cur).Load == nil || a.clusterView(cur).Load.Members != 2 {
-		t.Errorf("no policy, the load: %+v", a.clusterView(cur).Load)
+	if cur, _ := a.clusters.Store.Get(c.ID); a.clusterView(cur, nil).Load == nil || a.clusterView(cur, nil).Load.Members != 2 {
+		t.Errorf("no policy, the load: %+v", a.clusterView(cur, nil).Load)
 	}
 	if len(a.clusters.Store.Entries(c.ID, 1000)) != entries || a.clusters.Store.State(c.ID).ScaleStatus != "" {
 		t.Error("no policy, yet something was judged")
@@ -251,7 +251,7 @@ func TestClusterScaler(t *testing.T) {
 		t.Errorf("observing: acted %v", acted)
 	}
 	cur, _ := a.clusters.Store.Get(c.ID)
-	if v := a.clusterView(cur); v.Load == nil || v.Load.Members != 2 || v.Load.BusyPercent < 89 || v.Load.IdlePercent != 10 {
+	if v := a.clusterView(cur, nil); v.Load == nil || v.Load.Members != 2 || v.Load.BusyPercent < 89 || v.Load.IdlePercent != 10 {
 		t.Errorf("the load shown: %+v", v.Load)
 	}
 

@@ -18,6 +18,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/clusters"
+	"github.com/swenske/Janus/internal/haproxy"
 	"github.com/swenske/Janus/internal/pki"
 )
 
@@ -73,7 +74,7 @@ func (a *app) handleClusterCheck(w http.ResponseWriter, r *http.Request) {
 	if cur, ok := a.clusters.Store.Get(c.ID); ok {
 		c = cur
 	}
-	writeJSON(w, http.StatusOK, a.clusterView(c))
+	writeJSON(w, http.StatusOK, a.clusterView(c, r))
 }
 
 type clusterMemberView struct {
@@ -122,7 +123,23 @@ type clusterView struct {
 	Problems []string `json:"problems"`
 }
 
-func (a *app) clusterView(c *clusters.Cluster) clusterView {
+// callerRole is the request's account role, or Admin for a nil request
+// (an internal or test caller gets the full, unredacted view).
+func callerRole(r *http.Request) auth.Role {
+	if r == nil {
+		return auth.Admin
+	}
+	p, _ := principalOf(r)
+	return p.Role
+}
+
+func (a *app) clusterView(c *clusters.Cluster, r *http.Request) clusterView {
+	// A member's Vars are template inputs an admin sets - a VRRP priority,
+	// a BGP router id, and sometimes a per-member password: a caller who
+	// may not change the cluster (a reader) doesn't get them (security
+	// review 2026-11-05 #8). A nil request is an internal/test caller: the
+	// full view.
+	redactSecrets := !callerRole(r).AtLeast(auth.Operator)
 	st := a.clusters.Store.State(c.ID)
 	v := clusterView{ID: c.ID, Name: c.Name, PeersPort: c.PeersPort, Managed: nonNil(c.Managed), SecretsFrom: c.SecretsFrom,
 		Desired: c.Desired, Created: c.Created, Updated: c.Updated, Phase: c.Phase, Error: c.Error, Busy: a.clusters.isBusy(c.ID),
@@ -145,6 +162,9 @@ func (a *app) clusterView(c *clusters.Cluster) clusterView {
 	}
 	for _, m := range c.Members {
 		mv := clusterMemberView{Member: m, State: st.Members[m.Name]}
+		if redactSecrets {
+			mv.Vars = nil
+		}
 		if n, ok := a.store.Get(m.NodeID); ok {
 			mv.NodeName, mv.NodeFound = n.Name, true
 		}
@@ -221,20 +241,22 @@ func (a *app) runCluster(w http.ResponseWriter, c *clusters.Cluster, phase, acto
 	if cur, ok := a.clusters.Store.Get(c.ID); ok {
 		c = cur
 	}
-	writeJSON(w, http.StatusAccepted, a.clusterView(c))
+	// runCluster backs the write operations, which are admin-gated: the
+	// full view (nil) is for an admin.
+	writeJSON(w, http.StatusAccepted, a.clusterView(c, nil))
 }
 
-func (a *app) handleClusters(w http.ResponseWriter, _ *http.Request) {
+func (a *app) handleClusters(w http.ResponseWriter, r *http.Request) {
 	out := []clusterView{}
 	for _, c := range a.clusters.Store.List() {
-		out = append(out, a.clusterView(c))
+		out = append(out, a.clusterView(c, r))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
 func (a *app) handleCluster(w http.ResponseWriter, r *http.Request) {
 	if c, ok := a.clusterOr404(w, r); ok {
-		writeJSON(w, http.StatusOK, a.clusterView(c))
+		writeJSON(w, http.StatusOK, a.clusterView(c, r))
 	}
 }
 
@@ -376,7 +398,7 @@ func (a *app) handleClusterPatch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, a.clusterView(c))
+	writeJSON(w, http.StatusOK, a.clusterView(c, r))
 }
 
 // handleClusterDelete ends cluster id: every member leaves it (force:
@@ -518,9 +540,22 @@ func (a *app) handleClusterVersion(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// A caller who may not change the cluster (a reader) gets haproxy.cfg
+	// masked as GetConfig would mask it on a node, and not the VRRP/BGP
+	// templates at all - they carry auth_pass and session passwords, which
+	// a node shows only to operators (security review 2026-11-05 #8,
+	// JANUS-2026-013; the same secrets JANUS-2026-005/006 hid).
+	redactSecrets := !callerRole(r).AtLeast(auth.Operator)
 	out := clusterVersionView{VersionInfo: v.VersionInfo, Content: map[string]string{}}
 	for p, b := range v.Content {
-		out.Content[p] = string(b)
+		switch {
+		case redactSecrets && p == "haproxy.cfg":
+			out.Content[p] = string(haproxy.RedactConfig(b))
+		case redactSecrets && (p == "keepalived.conf" || p == "bird.conf"):
+			// omitted for a reader
+		default:
+			out.Content[p] = string(b)
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -700,7 +735,7 @@ func (a *app) handleClusterBalancer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, a.clusterView(c))
+	writeJSON(w, http.StatusOK, a.clusterView(c, r))
 }
 
 func (a *app) handleClusterBalancerDelete(w http.ResponseWriter, r *http.Request) {
@@ -713,7 +748,7 @@ func (a *app) handleClusterBalancerDelete(w http.ResponseWriter, r *http.Request
 		return
 	}
 	c, _ = a.clusters.Store.Get(c.ID)
-	writeJSON(w, http.StatusOK, a.clusterView(c))
+	writeJSON(w, http.StatusOK, a.clusterView(c, r))
 }
 
 // handleClusterBalancerSync calls the hook with the members now: 502
@@ -734,5 +769,5 @@ func (a *app) handleClusterBalancerSync(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	c, _ = a.clusters.Store.Get(c.ID)
-	writeJSON(w, http.StatusOK, a.clusterView(c))
+	writeJSON(w, http.StatusOK, a.clusterView(c, r))
 }
