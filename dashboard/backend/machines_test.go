@@ -234,7 +234,7 @@ func newTestApp(t *testing.T) (*app, *fakeDriver) {
 		t.Fatal(err)
 	}
 	id := testIdentity(t, dir)
-	hvs, err := hypervisor.Open(dir)
+	hvs, err := hypervisor.Open(dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

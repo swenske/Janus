@@ -1,6 +1,8 @@
 package hypervisor
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +10,81 @@ import (
 
 	"golang.org/x/crypto/ssh"
 )
+
+const sealMark = "X1:"
+
+// testSealer hides the plaintext (XOR) and binds it to its purpose.
+type testSealer struct{}
+
+func (testSealer) Seal(p []byte, purpose string) ([]byte, error) {
+	out := make([]byte, len(p))
+	for i := range p {
+		out[i] = p[i] ^ 0x5a
+	}
+	return append([]byte(sealMark+purpose+"\n"), out...), nil
+}
+
+func (testSealer) Open(s []byte, purpose string) ([]byte, error) {
+	pfx := []byte(sealMark + purpose + "\n")
+	if !bytes.HasPrefix(s, pfx) {
+		return nil, errors.New("not sealed for " + purpose)
+	}
+	body := s[len(pfx):]
+	out := make([]byte, len(body))
+	for i := range body {
+		out[i] = body[i] ^ 0x5a
+	}
+	return out, nil
+}
+
+// TestSecretSealing: the SSH key is sealed on disk and a legacy plaintext
+// key is re-sealed on load (security review 2026-11-05 #24).
+func TestSecretSealing(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir, testSealer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := validLibvirt()
+	if err := s.Add(h); err != nil {
+		t.Fatal(err)
+	}
+	keyPath := filepath.Join(dir, "hypervisors", h.ID, "ssh.key")
+	raw, _ := os.ReadFile(keyPath)
+	if !bytes.HasPrefix(raw, []byte(sealMark)) {
+		t.Error("ssh.key isn't sealed on disk")
+	}
+	if bytes.Contains(raw, []byte("PRIVATE KEY")) {
+		t.Error("the key PEM is in clear on disk")
+	}
+	if s2, err := Open(dir, testSealer{}); err != nil {
+		t.Fatalf("reopen: %v", err)
+	} else if got, ok := s2.Get(h.ID); !ok || len(got.SSHKey) == 0 {
+		t.Fatal("the reloaded key is lost")
+	}
+
+	// A key written in clear before #24 (a fresh data dir, no sealer) is
+	// re-sealed when it is loaded with a sealer.
+	dir2 := t.TempDir()
+	plainStore, err := Open(dir2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := validLibvirt()
+	if err := plainStore.Add(p); err != nil {
+		t.Fatal(err)
+	}
+	plainPath := filepath.Join(dir2, "hypervisors", p.ID, "ssh.key")
+	if before, _ := os.ReadFile(plainPath); bytes.HasPrefix(before, []byte(sealMark)) {
+		t.Fatal("expected a plaintext key")
+	}
+	if _, err := Open(dir2, testSealer{}); err != nil { // loads and migrates
+		t.Fatal(err)
+	}
+	if after, _ := os.ReadFile(plainPath); !bytes.HasPrefix(after, []byte(sealMark)) {
+		t.Error("the legacy key wasn't re-sealed on load")
+	}
+}
 
 func validLibvirt() *Hypervisor {
 	return &Hypervisor{Name: "kvm01", Kind: KindLibvirt, Libvirt: &LibvirtConfig{
@@ -17,7 +94,7 @@ func validLibvirt() *Hypervisor {
 
 func TestStoreAddReloadUpdateRemove(t *testing.T) {
 	dir := t.TempDir()
-	s, err := Open(dir)
+	s, err := Open(dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +113,7 @@ func TestStoreAddReloadUpdateRemove(t *testing.T) {
 		t.Errorf("AuthorizedKey = %q (%v)", line, err)
 	}
 
-	s2, err := Open(dir)
+	s2, err := Open(dir, nil)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
@@ -68,7 +145,7 @@ func TestStoreAddReloadUpdateRemove(t *testing.T) {
 	if err := s2.Update(form); err != nil {
 		t.Fatal(err)
 	}
-	if s3, err := Open(dir); err != nil {
+	if s3, err := Open(dir, nil); err != nil {
 		t.Fatal(err)
 	} else if again, _ := s3.Get(h.ID); again.HostID != "libvirt:4c4c4544-0042" || again.HostName != "kvm01" {
 		t.Errorf("the host after an Update and a reload: %q %q", again.HostID, again.HostName)
@@ -122,7 +199,7 @@ func TestValidate(t *testing.T) {
 // by an Update, never shared with what Get returns.
 func TestLabels(t *testing.T) {
 	dir := t.TempDir()
-	s, err := Open(dir)
+	s, err := Open(dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +217,7 @@ func TestLabels(t *testing.T) {
 	if again, _ := s.Get(h.ID); again.Labels["dc"] != "lgs" {
 		t.Error("Get returned the store's labels")
 	}
-	s2, err := Open(dir)
+	s2, err := Open(dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

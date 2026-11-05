@@ -102,7 +102,7 @@ func TestProxmoxHypervisorCPUModelAPI(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"cpu_model":"host"`) {
 		t.Errorf("list: %s", rec.Body)
 	}
-	again, err := hypervisor.Open(a.dataDir)
+	again, err := hypervisor.Open(a.dataDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
