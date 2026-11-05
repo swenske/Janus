@@ -1,0 +1,12 @@
+{
+  "id": "JANUS-2026-012",
+  "title": "The janusctl Claude Code plugin auto-allowed any executable named janusctl",
+  "severity": "medium",
+  "cvss": "CVSS:3.1/AV:L/AC:H/PR:N/UI:R/S:U/C:H/I:H/A:N",
+  "cwe": [
+    "CWE-426",
+    "CWE-20"
+  ],
+  "target": "client",
+  "description": "The janusctl Claude Code plugin's effect hook decides whether a command Claude Code is about to run is a janusctl read it may auto-allow (the plugin's `allow_reads` option) or a critical command it must ask about. It recognized janusctl by the basename of the command, so with `allow_reads` on, a command whose program is any executable named `janusctl` - `./janusctl`, `bin/janusctl` in a repository Claude was pointed at - was answered \"allow\" and run without a prompt. A repository's README or a prompt injection could then get a planted `janusctl` binary executed with the user's rights.\n\n**Affected**: a user running the janusctl Claude Code plugin with `allow_reads` on, in or near an untrusted working tree that contains an executable named `janusctl`.\n\n**Fix**: the hook auto-allows only janusctl invoked by its bare name (resolved through PATH to the installed binary the hook is part of) or by an absolute path; a relative path, which resolves against the working directory, is left for Claude Code to prompt about. The \"ask\" path for critical commands still matches janusctl however it is written.\n\n**Besides updating**: update the plugin (`/plugin`); nothing else."
+}
