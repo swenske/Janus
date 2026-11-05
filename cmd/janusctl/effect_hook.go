@@ -615,6 +615,15 @@ func readsOnly(line string, invs []invocation) bool {
 		if inv.doubt != "" || inv.effect != effectReads || !inv.direct || inv.localFiles || inv.cmd == nil {
 			return false
 		}
+		// Only janusctl invoked by its bare name (resolved through PATH to
+		// the installed binary) or an absolute path is auto-allowed. A
+		// relative path - ./janusctl, bin/janusctl - resolves against the
+		// working directory and could be an unrelated executable a
+		// repository planted; let Claude Code ask (security review
+		// 2026-11-05 #13).
+		if len(inv.words) == 0 || (strings.Contains(inv.words[0], "/") && !strings.HasPrefix(inv.words[0], "/")) {
+			return false
+		}
 		for _, r := range inv.cmd.redirs {
 			if !harmlessRedirect(r) {
 				return false

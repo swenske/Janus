@@ -41,6 +41,10 @@ func TestEffectDecisions(t *testing.T) {
 		{"janusctl system", none, allow, ""},
 		{"janusctl version", none, allow, ""},
 		{"/usr/bin/janusctl -n edge-1 haproxy get-config", none, allow, ""},
+		// A relative path could be a planted executable (security review #13):
+		// read-like, but never auto-allowed.
+		{"./janusctl system info", none, none, ""},
+		{"bin/janusctl system info", none, none, ""},
 		{"for n in edge-1 edge-2; do janusctl -n $n system info; done", none, none, ""},
 		// Reads, but not allowed even when opted in.
 		{"janusctl -n edge-1 system logs haproxy | grep 503", none, none, ""},
