@@ -1,0 +1,12 @@
+{
+  "id": "JANUS-2026-011",
+  "title": "A DHCP server could stop a node's HAProxy or inject a nameserver with a crafted host name or domain",
+  "severity": "medium",
+  "cvss": "CVSS:3.1/AV:A/AC:H/PR:N/UI:N/S:U/C:N/I:L/A:H",
+  "cwe": [
+    "CWE-20",
+    "CWE-74"
+  ],
+  "target": "node",
+  "description": "Since janusd became the node's DHCP client, the host name (option 12) and domain (option 15) a DHCP server sends were stored and used without validation, while a host name set in the node's own configuration goes through `ValidateHostname`. A host on the node's network answering DHCP - a rogue server racing the real one, or the real server's administrator - could send a host name or domain carrying whitespace, a newline or an over-long value. The host name is written with `Sethostname` and, on a node in no cluster, into the generated HAProxy peers file (a comment, a `set-var`, and the `server`/`-L` local-peer name); a value HAProxy refuses in a peer name made every `haproxy -c` fail, so HAProxy could not start or reload. An over-long name made `Sethostname` fail, and on a janusd restart holding a lease that dropped the node's stored network configuration onto the defaults for the boot (static addresses, VLANs and routes lost). A domain with a newline injected `nameserver`/`options` lines into resolv.conf ahead of the configured servers.\n\n**Affected**: a node with a DHCP interface (the default) and no host name in its configuration, reachable by a host that can answer DHCP on one of its segments.\n\n**Fix**: janusd validates the lease's host name (`ValidateHostname`) and domain (`ValidateDomain`) and drops an invalid one rather than refuse an otherwise good lease; `ResolvConf` additionally never writes a server or search value that isn't a single bare token. A configured host name was already validated.\n\n**Besides updating**: nothing - the fix is on the node, applied by the update."
+}
