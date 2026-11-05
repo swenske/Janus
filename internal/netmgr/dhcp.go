@@ -92,12 +92,35 @@ func leaseFromACK(ifname, mac string, offer, ack *dhcpv4.DHCPv4, now time.Durati
 	if bits != 32 {
 		return nil, fmt.Errorf("the server's acknowledgement gives no usable subnet mask (%s)", net.IP(mask))
 	}
+	// The host name (option 12) and domain (option 15) are bytes the
+	// server chose: a rogue DHCP server, or the real one's administrator,
+	// could put whitespace, a newline or an over-long value there. Left
+	// unchecked they reach Sethostname, the generated HAProxy peers file
+	// and resolv.conf's search line, and could break HAProxy's start or
+	// inject a nameserver line (security review 2026-11-05 #7,
+	// JANUS-2026-011). A configured host name already goes through
+	// ValidateHostname; hold the lease's to the same bar, and drop a bad
+	// one rather than refuse an otherwise good lease.
+	host := ack.HostName()
+	if host != "" {
+		if err := netconfig.ValidateHostname(host); err != nil {
+			log.Printf("netmgr: dhcp: ignoring the server's host name (%v)", err)
+			host = ""
+		}
+	}
+	domain := ack.DomainName()
+	if domain != "" {
+		if err := netconfig.ValidateDomain(domain); err != nil {
+			log.Printf("netmgr: dhcp: ignoring the server's domain (%v)", err)
+			domain = ""
+		}
+	}
 	l := &Lease{
 		Interface: ifname,
 		MAC:       mac,
 		Address:   netip.PrefixFrom(ip, ones).String(),
-		Domain:    ack.DomainName(),
-		Hostname:  ack.HostName(),
+		Domain:    domain,
+		Hostname:  host,
 		Obtained:  now,
 		Offer:     offer.ToBytes(),
 		ACK:       ack.ToBytes(),

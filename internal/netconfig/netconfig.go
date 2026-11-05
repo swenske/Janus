@@ -352,6 +352,10 @@ func ValidateHostname(h string) error {
 	return validateDomain(h)
 }
 
+// ValidateDomain accepts a DNS domain (a dotted name, up to 253 bytes) -
+// a DHCP search domain, for one.
+func ValidateDomain(d string) error { return validateDomain(d) }
+
 func validateDomain(d string) error {
 	if d == "" {
 		return errors.New("is empty")
@@ -444,6 +448,12 @@ func EffectiveDNS(cfg *janusv1alpha1.NetworkConfig, dhcpServers, dhcpSearch []st
 func ResolvConf(servers, search []string) []byte {
 	var b strings.Builder
 	b.WriteString("# Written by janusd from the node's network configuration.\n")
+	// A final safety net against a value carrying whitespace or a control
+	// character injecting a line of its own (security review 2026-11-05
+	// #7): servers are parsed as IPs and search domains are validated
+	// upstream, but never write one that isn't a single bare token.
+	search = dropUnsafeResolv(search)
+	servers = dropUnsafeResolv(servers)
 	if len(search) > 0 {
 		b.WriteString("search " + strings.Join(search, " ") + "\n")
 	}
@@ -451,6 +461,19 @@ func ResolvConf(servers, search []string) []byte {
 		b.WriteString("nameserver " + s + "\n")
 	}
 	return []byte(b.String())
+}
+
+// dropUnsafeResolv keeps only values that are a single resolv.conf token
+// - no whitespace, no control character.
+func dropUnsafeResolv(in []string) []string {
+	out := in[:0:0]
+	for _, v := range in {
+		if v == "" || strings.IndexFunc(v, func(r rune) bool { return r <= ' ' || r == 0x7f }) >= 0 {
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
 }
 
 func firstUnique(in []string, max int) []string {

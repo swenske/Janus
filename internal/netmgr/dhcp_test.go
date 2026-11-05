@@ -62,6 +62,25 @@ func TestLeaseFromACK(t *testing.T) {
 	if _, err := leaseFromACK("eth0", "52:54:00:00:00:01", offer, nak, now); err == nil {
 		t.Error("an acknowledgement without an address must be refused")
 	}
+
+	// A host name or domain the server chose with whitespace or a newline
+	// is dropped, not carried into the hostname, the peers file or
+	// resolv.conf (security review 2026-11-05 #7).
+	bad, err := dhcpv4.New(dhcpv4.WithHwAddr(hw), dhcpv4.WithYourIP(net.IPv4(10, 0, 2, 15)),
+		dhcpv4.WithMessageType(dhcpv4.MessageTypeAck),
+		dhcpv4.WithOption(dhcpv4.OptSubnetMask(net.CIDRMask(24, 32))),
+		dhcpv4.WithOption(dhcpv4.OptHostName("evil name")),
+		dhcpv4.WithOption(dhcpv4.OptDomainName("lan\nnameserver 10.0.0.1")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lb, err := leaseFromACK("eth0", "52:54:00:00:00:01", offer, bad, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lb.Hostname != "" || lb.Domain != "" {
+		t.Errorf("a bad host name/domain wasn't dropped: host %q domain %q", lb.Hostname, lb.Domain)
+	}
 }
 
 func TestLeaseFiles(t *testing.T) {
