@@ -1,0 +1,12 @@
+{
+  "id": "JANUS-2026-015",
+  "title": "An unauthenticated client could forge the Controller's log lines and flush its audit trail",
+  "severity": "medium",
+  "cvss": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N",
+  "cwe": [
+    "CWE-117",
+    "CWE-400"
+  ],
+  "target": "controller",
+  "description": "The Controller records every non-GET /api request - authenticated or not - in its audit file and its process log. The process-log line printed the request path, and an account name or provider an IdP chose on a failed SSO sign-in, unquoted, so a `%0A` in the path (or a crafted IdP value) decoded to a newline and forged a line in the process log and in the forwarded `controller` log records, indistinguishable from a real one. The path was recorded with no length cap, and the audit file keeps only two 4 MiB generations, so a few hundred unauthenticated requests with a ~60 KB path rotated it twice and erased the genuine audit history - the only record when log forwarding isn't set up.\n\n**Affected**: any Controller reachable by an unauthenticated client (non-browser clients pass the cross-origin check).\n\n**Fix**: the attacker-controlled fields are quoted in the process-log line (a newline can't start a line), the recorded path is capped at 512 bytes, and audit entries that carry no account are rate-limited per source address so a flood can't keep rotating the file; entries with an account are never limited.\n\n**Besides updating**: nothing."
+}

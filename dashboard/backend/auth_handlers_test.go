@@ -3,14 +3,18 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/machines"
+	"github.com/swenske/Janus/dashboard/backend/internal/ratelimit"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 )
 
@@ -417,6 +421,42 @@ func TestAudit(t *testing.T) {
 	}
 	if code, body := a.req(t, "GET", "/api/audit?user=mallory", root, nil); code != http.StatusOK || strings.Count(body, `"time"`) != 1 {
 		t.Errorf("the audit, for one name: %d %s", code, body)
+	}
+}
+
+// TestAuditQuotesCapsAndLimits: a newline in a path can't forge a log
+// line, a long path is capped, and an unauthenticated flood from one
+// address stops being recorded (security review 2026-11-05 #10).
+func TestAuditQuotesCapsAndLimits(t *testing.T) {
+	a := newAuthApp(t)
+
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+	a.req(t, "POST", "/api/%0Aforged:%20INJECTED", "", nil)
+	if strings.Contains(buf.String(), "\nforged: INJECTED") {
+		t.Errorf("a newline in the path forged a log line:\n%s", buf.String())
+	}
+
+	a.req(t, "POST", "/api/"+strings.Repeat("a", 2000), "", nil)
+	entries, err := a.audit.Recent(100, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if len(e.Path) > maxAuditPath+len("…") {
+			t.Errorf("the path wasn't capped: %d bytes", len(e.Path))
+		}
+	}
+
+	a.auditLimiter = ratelimit.New(2, time.Hour)
+	before, _ := a.audit.Recent(1000, nil)
+	for i := 0; i < 20; i++ {
+		a.req(t, "POST", "/api/nope", "", nil)
+	}
+	after, _ := a.audit.Recent(1000, nil)
+	if n := len(after) - len(before); n > 3 {
+		t.Errorf("an anonymous flood added %d audit entries despite the limit", n)
 	}
 }
 
