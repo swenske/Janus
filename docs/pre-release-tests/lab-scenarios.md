@@ -1142,6 +1142,24 @@ on the release first where the hole can be seen without exploiting it:
 | The audit trail (#015) | from a host with no credential: a path with a quote and a newline, a 3,000-character path, 200 POSTs at once; 120 with an admin's session | the log line, the recorded path's length, the entries kept |
 | A removed member (#017) | node 02's API cut from the Controller only (a nftables trial on node 02, never confirmed), node 02 removed with `force`; the trial over, node 02 pulls from node 01 | the removal's steps; node 02's view; the pull's answer; node 01's view; the probes |
 
+### The rest of the 2026-11-05 security review
+
+Since v2026.11.05-2, the lower-severity tail of the review
+(JANUS-2026-019 to -030), each tried on the lab's nodes and Controller -
+the release first where the hole shows:
+
+| Fix | How | Measured |
+|---|---|---|
+| The pairing/rescue window per source (#029) | a bare node's pairing window: five well-formed wrong codes from one source, then more, then the right code from the Controller (another source) | the pause and the window staying open; `openssl s_client` on :9506; the Controller pairing; janusd's audit of the flood |
+| A rescue volume's firewall skip (#030) | a node with a confirmed nftables marker rule, booted with a `-skip-firewall` rescue volume (a SATA CD-ROM, cold boot); `access rescue`, one call to close the window | the saved ruleset absent while the window is open, back when it closes, in the same boot |
+| A state import against the policy (#028) | a node's state exported, two copies whose haproxy.cfg breaks the global policy (no uid/chroot, a second stats socket; the manifest SHA fixed), imported onto an unused node, then the untampered one | the policy refusal before staging; the untampered one staged |
+| A write-only secret follows its server (#026) | on the Controller, a throwaway log target, the Consul token and the SSO client secret, re-saved with the secret empty and a changed trust/issuer, then only a name changed | the secret re-required on the change, kept on a name-only change |
+| Readers (#023) | an operator's http probe to a `user:pass` target, then the `probe.run` event as a reader; a node's config with a `tcp-check send` and bearer/cookie/url-param ACLs read by a reader; a previous boot's kernel log by an operator | the event's target, the masked lines, the kernel log refused |
+| The hypervisor key sealed (#021) | the Controller's `hypervisors/<id>/ssh.key` on disk before and after the update; a machine made through the hypervisor | the seal prefix (never the key's bytes); the machine ready |
+| Account lifecycle (#020) | an operator account with a session and a token, disabled, demoted, deleted and remade under the same name | the session and token after each change |
+| The probe's ICMP socket (#019) | varied ICMP (the unassigned types 64-79) to a node while `ping`/`traceroute` probes run | janusd's PID, boot stage and the API; the AVC count |
+| The SSO sign-in table (#024) | single sign-on through a Keycloak, then many `/sso/<id>/start` from one host | SSO works; the per-source limit is transient (the global-table eviction is unit-tested) |
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -1351,3 +1369,13 @@ ran:
   Controller by a firewall trial, removed, then its pull from the other;
   `new-dhcp-machine71`: a DHCP machine with no DNS given; `abrun` with
   `RUN=`: the A/B's second series (v2026.11.05).
+- `wrongcode.py CODE N`, `p-pair NODE OUT [WRONG] [EXTRA]`: a bare node's
+  pairing window flooded with well-formed wrong codes from the box, then
+  paired from the Controller; `rescue-fw NODE HOSTBYTE OUT`: a
+  `-skip-firewall` rescue volume's firewall skip ending with the window;
+  `acct CMD NAME`, `t020 OUT`, `t020b OUT`: a throwaway Controller account's
+  lifecycle; `t023 NODE LOGSNODE OUT`: the reader leaks; `t026 OUT`: a
+  write-only secret following a changed URL/trust (log target, Consul, SSO);
+  `t028 SRC DST OUT`: a tampered state import; `t019 NODE OUT`,
+  `icmpflood.py`: varied ICMP under a probe; `sso-sec OUT`: the SSO table
+  and the SSO client secret (v2026.11.05-2).
