@@ -171,5 +171,6 @@ exclude:
   - docs/README.md                      # the index for GitHub readers (make docs-index)
   - docs/security-audit-2026-09-30.md   # a dated report, in French
   - docs/security-audit-2026-10-07.md   # a dated report, in French
+  - docs/security-audit-2026-11-05.md   # a dated report, in French
   - docs/cluster.md                     # the design: phases 0-3 built, 4-6 to come
   - docs/pre-release-tests/             # each pre-release's test report (README.md)
