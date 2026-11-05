@@ -18,8 +18,23 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/pki"
 )
+
+// TestRelayUpgradeRefusesNonAdmin: the relay refuses a caller who may not
+// upgrade the node before it fetches anything, so it can't be used as an
+// SSRF oracle (security review 2026-11-05 #11).
+func TestRelayUpgradeRefusesNonAdmin(t *testing.T) {
+	req := httptest.NewRequest("POST", "/api/lifecycle/upgrade-relay", strings.NewReader(`{"reference":"http://10.0.0.1/bundle"}`))
+	req = req.WithContext(WithUser(req.Context(), User{Name: "op", Perms: []Perm{{Role: pki.RoleOperator}}}))
+	rec := httptest.NewRecorder()
+	handleUpgradeRelay(rec, req, &store.Node{ID: "n1", Name: "n1"})
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("an operator wasn't refused before the fetch: %d %s", rec.Code, rec.Body)
+	}
+}
 
 // fakeLifecycle plays the node: it keeps what's uploaded and records the
 // Upgrade it's asked for.
