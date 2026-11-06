@@ -46,3 +46,27 @@ func TestConsoleFirstReaderGetsEverything(t *testing.T) {
 		}
 	}
 }
+
+// TestConsoleHubHidesSecrets: what the hub hands every reader of a
+// machine's console has its private keys and its pairing or rescue codes
+// hidden - a code written last, the console ending right after it,
+// included.
+func TestConsoleHubHidesSecrets(t *testing.T) {
+	codes, codesWant, _ := codeSample(t)
+	h := &consoleHub{}
+	var out lockedBuffer
+	sub := h.subscribe("m", func(_ context.Context, w io.Writer) error {
+		for _, part := range []string{consoleSample, codes[:len(codes)/2], codes[len(codes)/2:]} {
+			if _, err := io.WriteString(w, part); err != nil {
+				return err
+			}
+		}
+		return nil
+	}, &out)
+	if err := <-sub.done; err != nil {
+		t.Fatal(err)
+	}
+	if got, want := out.String(), consoleWant+codesWant; got != want {
+		t.Fatalf("the hub relayed:\n got %q\nwant %q", got, want)
+	}
+}

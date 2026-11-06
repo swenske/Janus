@@ -118,7 +118,10 @@ With it the node forgets the lost fleet and joins another.
    SATA). Its console shows
    `init: rescue: a rescue volume on /dev/sr0` and, in its banner,
    `rescue    XXXX-XXXX-XXXX-XXXX-XXXX` - for 30 minutes; five wrong
-   codes close the window until the next boot.
+   codes close the window until the next boot. A machine the Controller
+   made shows its console to the machine's operators, the code
+   hidden: read it on the hypervisor's own console - its screen, or its
+   serial console while nobody watches it from the Controller.
 3. From a machine that reaches the node:
 
    ```sh

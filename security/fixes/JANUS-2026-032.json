@@ -1,0 +1,12 @@
+{
+  "id": "JANUS-2026-032",
+  "title": "The Controller relayed a machine's rescue code to the machine's operators",
+  "severity": "medium",
+  "cvss": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:U/C:H/I:H/A:N",
+  "cwe": [
+    "CWE-200",
+    "CWE-269"
+  ],
+  "target": "controller",
+  "description": "A node started with a rescue volume shows the code of its rescue window on its console, and only there: the code gives whoever types it first an hour's os:admin certificate of the node's own CA, enough to make the node trust another fleet. The Controller streams the serial console of each machine it created to the machine's operators (`GET /api/machines/{id}/console`, operator role over the machines domain), hiding only PEM private keys - so an operator watching the console while an admin rescued the machine could read the code and use it first, becoming an admin of that node.\n\n**Affected**: Controllers with machines on a hypervisor (libvirt, Proxmox VE) and operators who aren't admins of them; only while a rescue window is open.\n\n**Fix**: the Controller hides every rescue or pairing code (five groups of four symbols, a whole word, escape sequences told apart) in the consoles it relays, for every reader - an admin included: whoever attached a rescue volume reads the code on the hypervisor's own console.\n\n**Besides updating**: nothing."
+}

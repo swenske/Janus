@@ -1160,6 +1160,20 @@ the release first where the hole shows:
 | The probe's ICMP socket (#019) | varied ICMP (the unassigned types 64-79) to a node while `ping`/`traceroute` probes run | janusd's PID, boot stage and the API; the AVC count |
 | The SSO sign-in table (#024) | single sign-on through a Keycloak, then many `/sso/<id>/start` from one host | SSO works; the per-source limit is transient (the global-table eviction is unit-tested) |
 
+### A machine's rescue code, hidden by the Controller
+
+Since JANUS-2026-032 (security review 2026-11-05 #12): a Controller
+machine booted with a rescue volume (`janusctl image rescue-volume`, a
+SATA CD-ROM attached on its host), its console opened from the
+Controller by an operator of the machine, then by an admin - and on the
+release first, where the code shows.
+
+| Measured | How |
+|---|---|
+| The Controller's console | the `rescue: code` line and the banner's: the notice where the code was, for both accounts; the rest of the console as on the host |
+| The hypervisor's console | the code there (the screen, or `virsh console` once the Controller's is closed), and `janusctl access rescue` with it |
+| The machine afterwards | the window closed, the node back in the fleet; AVC denials |
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
