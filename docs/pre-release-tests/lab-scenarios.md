@@ -519,12 +519,16 @@ host added between the two campaigns):
 Since v2026.10.25-2, on three fresh Controller machines: one given a
 configuration of its own (a marker in `haproxy.cfg`, a file, a kernel
 parameter confirmed), its state pulled by another with `janusctl -n NEW
-system state import -from OLD`, then by a third with `-identity`.
+system state import -from OLD`, then by a third with `-identity` -
+since JANUS-2026-031 (security review 2026-11-05 #5) with `-kit`, the
+Controller's recovery kit from the lab's secrets, after the same
+command without it.
 
 | Measured | How |
 |---|---|
 | What arrived | the new node's configuration, its answer, the file's SHA-256, the kernel parameter |
 | The identity | the CA the new node's API certificate is issued by, before and after - its own without `-identity`, the old node's with it |
+| The identity's certificate (#031) | `-identity` with the sign-in's certificate: refused, nothing staged; with `-kit`: granted, the old node's log naming `kit:<account>`; `system state export -identity` the same, without and with `-kit` |
 | The way it went | both nodes' logs: the grant (until when, the identity or not, by whom), the export by the transfer certificate, the import |
 | The refusals | a grant asked with a reader's certificate; a second import onto a node already in use |
 

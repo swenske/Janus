@@ -17,13 +17,19 @@
 # configuration applied on B, HAProxy then binds A's address and serves
 # A's certificate - and no AVC denial on either.
 #
+# The identity needs a root's certificate (security review 2026-11-05
+# #5): A adopted into a fleet of janusctl's own, the fleet's 12-hour
+# certificate (its issuing CA's) exports A's state but not A's identity;
+# a certificate the fleet's root signs, from the recovery kit (-kit),
+# does.
+#
 # Node to node (StateImportFrom): node C, another fresh disk, pulls A's
 # state from A itself - janusctl only carries C's signing request to A
-# and A's certificate back. C reaches A through QEMU's gateway, at an
-# address A's server certificate doesn't name: C checks A by its CA.
-# Checked: a reader of A can't grant, B's credentials don't reach A, a
-# node in use takes no pull; C restarts into A's state with A's
-# identity, A's console logged the grant.
+# and A's certificate back, A's grant asked with the kit. C reaches A
+# through QEMU's gateway, at an address A's server certificate doesn't
+# name: C checks A by its CA. Checked: a reader of A can't grant, B's
+# credentials don't reach A, a node in use takes no pull; C restarts into
+# A's state with A's identity, A's console logged the grant.
 #
 # Usage: hack/qemu-state-migrate-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
@@ -181,6 +187,34 @@ out="$(ctl a a system state import "$WORKDIR/a-state.tar" 2>&1 || true)"
 check "a node in use refuses an import" "in use" "$out"
 echo "  ok: an export to a file, refused over a file and onto a node in use"
 
+# A in a fleet: its issuing CA's certificate exports the state, not the
+# identity; the kit's certificate the identity too.
+alice() { JANUSCONFIG="$WORKDIR/alice/janusctl.json" "$CTL_BIN" "$@"; }
+mkdir -p "$WORKDIR/alice"
+alice -context mig fleet init -name mig -issuer laptop -user alice -yes "$WORKDIR/kit.age" >"$WORKDIR/passphrase" 2>/dev/null || fail "fleet init"
+JANUS_KIT_PASSPHRASE="$(cat "$WORKDIR/passphrase")"
+export JANUS_KIT_PASSPHRASE
+out="$(alice fleet adopt edge-a -endpoint "127.0.0.1:$((BASE + 11))" -ca "$WORKDIR/a-ca.crt" -cert "$WORKDIR/a-admin.crt" -key "$WORKDIR/a-admin.key" 2>&1)" || fail "adopting A into the fleet: $out"
+out="$(alice -n edge-a system state export -identity "$WORKDIR/fleet-id.tar" 2>&1 || true)"
+check "the fleet's 12-hour certificate can't take A's identity" "comes from an issuing CA: add -kit KIT" "$out"
+[ ! -s "$WORKDIR/fleet-id.tar" ] || fail "a refused export of the identity left a file"
+rm -f "$WORKDIR/fleet-id.tar"
+alice -n edge-a system state export "$WORKDIR/fleet.tar" 2>/dev/null || fail "the fleet's certificate exporting A's state without the identity"
+alice -n edge-a system state export -identity -kit "$WORKDIR/kit.age" "$WORKDIR/kit-id.tar" 2>/dev/null || fail "the kit's certificate exporting A's identity"
+python3 - "$WORKDIR/fleet.tar" "$WORKDIR/kit-id.tar" <<'PY' || fail "what each export carried"
+import sys, tarfile, json
+def load(path):
+    t = tarfile.open(path)
+    return json.load(t.extractfile("MANIFEST.json")), t.getnames()
+m, names = load(sys.argv[1])
+assert not m["identity"] and "pki/ca.key" not in names, (m["identity"], [n for n in names if n.startswith("pki/")])
+assert any(n.startswith("haproxy/runtime-certs/") for n in names), names
+m, names = load(sys.argv[2])
+assert m["identity"] and "pki/ca.key" in names, m["identity"]
+PY
+check "A logged the kit's export" "state: exported \(.*identity true\) - by kit:alice \(os:admin, fleet\)" "$(cat "$WORKDIR/a.log")"
+echo "  ok: in a fleet - its issuing CA's certificate exports A's state without the identity, the kit's certificate with it"
+
 # The replacement: A's state piped into B, A's identity with it.
 out="$(ctl a a system state export -identity - | ctl b b system state import -identity -save-network "$WORKDIR/held-net.json" - 2>&1)" || fail "export | import: $out"
 check "the import names A" "Imported: +old-lb's state" "$out"
@@ -227,11 +261,11 @@ out="$(ctl b a system state import -from "$A_API" -from-ca "$WORKDIR/a-ca.crt" -
 check "a node in use takes no pull" "in use" "$out"
 echo "  ok: refused - a reader of A, B's credentials on A, B in use"
 
-out="$(pull c "$WORKDIR/a-ca.crt" "$WORKDIR/a-admin.crt" "$WORKDIR/a-admin.key" -identity -save-network "$WORKDIR/c-held-net.json" 2>&1)" || fail "C pulling from A: $out"
+out="$(ctl c c system state import -from "$A_API" -from-ca "$WORKDIR/a-ca.crt" -from-address "$A_FROM_C" -kit "$WORKDIR/kit.age" -identity -save-network "$WORKDIR/c-held-net.json" 2>&1)" || fail "C pulling from A, granted with the kit: $out"
 check "C names A" "Imported: +old-lb's state" "$out"
 check "C took A's identity" "Identity: +old-lb's" "$out"
 check "C restarts into it" "Rebooting:" "$out"
-check "A logged the grant" "state: .* may pull this node's state once, until .* \(identity true\)" "$(cat "$WORKDIR/a.log")"
+check "A logged the grant" "state: .* may pull this node's state once, until .* \(identity true\) - granted by kit \(os:admin, fleet\)" "$(cat "$WORKDIR/a.log")"
 check "A's export went to C's transfer certificate" "state: exported .* - by .*state transfer" "$(cat "$WORKDIR/a.log")"
 wait_for "$TIMEOUT" "node C restarted" listening c 2
 sleep 2

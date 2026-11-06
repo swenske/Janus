@@ -233,7 +233,7 @@ func main() {
 				return
 			}
 			node := nodes[0]
-			stateFrom.ctxName, stateFrom.ctx = name, ctx
+			stateFrom.ctxName, stateFrom.ctx, stateFrom.node = name, ctx, &node
 			tlsConfig, err := nodeTLS(name, ctx, node)
 			if err != nil {
 				log.Fatalf("janusctl: %v", err)
@@ -252,6 +252,7 @@ func main() {
 		fmt.Println("Client:", version)
 	}
 
+	stateFrom.endpoint = *endpoint
 	conn, err := redial(*endpoint)
 	if err != nil {
 		log.Fatal(err)

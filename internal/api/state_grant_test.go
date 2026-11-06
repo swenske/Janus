@@ -14,12 +14,14 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
@@ -291,3 +293,111 @@ type discardExport struct {
 
 func (d *discardExport) Context() context.Context       { return d.ctx }
 func (d *discardExport) Send(*janusv1alpha1.Data) error { return nil }
+
+// TestIdentityNeedsARootSignedCertificate: the node's identity leaves
+// only with a certificate this node's own CA or the fleet's root itself
+// signed - not with an admin certificate an issuing CA made for twelve
+// hours (security review 2026-11-05 #5). The rest of the state still
+// goes to any admin calling the node itself.
+func TestIdentityNeedsARootSignedCertificate(t *testing.T) {
+	ca, err := pki.NewCA("the node")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	writeState(t, root, map[string]string{"haproxy/haproxy.cfg": "global\n", "pki/ca.key": "the node CA's key\n"})
+	s := &System{BuildVersion: "test", LocalCA: func() *pki.CA { return ca }, StateRoot: root}
+	ctx := context.Background()
+	as := func(c Caller) context.Context { return context.WithValue(ctx, callerKey{}, c) }
+	fleetAdmin := as(Caller{Name: "alice", Roles: []string{pki.RoleAdmin}, Fleet: true})
+	scopedAdmin := as(Caller{Name: "web", Roles: []string{pki.RoleAdmin}, Fleet: true, Scoped: true})
+	kit := as(Caller{Name: "kit:alice", Roles: []string{pki.RoleAdmin}, Fleet: true, RootSigned: true})
+	own := as(Caller{Name: "rescue:bob", Roles: []string{pki.RoleAdmin}, RootSigned: true})
+
+	export := func(ctx context.Context, identity bool) error {
+		return s.StateExport(&janusv1alpha1.StateExportRequest{IncludeIdentity: identity}, &discardExport{ctx: ctx})
+	}
+	for name, c := range map[string]context.Context{"a fleet admin": fleetAdmin, "a scoped admin": scopedAdmin} {
+		if err := export(c, true); status.Code(err) != codes.PermissionDenied || !strings.Contains(err.Error(), "-kit KIT") {
+			t.Errorf("%s exporting the identity: %v", name, err)
+		}
+		if err := export(c, false); err != nil {
+			t.Errorf("%s exporting the rest: %v", name, err)
+		}
+	}
+	for name, c := range map[string]context.Context{"a recovery kit's certificate": kit, "the node's own CA's": own} {
+		if err := export(c, true); err != nil {
+			t.Errorf("%s exporting the identity: %v", name, err)
+		}
+	}
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{Subject: pkix.Name{CommonName: "new"}}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant := func(ctx context.Context, identity bool) error {
+		_, err := s.StateExportGrant(ctx, &janusv1alpha1.StateExportGrantRequest{Csr: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der}), IncludeIdentity: identity})
+		return err
+	}
+	if err := grant(fleetAdmin, true); status.Code(err) != codes.PermissionDenied {
+		t.Errorf("a fleet admin granting the identity: %v", err)
+	}
+	if err := grant(fleetAdmin, false); err != nil {
+		t.Errorf("a fleet admin granting the rest: %v", err)
+	}
+	if err := grant(kit, true); err != nil {
+		t.Errorf("a recovery kit's certificate granting the identity: %v", err)
+	}
+}
+
+// TestRootSigned: told by the chain the TLS handshake verified - the
+// leaf's issuer is the node's own CA (by its key) or the fleet's root
+// itself; an issuing CA under the root, a Controller acting for a user, a
+// scoped certificate never are.
+func TestRootSigned(t *testing.T) {
+	local, _ := pki.NewCA("this node")
+	rotated := &x509.Certificate{Raw: []byte("the node CA, cross-signed"), RawSubjectPublicKeyInfo: local.Cert.RawSubjectPublicKeyInfo, PublicKey: local.Cert.PublicKey}
+	root, _ := pki.NewCA("fleet root")
+	issuing, _ := pki.NewCA("an issuing CA")
+	other, _ := pki.NewCA("another node")
+	prevLocal, prevRoot := LocalCA, FleetRoot
+	LocalCA = func() *x509.Certificate { return local.Cert }
+	FleetRoot = func() *x509.Certificate { return root.Cert }
+	t.Cleanup(func() { LocalCA, FleetRoot = prevLocal, prevRoot })
+	leaf := &x509.Certificate{Raw: []byte("leaf"), Subject: pkix.Name{CommonName: "alice", Organization: []string{pki.RoleAdmin}}}
+	with := func(chain ...*x509.Certificate) context.Context {
+		return peer.NewContext(context.Background(), &peer.Peer{Addr: &net.TCPAddr{}, AuthInfo: credentials.TLSInfo{State: tls.ConnectionState{
+			PeerCertificates: []*x509.Certificate{leaf},
+			VerifiedChains:   [][]*x509.Certificate{append([]*x509.Certificate{leaf}, chain...)},
+		}}})
+	}
+	const method = "/janus.v1alpha1.SystemService/StateExport"
+	for _, c := range []struct {
+		name  string
+		chain []*x509.Certificate
+		want  bool
+	}{
+		{"the node's own CA", []*x509.Certificate{local.Cert}, true},
+		{"the node's CA by its key", []*x509.Certificate{rotated}, true},
+		{"the fleet's root itself", []*x509.Certificate{root.Cert}, true},
+		{"an issuing CA under the root", []*x509.Certificate{issuing.Cert, root.Cert}, false},
+		{"another node's CA", []*x509.Certificate{other.Cert}, false},
+	} {
+		caller, err := authorize(with(c.chain...), method)
+		if err != nil || caller.RootSigned != c.want {
+			t.Errorf("%s: RootSigned %v, %v - want %v", c.name, caller.RootSigned, err, c.want)
+		}
+	}
+	ctl := &x509.Certificate{Raw: []byte("controller"), Subject: pkix.Name{CommonName: "janus-controller", Organization: []string{pki.RoleController}}}
+	relayed := metadata.NewIncomingContext(peer.NewContext(context.Background(), &peer.Peer{Addr: &net.TCPAddr{}, AuthInfo: credentials.TLSInfo{State: tls.ConnectionState{
+		PeerCertificates: []*x509.Certificate{ctl},
+		VerifiedChains:   [][]*x509.Certificate{{ctl, root.Cert}},
+	}}}), metadata.Pairs(pki.AsUserKey, "alice", pki.AsRolesKey, pki.RoleAdmin))
+	if caller, err := authorize(relayed, method); err != nil || caller.RootSigned {
+		t.Errorf("a Controller acting for a user, its certificate the root's: RootSigned %v, %v", caller.RootSigned, err)
+	}
+}
