@@ -152,8 +152,8 @@ DOCKER_COMPOSE_SHA256_ARM64 := 15861535d14e26555736b49376c95e14bfd94285366c8446b
 # Checked against these, from tofu_<version>_SHA256SUMS, whose signature
 # by OpenTofu's key E3E6 E43D 84CB 852E ADB0 051D 0C0A F313 E5FD 9F80
 # was checked when pinning.
-OPENTOFU_VERSION      := 1.13.2
-OPENTOFU_SHA256_AMD64 := ac05d9952662c7db28dd57e93f0a68018837bfdf9342384ec0987977c16a9645
+OPENTOFU_VERSION      := 1.13.9
+OPENTOFU_SHA256_AMD64 := b34b327cc1ef07178207b6f2cd1f5276537d3e5b7be316500f6dac50d4c0a857
 
 # Pebble, Let's Encrypt's ACME test server, and its DNS test server: the
 # CA hack/qemu-acme-test.sh issues certificates from (go install'ed at
