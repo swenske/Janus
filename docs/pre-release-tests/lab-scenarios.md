@@ -18,7 +18,7 @@ added.
 | The auto-scaled node | since v2026.10.14: a machine the Controller creates on the same host, 2 vCPU and 1 GiB from the release's default image, room for 4 vCPU and 2 GiB |
 | Backends | two nginx VMs, 1 vCPU each |
 | Load client | a 2-vCPU VM on the same host, with `wrk` - up to v2026.10.14, removed since: it took the host's CPUs from the nodes |
-| The clients | since v2026.10.14-2, outside the lab's host, reaching the front network through the routers like internet users: the three CI runners (16, 12 and 8 threads), used only while none runs a CI job, and since v2026.10.14-3 a fourth machine that isn't a runner (16 threads, always free: the probes run there; on a 2.5 GbE link since v2026.10.16-4, its path changed - the release measured again; left out of the campaigns from v2026.10.17-2 to v2026.10.18-3 for a memory fault, the probes then ran from a runner; back with its memory replaced for v2026.10.19, where it ran the browser while the load and probes stayed on the runners, to compare). A temporary `wrk` on each, removed afterwards. The host's CPUs go to the nodes |
+| The clients | since v2026.10.14-2, outside the lab's host, reaching the front network through the routers like internet users: the three CI runners (16, 12 and 8 threads), used only while none runs a CI job, and since v2026.10.14-3 a fourth machine that isn't a runner (16 threads, always free: the probes run there; on a 2.5 GbE link since v2026.10.16-4, its path changed - the release measured again; left out of the campaigns from v2026.10.17-2 to v2026.10.18-3 for a memory fault, the probes then ran from a runner; back with its memory replaced for v2026.10.19, where it ran the browser while the load and probes stayed on the runners, to compare; for v2026.11.07 the fourth machine and one runner only - the other two runners' hosts were being updated -, the release measured again from the same clients). A temporary `wrk` on each, removed afterwards. The host's CPUs go to the nodes |
 | Controller | Docker Compose with its updater, an admin with TOTP |
 | Proxy | since v2026.10.23-2: Squid 6.13 on the Controller's machine, asking for a username and password, open to the lab's networks only |
 
@@ -1397,3 +1397,12 @@ ran:
   `t028 SRC DST OUT`: a tampered state import; `t019 NODE OUT`,
   `icmpflood.py`: varied ICMP under a probe; `sso-sec OUT`: the SSO table
   and the SSO client secret (v2026.11.05-2).
+- `r32 NAME OUT [host]`: a Controller machine cold-booted with a rescue
+  volume, its console streamed from the Controller by an operator and an
+  admin at once, every code-shaped string counted then masked
+  (`sse-text.py`); `host`: the next boot read on the hypervisor's serial
+  console, `access rescue` with that code, one call. `t031 OLD NEWA NEWB
+  OUT`: the identity export and pull with and without `-kit`, and a pull
+  without `-identity`, the export files removed after. `mdel NAME...`:
+  Controller machines destroyed. `rlab73.sh`: the clients restricted to
+  the fourth machine and one runner (v2026.11.07).
