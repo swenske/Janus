@@ -220,9 +220,11 @@ type SystemServiceClient interface {
 	// its history, files, uploaded and ACME certificates, the TLS ticket
 	// key ring, the modules' configurations, the network configuration,
 	// the Controller registration, the fleet trust; with include_identity,
-	// the node's CA and keys too. Private keys travel in it: refused
-	// through the Controller, so they never pass through one. Besides an
-	// admin, a node this one granted it (StateExportGrant) pulls it, once.
+	// the node's CA and keys too - only for a certificate this node's own
+	// CA or the fleet's root itself signed, not an issuing CA's. Private
+	// keys travel in it: refused through the Controller, so they never
+	// pass through one. Besides an admin, a node this one granted it
+	// (StateExportGrant) pulls it, once.
 	StateExport(ctx context.Context, in *StateExportRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error)
 	// StateImport takes a StateExport stream onto this node: the first
 	// message carries the options, the others the stream. The node must be
@@ -237,8 +239,9 @@ type SystemServiceClient interface {
 	// machine: this node signs the new node's request
 	// (CertificateRequest STATE_TRANSFER) with its own CA - a certificate
 	// valid ten minutes, for one StateExport, with the identity only when
-	// granted, and nothing else. The grant lives in janusd's memory: a
-	// restart ends it. Refused through the Controller, like StateExport.
+	// granted - by a certificate StateExport would give the identity to -,
+	// and nothing else. The grant lives in janusd's memory: a restart ends
+	// it. Refused through the Controller with the identity.
 	StateExportGrant(ctx context.Context, in *StateExportGrantRequest, opts ...grpc.CallOption) (*StateExportGrantResponse, error)
 	// StateImportFrom has this node pull another node's state itself and
 	// take it as StateImport does: it dials address with the key it made
@@ -1111,9 +1114,11 @@ type SystemServiceServer interface {
 	// its history, files, uploaded and ACME certificates, the TLS ticket
 	// key ring, the modules' configurations, the network configuration,
 	// the Controller registration, the fleet trust; with include_identity,
-	// the node's CA and keys too. Private keys travel in it: refused
-	// through the Controller, so they never pass through one. Besides an
-	// admin, a node this one granted it (StateExportGrant) pulls it, once.
+	// the node's CA and keys too - only for a certificate this node's own
+	// CA or the fleet's root itself signed, not an issuing CA's. Private
+	// keys travel in it: refused through the Controller, so they never
+	// pass through one. Besides an admin, a node this one granted it
+	// (StateExportGrant) pulls it, once.
 	StateExport(*StateExportRequest, grpc.ServerStreamingServer[Data]) error
 	// StateImport takes a StateExport stream onto this node: the first
 	// message carries the options, the others the stream. The node must be
@@ -1128,8 +1133,9 @@ type SystemServiceServer interface {
 	// machine: this node signs the new node's request
 	// (CertificateRequest STATE_TRANSFER) with its own CA - a certificate
 	// valid ten minutes, for one StateExport, with the identity only when
-	// granted, and nothing else. The grant lives in janusd's memory: a
-	// restart ends it. Refused through the Controller, like StateExport.
+	// granted - by a certificate StateExport would give the identity to -,
+	// and nothing else. The grant lives in janusd's memory: a restart ends
+	// it. Refused through the Controller with the identity.
 	StateExportGrant(context.Context, *StateExportGrantRequest) (*StateExportGrantResponse, error)
 	// StateImportFrom has this node pull another node's state itself and
 	// take it as StateImport does: it dials address with the key it made

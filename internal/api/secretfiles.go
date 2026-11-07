@@ -13,11 +13,14 @@ import (
 // The node's secrets are never served by the file RPCs (Read, Copy): its
 // PKI's private keys, the Controller registration token, the ACME
 // account key and DNS provider credentials, the private keys of HAProxy's
-// certificates. No other API returns them either, and an os:admin
-// certificate that could carry them away would keep its access - or
-// impersonate the node - long after it expired: the node CA's key signs
-// certificates valid for a year. List and DiskUsage still show their
-// names and sizes.
+// certificates. They leave the node only with its whole state - an
+// admin calling the node itself (StateExport, StateExportGrant), a
+// member of its cluster (ClusterExport) - and its identity only to a
+// certificate of its own CA or of the fleet's root itself (Caller.
+// RootSigned): an os:admin certificate of an issuing CA that could carry
+// the node CA's key away would keep its access - or impersonate the node
+// - long after it expired, the key signing certificates valid for a
+// year. List and DiskUsage still show their names and sizes.
 //
 // Two checks. SecretPaths, matched against the path the kernel resolved
 // for the open file (/proc/self/fd), so a symlink or /proc/self/root

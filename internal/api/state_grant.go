@@ -163,6 +163,11 @@ func (s *System) StateExportGrant(ctx context.Context, req *janusv1alpha1.StateE
 	if err := s.transferAllowed(caller, req.GetIncludeIdentity()); err != nil {
 		return nil, err
 	}
+	if req.GetIncludeIdentity() {
+		if err := identityAllowed(caller); err != nil {
+			return nil, err
+		}
+	}
 	block, _ := pem.Decode(req.GetCsr())
 	if block == nil || block.Type != "CERTIFICATE REQUEST" {
 		return nil, status.Error(codes.InvalidArgument, "csr: a PEM signing request (CertificateRequest STATE_TRANSFER on the new node)")

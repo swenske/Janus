@@ -49,11 +49,29 @@ func (s *System) transferAllowed(c Caller, identity bool) error {
 	return nil
 }
 
+// identityAllowed refuses the node's identity - its CA's key, valid for
+// years - to a certificate an issuing CA signed, for twelve hours (a
+// Controller sign-in, janusctl fleet): only this node's own CA's or the
+// fleet's root's own certificates (a recovery kit's) carry it away, and
+// a state transfer certificate whose grant includes it (transferExport
+// checks the grant; the grant took a root's certificate).
+func identityAllowed(c Caller) error {
+	if c.RootSigned || c.Transfer != "" {
+		return nil
+	}
+	return status.Errorf(codes.PermissionDenied, "the node's identity - its CA's key - goes only to a certificate this node's own CA or the fleet's root itself signs, and %s's comes from an issuing CA: add -kit KIT (the fleet's recovery kit) or use the node's own credential (janusctl access rescue) - docs/guide/replacing-a-node.md", c.Name)
+}
+
 // StateExport streams the node's state.
 func (s *System) StateExport(req *janusv1alpha1.StateExportRequest, stream janusv1alpha1.SystemService_StateExportServer) error {
 	caller, _ := CallerFrom(stream.Context())
 	if err := s.stateTransferAllowed(caller); err != nil {
 		return err
+	}
+	if req.GetIncludeIdentity() {
+		if err := identityAllowed(caller); err != nil {
+			return err
+		}
 	}
 	if err := transferExport(caller, req.GetIncludeIdentity()); err != nil {
 		return err

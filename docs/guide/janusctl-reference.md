@@ -459,19 +459,20 @@ The node's state carried to its replacement (docs/guide/replacing-a-node.md).
 The node's configuration, certificates and keys, network: a tar to import on its replacement.
 
 ```text
-janusctl system state export [-identity] FILE|-
+janusctl system state export [-identity] [-kit KIT] FILE|-
 ```
 
 | Flag | |
 |---|---|
 | `-identity` | the node's CA and keys too: the replacement is this node to its clients |
+| `-kit KIT` | with -identity: the fleet's recovery kit - the identity goes only to a certificate the fleet's root itself signs, or the node's own CA |
 
 ##### janusctl system state import
 
 Take another node's state - from a file, a pipe, or pulled from the node itself -, then restart into it; the node must be unused.
 
 ```text
-janusctl system state import [-identity] [-network] [-save-network FILE] [-no-reboot] [-from NODE|HOST:PORT] [-from-address HOST:PORT] [-from-ca FILE] [-from-cert FILE] [-from-key FILE] FILE|- | -from NODE
+janusctl system state import [-identity] [-network] [-save-network FILE] [-no-reboot] [-from NODE|HOST:PORT] [-from-address HOST:PORT] [-from-ca FILE] [-from-cert FILE] [-from-key FILE] [-kit KIT] FILE|- | -from NODE
 ```
 
 | Flag | |
@@ -485,6 +486,7 @@ janusctl system state import [-identity] [-network] [-save-network FILE] [-no-re
 | `-from-ca FILE` | with -from HOST:PORT: the other node's CA (default: -ca) |
 | `-from-cert FILE` | with -from HOST:PORT: an admin certificate of the other node (default: -cert) |
 | `-from-key FILE` | with -from HOST:PORT: its key (default: -key) |
+| `-kit KIT` | with -from and -identity: the fleet's recovery kit - the other node grants its identity only to a certificate the fleet's root itself signs, or its own CA |
 
 #### janusctl system sysctl
 
