@@ -67,9 +67,11 @@ func (h *consoleHub) subscribe(id string, open func(ctx context.Context, w io.Wr
 }
 
 func (h *consoleHub) run(ctx context.Context, s *consoleStream, open func(ctx context.Context, w io.Writer) error) {
-	red := newKeyRedactor(fanout{s})
+	codes := newCodeRedactor(fanout{s})
+	red := newKeyRedactor(codes)
 	err := open(ctx, red)
 	_ = red.Flush()
+	_ = codes.Flush()
 	if ctx.Err() != nil {
 		err = nil // its last reader left
 	}

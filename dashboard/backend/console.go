@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/swenske/Janus/internal/pairing"
 )
 
 // keyRedactor passes a console's output through, replacing every PEM
@@ -106,6 +108,121 @@ func (r *keyRedactor) Flush() error {
 	}
 	_, err := r.w.Write(r.buf)
 	r.buf = nil
+	return err
+}
+
+// codeRedactor passes a console's output through, replacing every
+// pairing or rescue code (internal/pairing: five groups of four symbols,
+// "XXXX-XXXX-XXXX-XXXX-XXXX") with a notice. janusd shows the code of
+// its pairing or rescue window on the console only - a rescue code is an
+// os:admin certificate of the node's own CA for whoever types it first -
+// and the Controller, which relays a machine's console to the machine's
+// operators, mustn't hand it to them (security review 2026-11-05 #12).
+// Whoever opens a rescue window attached its volume at the hypervisor,
+// whose own console shows the code.
+//
+// A code is a whole word of letters, digits and dashes: one that is
+// part of a longer word ("8400-e29b-41d4-a716-446655440000") isn't. An
+// escape sequence ends a word - the motd prints the code in bold,
+// "\x1b[1mXXXX-...\x1b[0m", and the sequence's final letter would
+// otherwise stick to it. The word at the end of a write is held back
+// while it may still become a code: 24 bytes at most.
+type codeRedactor struct {
+	w    io.Writer
+	word []byte // the word so far, while it may be a code
+	dead bool   // the current word can't be one: passed through
+	esc  int    // 1 after ESC, 2 inside a CSI sequence
+}
+
+// codeNotice replaces a code.
+const codeNotice = "[hidden by the Controller - read it on the hypervisor's console]"
+
+// codeLen is a code's length as shown: its symbols and a dash between
+// each group of four.
+const codeLen = pairing.Symbols + pairing.Symbols/4 - 1
+
+func newCodeRedactor(w io.Writer) *codeRedactor { return &codeRedactor{w: w} }
+
+func isWordByte(b byte) bool {
+	return b == '-' || b >= '0' && b <= '9' || b >= 'A' && b <= 'Z' || b >= 'a' && b <= 'z'
+}
+
+// mayBeCode: word is the start of a code - or a whole one, at codeLen.
+func mayBeCode(word []byte) bool {
+	if len(word) > codeLen {
+		return false
+	}
+	for i, b := range word {
+		if (i%5 == 4) != (b == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+func (r *codeRedactor) Write(p []byte) (int, error) {
+	out := make([]byte, 0, len(r.word)+len(p))
+	for _, b := range p {
+		switch r.esc {
+		case 1:
+			r.esc = 0
+			if b == '[' {
+				r.esc = 2
+			}
+			out = append(out, b)
+			continue
+		case 2:
+			if b >= 0x40 && b <= 0x7e {
+				r.esc = 0
+			}
+			out = append(out, b)
+			continue
+		}
+		if isWordByte(b) {
+			if r.dead {
+				out = append(out, b)
+				continue
+			}
+			r.word = append(r.word, b)
+			if !mayBeCode(r.word) {
+				out = append(out, r.word...)
+				r.word, r.dead = r.word[:0], true
+			}
+			continue
+		}
+		out = r.endWord(out)
+		if b == 0x1b {
+			r.esc = 1
+		}
+		out = append(out, b)
+	}
+	if len(out) > 0 {
+		if _, err := r.w.Write(out); err != nil {
+			return 0, err
+		}
+	}
+	return len(p), nil
+}
+
+// endWord appends the word that just ended to out: the notice for a code.
+func (r *codeRedactor) endWord(out []byte) []byte {
+	if len(r.word) == codeLen {
+		out = append(out, codeNotice...)
+	} else {
+		out = append(out, r.word...)
+	}
+	r.word, r.dead = r.word[:0], false
+	return out
+}
+
+// Flush writes the word held back once the console ends - hidden if it's
+// a whole code.
+func (r *codeRedactor) Flush() error {
+	out := r.endWord(nil)
+	if len(out) == 0 {
+		return nil
+	}
+	_, err := r.w.Write(out)
 	return err
 }
 
