@@ -486,6 +486,7 @@ arch/x86/include/generated/asm/cpufeaturemasks.h
 arch/x86/include/generated/asm/device.h
 arch/x86/include/generated/asm/early_ioremap.h
 arch/x86/include/generated/asm/irq_regs.h
+arch/x86/include/generated/asm/kexec_handover.h
 arch/x86/include/generated/asm/kmap_size.h
 arch/x86/include/generated/asm/local64.h
 arch/x86/include/generated/asm/mcs_spinlock.h
@@ -1974,6 +1975,7 @@ drivers/tty/serial/8250/8250_early.c
 drivers/tty/serial/8250/8250_exar.c
 drivers/tty/serial/8250/8250_lpss.c
 drivers/tty/serial/8250/8250_mid.c
+drivers/tty/serial/8250/8250_mxpcie.c
 drivers/tty/serial/8250/8250_pci.c
 drivers/tty/serial/8250/8250_pcilib.c
 drivers/tty/serial/8250/8250_pcilib.h
@@ -2223,6 +2225,7 @@ fs/ext4/xattr_hurd.c
 fs/ext4/xattr_security.c
 fs/ext4/xattr_trusted.c
 fs/ext4/xattr_user.c
+fs/failfs.c
 fs/fat/cache.c
 fs/fat/dir.c
 fs/fat/fat.h
@@ -2466,6 +2469,7 @@ include/asm-generic/io.h
 include/asm-generic/ioctl.h
 include/asm-generic/iomap.h
 include/asm-generic/irq_regs.h
+include/asm-generic/kexec_handover.h
 include/asm-generic/kmap_size.h
 include/asm-generic/kprobes.h
 include/asm-generic/local64.h
@@ -2499,7 +2503,6 @@ include/asm-generic/vdso/vsyscall.h
 include/asm-generic/video.h
 include/clocksource/hyperv_timer.h
 include/crypto/aead.h
-include/crypto/aes.h
 include/crypto/algapi.h
 include/crypto/blake2s.h
 include/crypto/chacha.h
@@ -2525,6 +2528,7 @@ include/drm/drm_util.h
 include/drm/drm_utils.h
 include/drm/intel/i915_drm.h
 include/drm/intel/pciids.h
+include/dt-bindings/clock/clock.h
 include/dt-bindings/i2c/i2c.h
 include/dt-bindings/leds/common.h
 include/generated/asm-offsets.h
@@ -2586,7 +2590,6 @@ include/linux/audit_arch.h
 include/linux/auxiliary_bus.h
 include/linux/auxvec.h
 include/linux/average.h
-include/linux/avf/virtchnl.h
 include/linux/backing-dev-defs.h
 include/linux/backing-dev.h
 include/linux/backlight.h
@@ -2618,6 +2621,7 @@ include/linux/blk-integrity.h
 include/linux/blk-mq-dma.h
 include/linux/blk-mq.h
 include/linux/blk-pm.h
+include/linux/blk_plug.h
 include/linux/blk_types.h
 include/linux/blkdev.h
 include/linux/blkpg.h
@@ -2626,7 +2630,6 @@ include/linux/blockgroup_lock.h
 include/linux/bnxt/hsi.h
 include/linux/bnxt/ulp.h
 include/linux/bootconfig.h
-include/linux/bootmem_info.h
 include/linux/bottom_half.h
 include/linux/bpf-cgroup-defs.h
 include/linux/bpf-cgroup.h
@@ -2929,11 +2932,9 @@ include/linux/generic_pt/iommu.h
 include/linux/gfp.h
 include/linux/gfp_types.h
 include/linux/glob.h
-include/linux/gpio.h
 include/linux/gpio/consumer.h
 include/linux/gpio/defs.h
 include/linux/gpio/driver.h
-include/linux/gpio/legacy.h
 include/linux/group_cpus.h
 include/linux/hardirq.h
 include/linux/hash.h
@@ -2949,7 +2950,7 @@ include/linux/host1x_context_bus.h
 include/linux/hpet.h
 include/linux/hrtimer.h
 include/linux/hrtimer_api.h
-include/linux/hrtimer_defs.h
+include/linux/hrtimer_bases.h
 include/linux/hrtimer_rearm.h
 include/linux/hrtimer_types.h
 include/linux/huge_mm.h
@@ -2957,7 +2958,6 @@ include/linux/hugetlb.h
 include/linux/hugetlb_inline.h
 include/linux/hung_task.h
 include/linux/hw_breakpoint.h
-include/linux/hw_random.h
 include/linux/hwmon-sysfs.h
 include/linux/hwmon.h
 include/linux/hypervisor.h
@@ -3006,6 +3006,7 @@ include/linux/int_log.h
 include/linux/integrity.h
 include/linux/intel_tcc.h
 include/linux/interrupt.h
+include/linux/interrupt_rc.h
 include/linux/interval_tree.h
 include/linux/interval_tree_generic.h
 include/linux/io-64-nonatomic-hi-lo.h
@@ -3093,6 +3094,7 @@ include/linux/kfifo.h
 include/linux/kgdb.h
 include/linux/kho/abi/block.h
 include/linux/kho/abi/luo.h
+include/linux/kho/abi/memblock.h
 include/linux/khugepaged.h
 include/linux/klist.h
 include/linux/kmemleak.h
@@ -3247,6 +3249,7 @@ include/linux/net/intel/libie/adminq.h
 include/linux/net/intel/libie/fwlog.h
 include/linux/net/intel/libie/pctype.h
 include/linux/net/intel/libie/rx.h
+include/linux/net/intel/virtchnl.h
 include/linux/net_tstamp.h
 include/linux/netdev_features.h
 include/linux/netdevice.h
@@ -3663,6 +3666,7 @@ include/linux/swab.h
 include/linux/swait.h
 include/linux/swait_api.h
 include/linux/swap.h
+include/linux/swap_ops.h
 include/linux/swapfile.h
 include/linux/swapops.h
 include/linux/swiotlb.h
@@ -3709,7 +3713,7 @@ include/linux/timex.h
 include/linux/tnum.h
 include/linux/topology.h
 include/linux/torture.h
-include/linux/tpm.h
+include/linux/tpm_command.h
 include/linux/tpm_eventlog.h
 include/linux/trace_clock.h
 include/linux/trace_events.h
@@ -4930,7 +4934,7 @@ lib/crc/x86/crc32.h
 lib/crc/x86/crc32c-3way.S
 lib/crypto/blake2s.c
 lib/crypto/chacha-block-generic.c
-lib/crypto/fips.h
+lib/crypto/fips-sha.h
 lib/crypto/md5.c
 lib/crypto/memneq.c
 lib/crypto/sha1.c
@@ -5115,7 +5119,6 @@ lib/zstd/zstd_common_module.c
 lib/zstd/zstd_decompress_module.c
 mm/../kernel/rcu/rcu.h
 mm/backing-dev.c
-mm/bootmem_info.c
 mm/compaction.c
 mm/debug.c
 mm/dmapool.c
@@ -5123,6 +5126,7 @@ mm/early_ioremap.c
 mm/fadvise.c
 mm/filemap.c
 mm/folio-compat.c
+mm/folio.c
 mm/gup.c
 mm/highmem.c
 mm/hugetlb_vmemmap.h
@@ -5143,6 +5147,7 @@ mm/migrate.c
 mm/mincore.c
 mm/mlock.c
 mm/mm_init.c
+mm/mm_init.h
 mm/mmap.c
 mm/mmap_lock.c
 mm/mmu_gather.c
@@ -5157,6 +5162,7 @@ mm/numa_memblks.c
 mm/oom_kill.c
 mm/page-writeback.c
 mm/page_alloc.c
+mm/page_alloc.h
 mm/page_frag_cache.c
 mm/page_isolation.c
 mm/page_reporting.h
@@ -5179,7 +5185,7 @@ mm/slab_common.c
 mm/slub.c
 mm/sparse-vmemmap.c
 mm/sparse.c
-mm/swap.c
+mm/sparse.h
 mm/swap.h
 mm/swap_table.h
 mm/truncate.c
@@ -5191,6 +5197,7 @@ mm/vma_exec.c
 mm/vma_init.c
 mm/vma_internal.h
 mm/vmalloc.c
+mm/vmalloc.h
 mm/vmscan.c
 mm/vmstat.c
 mm/workingset.c
@@ -5411,6 +5418,7 @@ net/ipv6/ipv6_sockglue.c
 net/ipv6/mcast.c
 net/ipv6/mcast_snoop.c
 net/ipv6/ndisc.c
+net/ipv6/ndisc_snoop.c
 net/ipv6/netfilter.c
 net/ipv6/netfilter/nf_conntrack_reasm.c
 net/ipv6/netfilter/nf_defrag_ipv6_hooks.c
