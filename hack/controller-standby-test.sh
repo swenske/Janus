@@ -418,6 +418,17 @@ echo A >"$W/link"
 wait_for "A never copied B once the link was back" 30 copied a
 echo "  ok: the link cut, promote refused without -force; -force made B the active at epoch 3 in the witness, and A - cut off from B - stepped down through it; the link back, A copies B"
 
+# --- 7b. B removes its standby: A drops its copy ---
+[ -s "$W/a/ha/replica.sealed" ] || fail "A has no copy before the removal"
+code="$(curl -sk -m 30 -b "$BJAR" -o /dev/null -w '%{http_code}' -X DELETE "https://127.0.0.1:$VIP_MAIN/api/ha/standby")"
+[ "$code" = 204 ] || fail "removing the standby from B: $code"
+a_forgot() { grep -q "ha: the active .* forgot this standby - its last copy is deleted" "$W/a.log"; }
+wait_for "A never heard B forgot it" 30 a_forgot
+if [ -e "$W/a/ha/replica.sealed" ] || [ -e "$W/a/ha/replica.json" ]; then fail "the forgotten standby kept its copy: $(ls -l "$W/a/ha")"; fi
+out="$("$DASHBOARDD" ha status -data-dir "$W/a" 2>&1 || true)"
+grep -q "^peer: *none" <<<"$out" || fail "A, forgotten, still says it pairs: $out"
+echo "  ok: B removed its standby - A, at its next pull, heard it was forgotten (410) and deleted its last copy"
+
 # --- 8. no AVC denial ---
 for n in n1 n2 n3; do
   if grep -a "avc:.*denied" "$W/$n.console"; then fail "AVC denials on $n"; fi
