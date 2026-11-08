@@ -527,6 +527,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 			valFlag("registration-token", "TOKEN", "a Controller enrollment token", argNone),
 			valFlag("logs-size-mb", "MIB", "the LOGS partition's size (-1: none; default 5 % of the disk)", argNone),
 			boolFlag("insecure-skip-signature-check", "accept unsigned UKIs - development only"),
+			boolFlag("allow-unsupported-hardware", "accept a kernel without a driver for the disk or a network interface"),
 		}, pos: []argKind{argRemote, argRemote}, required: 2},
 		{name: "upgrade", args: "BUNDLE_DIR|URL", help: "write a release to the inactive slot and reboot into it", flags: []flagDef{
 			valFlag("sha256", "HEX", "rootfs.squashfs's expected SHA-256", argNone),
@@ -534,6 +535,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 			valFlag("health-timeout", "SECONDS", "how long it has to be healthy", argNone),
 			boolFlag("insecure-skip-signature-check", "accept unsigned UKIs - development only"),
 			boolFlag("allow-schematic-change", "accept another image schematic"),
+			boolFlag("allow-unsupported-hardware", "accept a kernel without a driver for the boot disk or a network interface"),
 			boolFlag("kexec", "reboot into the new slot without the firmware (seconds, not a POST)"),
 		}, pos: []argKind{argRemote}, required: 1},
 		{name: "rollback", help: "boot the other slot"},

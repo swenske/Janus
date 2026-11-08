@@ -56,6 +56,11 @@ type Lifecycle struct {
 	HAProxy *haproxy.Manager
 	// Version is janusd's: Upgrade says how a bundle compares to it.
 	Version string
+	// CheckHardware: this janusd runs a node (-manage-host) - Upgrade and
+	// Install refuse a release whose kernel can't drive its disk or
+	// network interfaces (checkHardware). Off on a host janusd only runs
+	// on (tests), whose devices are no node's.
+	CheckHardware bool
 }
 
 // Upgrade writes no more than the target partition holds (its real
@@ -544,9 +549,22 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 	// is installed all the same (going back is allowed), but never
 	// without saying so.
 	image, imageErr := readSlotImage(targetDataDev)
+	// Its kernel must drive this machine: a kernel without the boot
+	// disk's driver never gets as far as init, so nothing on the node
+	// could roll it back.
+	hardware, err := l.checkHardware(req.GetSource(), image, bc.disk)
+	if err != nil {
+		slotWritten(bc.targetSlot, nil, errors.New("holds a release whose kernel can't drive this machine"), false)
+		return status.Errorf(status.Code(err), "%s - slot %s now holds it, and Rollback won't switch to it", status.Convert(err).Message(), bc.targetSlot)
+	}
 	slotWritten(bc.targetSlot, image, imageErr, false)
 	if err := send("verifying", 0.45, describeImage(image, imageErr, l.Version)); err != nil {
 		return err
+	}
+	if hardware != "" {
+		if err := send("verifying", 0.46, "rootfs.squashfs: "+hardware); err != nil {
+			return err
+		}
 	}
 
 	if err := send("writing-hash", 0.5, fmt.Sprintf("writing rootfs.verity to slot %s (%s)", bc.targetSlot, targetHashDev)); err != nil {
