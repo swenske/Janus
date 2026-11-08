@@ -20,7 +20,10 @@
 #
 # Parts 3 and 4 are skipped while variants.mk suspends their image target
 # (vmware, baremetal - hack/target-suspended.sh): 1 and 2 boot the disk
-# every image is made of, the qcow2s' too.
+# every image is made of, the qcow2s' too. With a kernel for virtual
+# machines (variants.mk's KERNEL_FLAVOR virt: no NVMe, no igb), 1 boots
+# from virtio-scsi - Proxmox's controller, the disk is sda - and 2 has
+# QEMU's e1000: the devices such a kernel drives besides virtio-blk/net.
 #
 # A native dashboardd stands in for the Controller, reached from the
 # guests at QEMU's host gateway (10.0.2.2).
@@ -123,21 +126,28 @@ wait_pending() { # wait_pending N WHAT
 
 DISK_SRC="$ROOTFS_DIR/disk.img"
 [ -f "$DISK_SRC" ] || fail "no $DISK_SRC (make disk-image)"
-passed="NVMe/e1000e with 4 CPUs and a rollback, SATA/igb with a cloud-init CD-ROM"
+# The devices the kernel drives (variants.mk's KERNEL_FLAVOR): a
+# physical machine's, or a virtual machine's.
+if [ "$(sed -n 's/^KERNEL_FLAVOR *:= *//p' "$SELF_DIR/../variants.mk")" = virt ]; then
+  DISK1=(-device virtio-scsi-pci,id=scsi0 -device scsi-hd,drive=d0,bus=scsi0.0) DEV1=sda PART1="" NAME1=virtio-scsi NIC2=e1000
+else
+  DISK1=(-device nvme,drive=d0,serial=janus0) DEV1=nvme0n1 PART1=p NAME1=NVMe NIC2=igb
+fi
+passed="$NAME1/e1000e with 4 CPUs and a rollback, SATA/$NIC2 with a cloud-init CD-ROM"
 
-# === 1. NVMe + e1000e, 4 CPUs ================================================
+# === 1. NVMe (virtio-scsi) + e1000e, 4 CPUs ==================================
 cp "$DISK_SRC" "$WORKDIR/nvme.img"
 # shellcheck disable=SC2046
-boot nvme -smp 4 -drive "if=none,id=d0,file=$WORKDIR/nvme.img,format=raw" -device nvme,drive=d0,serial=janus0 $(net e1000e)
-wait_up "NVMe + e1000e"
+boot nvme -smp 4 -drive "if=none,id=d0,file=$WORKDIR/nvme.img,format=raw" "${DISK1[@]}" $(net e1000e)
+wait_up "$NAME1 + e1000e"
 grep -aq "Kernel command line:.*PARTLABEL=BOOT-A-DATA" "$LOG" || fail "the UKI doesn't name its root by label"
-grep -aq "nvme0n1" "$LOG" || fail "no nvme0n1 on the console"
+grep -aq "$DEV1" "$LOG" || fail "no $DEV1 on the console"
 grep -aq "e1000e" "$LOG" || fail "the e1000e driver didn't show up"
-state_creds "$WORKDIR/nvme.img" "$WORKDIR/n" || fail "NVMe: the pki/ off STATE"
+state_creds "$WORKDIR/nvme.img" "$WORKDIR/n" || fail "$NAME1: the pki/ off STATE"
 info="$(ctl "$WORKDIR/n-" system info)" || fail "system info"
 grep -q "^cpus: 4$" <<<"$info" || fail "the kernel doesn't use the 4 CPUs: $(grep cpus <<<"$info")"
 grep -qi "active slot: A" <<<"$info" || fail "the active slot isn't A: $info"
-echo "  ok: NVMe + e1000e - booted by partition label, 4 CPUs, slot A"
+echo "  ok: $NAME1 + e1000e - booted by partition label, 4 CPUs, slot A"
 
 # The screen: what the framebuffer console shows (kept for a look).
 sleep 2
@@ -167,14 +177,14 @@ until [ "$(grep -ac 'Kernel command line:' "$LOG")" -ge 2 ] && [ "$(http)" = 200
   sleep 1
 done
 grep -a "Kernel command line:" "$LOG" | tail -1 | grep -q "PARTLABEL=BOOT-B-DATA" || fail "the second boot isn't slot B"
-[ "$(grep -ac "$FIRST_BOOT_MSG" "$LOG")" -eq 1 ] || fail "STATE (nvme0n1p6) wasn't kept across the Rollback"
+[ "$(grep -ac "$FIRST_BOOT_MSG" "$LOG")" -eq 1 ] || fail "STATE ($DEV1${PART1}6) wasn't kept across the Rollback"
 info="$(ctl "$WORKDIR/n-" system info 2>&1)" || fail "system info after the Rollback: $info"
 grep -qi "active slot: B" <<<"$info" || fail "janusd doesn't report slot B: $info"
-no_denials "NVMe"
+no_denials "$NAME1"
 stop
-echo "  ok: Rollback switched the ESP on nvme0n1p1 and rebooted into slot B, STATE kept"
+echo "  ok: Rollback switched the ESP on $DEV1${PART1}1 and rebooted into slot B, STATE kept"
 
-# === 2. SATA + igb + a cidata CD-ROM =========================================
+# === 2. SATA + igb (e1000) + a cidata CD-ROM =================================
 mkdir -p "$WORKDIR/cidata"
 python3 - "$CONTROLLER_CA" "$GATEWAY:$REG_PORT" > "$WORKDIR/cidata/user-data" <<'PY'
 import json, sys
@@ -186,13 +196,13 @@ cp "$DISK_SRC" "$WORKDIR/sata.img"
 # shellcheck disable=SC2046
 boot sata -drive "if=none,id=d0,file=$WORKDIR/sata.img,format=raw" -device ide-hd,drive=d0,bus=ide.0 \
   -drive "if=none,id=cd,file=$WORKDIR/cidata.iso,format=raw,media=cdrom,readonly=on" -device ide-cd,drive=cd,bus=ide.1 \
-  $(net igb)
-wait_up "SATA + igb"
-grep -aq "igb" "$LOG" || fail "the igb driver didn't show up"
+  $(net "$NIC2")
+wait_up "SATA + $NIC2"
+grep -aq "$NIC2" "$LOG" || fail "the $NIC2 driver didn't show up"
 wait_pending 1 "SATA + cidata CD-ROM"
 no_denials "SATA"
 stop
-echo "  ok: SATA (AHCI) + igb - the node read its Controller off the cloud-init CD-ROM and registered itself"
+echo "  ok: SATA (AHCI) + $NIC2 - the node read its Controller off the cloud-init CD-ROM and registered itself"
 
 # === 3. VMware: pvscsi + vmxnet3 =============================================
 if "$SELF_DIR/target-suspended.sh" vmware; then

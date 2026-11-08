@@ -67,7 +67,6 @@ var Collectors = []Collector{
 	{"netclass", "network interfaces: link speed, carrier, MTU", false},
 	{"netdev", "network traffic per interface", true},
 	{"netstat", "network protocol counters (TCP, UDP, IP)", true},
-	{"nvme", "NVMe disks: model, firmware, state", false},
 	{"os", "OS release", true},
 	{"pressure", "CPU, memory and I/O pressure (PSI)", true},
 	{"sockstat", "sockets in use", true},
@@ -108,6 +107,12 @@ func DefaultConfig() Config {
 	return Config{Enabled: true, Address: Auto, Port: DefaultPort, Collectors: DefaultCollectors()}
 }
 
+// retired are collectors the settings no longer offer, and why: settings
+// saved with one keep the rest (Load), asking for one is refused.
+var retired = map[string]string{
+	"nvme": "the kernel is a virtual machine's, without NVMe",
+}
+
 // Validate checks c and normalizes it: port 0 is DefaultPort, no
 // collectors the default ones, collectors sorted without duplicates.
 func (c *Config) Validate() error {
@@ -126,6 +131,9 @@ func (c *Config) Validate() error {
 	}
 	for _, name := range c.Collectors {
 		if !slices.ContainsFunc(Collectors, func(k Collector) bool { return k.Name == name }) {
+			if why, ok := retired[name]; ok {
+				return fmt.Errorf("collector %q is no longer offered: %s", name, why)
+			}
 			return fmt.Errorf("unknown collector %q", name)
 		}
 	}
@@ -215,6 +223,8 @@ func Load() (cfg Config, isDefault bool, err error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return DefaultConfig(), true, fmt.Errorf("%s: %w", configFile, err)
 	}
+	// A collector no longer offered: the settings keep the rest.
+	cfg.Collectors = slices.DeleteFunc(cfg.Collectors, func(name string) bool { _, ok := retired[name]; return ok })
 	if err := cfg.Validate(); err != nil {
 		return DefaultConfig(), true, fmt.Errorf("%s: %w", configFile, err)
 	}

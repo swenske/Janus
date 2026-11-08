@@ -40,9 +40,12 @@ KERNEL_DEFAULT_TRACK := stable
 # to roll it back - or the node would lose that network. Both empty:
 # the kernels drive every machine the previous ones did, nothing is
 # checked. arm64's kernel is the Raspberry Pi's (janus_rpi4_defconfig):
-# never checked.
-KERNEL_FLAVOR  :=
-KERNEL_DRIVERS :=
+# never checked. "virt": KVM/QEMU virtual machines - Proxmox, libvirt,
+# the Controller's machines - virtio disks and NICs, the emulated
+# e1000/e1000e NICs and AHCI/PIIX disks (go test ./hack/kconfig checks
+# each driver is built by every track).
+KERNEL_FLAVOR  := virt
+KERNEL_DRIVERS := virtio-pci virtio_blk virtio_scsi virtio_net sd ahci ata_piix e1000 e1000e
 
 # Variants a release no longer offers, as component:name:last-release
 # (the newest release with it), e.g. haproxy:2.8:v2027.06.01: an image

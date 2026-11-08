@@ -31,7 +31,8 @@ Everything else is **experimental**:
 - **arm64 nodes** get no updates: no A/B update was ever proven on
   arm64, and the image factory serves updates for amd64 only.
 - **Other hypervisors** may boot the qcow2 - any UEFI machine with a
-  virtio, SATA or NVMe disk - but nothing tests them.
+  virtio or SATA disk and a virtio or Intel e1000/e1000e network card,
+  the devices the images' kernel drives - but nothing tests them.
 
 ## The pieces
 
@@ -52,8 +53,8 @@ And one end-to-end guide per platform, each with a complete example:
 |---|---|---|---|
 | [libvirt/KVM](platforms/kvm-libvirt.md) | `janus-kvm.qcow2` | the Controller, over SSH - Terraform drives it | `make terraform-provider-test` applies the example as written, on a real libvirt host |
 | [Proxmox VE](platforms/proxmox.md) | `janus.qcow2` | the Controller, through Proxmox's API - Terraform drives it | a real Proxmox VE 9.2 node |
-| [Bare metal](platforms/bare-metal.md) - **experimental**, waiting for testers | `janus.iso` | the installer, driven by `janusctl` | `make qemu-iso-install-test`, `make qemu-baremetal-test` (UEFI; NVMe, SATA, USB and virtio-scsi disks; Intel NICs) - not yet a physical machine |
-| [VMware vSphere](platforms/vmware.md) - **experimental**, waiting for testers | `janus.vmdk` | hand or `govc` | QEMU with VMware's devices (pvscsi, vmxnet3) - not yet a real ESXi host |
+| [Bare metal](platforms/bare-metal.md) - **experimental**, waiting for testers | `janus.iso` | the installer, driven by `janusctl` | `make qemu-iso-install-test`, `make qemu-baremetal-test` (UEFI; NVMe, SATA, USB and virtio-scsi disks; Intel NICs) - not yet a physical machine; needs a kernel of its own (the images' drives a virtual machine's devices) |
+| [VMware vSphere](platforms/vmware.md) - **experimental**, waiting for testers | `janus.vmdk` | hand or `govc` | QEMU with VMware's devices (pvscsi, vmxnet3) - not yet a real ESXi host; needs a kernel of its own, as bare metal |
 
 ## A typical deployment
 
