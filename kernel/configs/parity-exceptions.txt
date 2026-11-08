@@ -33,3 +33,4 @@ CONFIG_TCP_SIGPOOL                       removed with 7.x's TCP-AO/MD5 rework (T
 #
 # longterm 6.18 -> stable 7.3: removed or replaced upstream.
 CONFIG_PROC_SYSCTL                       7.3 folds it into SYSCTL ("Sysctl support (/proc/sys)", fs/proc/Kconfig)
+CONFIG_PCIE_BUS_DEFAULT                  6.18's PCIe MPS choice, shown with EXPERT; 7.3 dropped it (that default, always)
