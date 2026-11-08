@@ -123,23 +123,65 @@ func TestClient(t *testing.T) {
 	if again, err := c.EnsurePolicy(ctx); err != nil || again != id {
 		t.Fatalf("policy again: %q %v", again, err)
 	}
-	// A node's token: its identity and the policy.
-	acc, secret, err := c.CreateToken(ctx, "janus node edge-1 (n1) - Controller ctl", "edge-1", "lgs")
+	// A node's token: its identity, janus-nodes, its scope's policy - and
+	// the legacy one while its release doesn't name services by scope.
+	if strings.Contains(consulctl.PolicyRules, "haproxy-") {
+		t.Fatal("janus-nodes still lets any node write any haproxy-... service")
+	}
+	if err := c.EnsureScopePolicy(ctx, "kluster-prod"); err != nil || !strings.Contains(srv.Policy("janus-scope-kluster-prod"), `service_prefix "haproxy-kluster-prod-"`) {
+		t.Fatalf("scope policy: %v %q", err, srv.Policy("janus-scope-kluster-prod"))
+	}
+	if err := c.EnsureLegacyPolicy(ctx); err != nil || !strings.Contains(srv.Policy(consulctl.LegacyPolicyName), `service_prefix "haproxy-"`) {
+		t.Fatalf("legacy policy: %v", err)
+	}
+	spec := consulctl.TokenSpec{Description: "janus node edge-1 (n1) - Controller ctl", Node: "edge-1", Datacenter: "lgs", Scope: "kluster-prod", Legacy: true}
+	acc, secret, err := c.CreateToken(ctx, spec)
 	if err != nil || acc == "" || secret == "" {
 		t.Fatal(acc, secret, err)
 	}
 	tok := srv.TokenFor("edge-1")
-	if tok == nil || tok.NodeIdentities[0].Datacenter != "lgs" || tok.Policies[0].Name != consulctl.PolicyName {
+	var names []string
+	for _, p := range tok.Policies {
+		names = append(names, p.Name)
+	}
+	if tok == nil || tok.NodeIdentities[0].Datacenter != "lgs" || !slices.Equal(names, []string{consulctl.PolicyName, "janus-scope-kluster-prod", consulctl.LegacyPolicyName}) {
 		t.Fatalf("token: %+v", tok)
 	}
-	if ts, err := c.CheckToken(ctx, acc, "janus node edge-1 (n1) - Controller ctl", "edge-1", "lgs"); err != nil || ts != consulctl.TokenOK {
+	if ts, err := c.CheckToken(ctx, acc, spec); err != nil || ts != consulctl.TokenOK {
 		t.Fatalf("check: %v %v", ts, err)
 	}
-	if ts, _ := c.CheckToken(ctx, acc, "janus node edge-2 (n1) - Controller ctl", "edge-2", "lgs"); ts != consulctl.TokenDiffers {
+	// Its release names services by scope now: the legacy policy goes.
+	scoped := spec
+	scoped.Legacy = false
+	if ts, _ := c.CheckToken(ctx, acc, scoped); ts != consulctl.TokenDiffers {
+		t.Fatalf("the legacy policy no longer wanted: %v", ts)
+	}
+	if err := c.UpdateToken(ctx, acc, scoped); err != nil || len(srv.TokenFor("edge-1").Policies) != 2 {
+		t.Fatalf("update: %v %+v", err, srv.TokenFor("edge-1"))
+	}
+	// Another scope (the node joined another cluster): differs too.
+	other := scoped
+	other.Scope = "edge"
+	if ts, _ := c.CheckToken(ctx, acc, other); ts != consulctl.TokenDiffers {
+		t.Fatalf("another scope: %v", ts)
+	}
+	renamed := scoped
+	renamed.Description, renamed.Node = "janus node edge-2 (n1) - Controller ctl", "edge-2"
+	if ts, _ := c.CheckToken(ctx, acc, renamed); ts != consulctl.TokenDiffers {
 		t.Fatalf("renamed: %v", ts)
 	}
-	if err := c.UpdateToken(ctx, acc, "janus node edge-2 (n1) - Controller ctl", "edge-2", "lgs"); err != nil || srv.TokenFor("edge-2") == nil || srv.TokenFor("edge-2").SecretID != secret {
+	if err := c.UpdateToken(ctx, acc, renamed); err != nil || srv.TokenFor("edge-2") == nil || srv.TokenFor("edge-2").SecretID != secret {
 		t.Fatalf("update: %v", err)
+	}
+	// The scope policies no node uses go; the others, and the rest, stay.
+	if err := c.EnsureScopePolicy(ctx, "gone"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.DropScopePolicies(ctx, map[string]bool{"janus-scope-kluster-prod": true}); err != nil {
+		t.Fatal(err)
+	}
+	if got := srv.PolicyNames(); !slices.Equal(got, []string{consulctl.PolicyName, consulctl.LegacyPolicyName, "janus-scope-kluster-prod"}) {
+		t.Fatalf("policies after the drop: %v", got)
 	}
 	if err := c.DeleteToken(ctx, acc); err != nil || srv.TokenCount() != 0 {
 		t.Fatalf("delete: %v", err)
@@ -147,7 +189,7 @@ func TestClient(t *testing.T) {
 	if err := c.DeleteToken(ctx, acc); err != nil {
 		t.Fatalf("deleting a token gone: %v", err)
 	}
-	if ts, err := c.CheckToken(ctx, acc, "x", "edge-2", "lgs"); err != nil || ts != consulctl.TokenMissing {
+	if ts, err := c.CheckToken(ctx, acc, consulctl.TokenSpec{Description: "x", Node: "edge-2", Datacenter: "lgs"}); err != nil || ts != consulctl.TokenMissing {
 		t.Fatalf("a token gone: %v %v", ts, err)
 	}
 	if err := c.Deregister(ctx, "lgs", "edge-2"); err != nil || !slices.Equal(srv.DeregisteredNodes(), []string{"edge-2"}) {

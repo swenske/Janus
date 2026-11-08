@@ -14,15 +14,17 @@
 #     user-mode NIC for its first contact;
 #   - the Controller is set up through its API: the settings tested, then
 #     saved; the datacenter, the servers and the gossip key come from
-#     Consul. Each node gets its own token (node identity + janus-nodes),
+#     Consul. Each node gets its own token (node identity + janus-nodes +
+#     its scope's policy: a node alone names its HAProxy services after
+#     itself, haproxy-<node>-..., and its token writes those only),
 #     its agent joins (alive), its node metadata carries its labels and
-#     its ID, it registers janus, one haproxy-<frontend> per frontend and
-#     one haproxy-url per host its hosts.map and its Host ACLs route (a
+#     its ID, it registers janus, one haproxy-<node>-<frontend> per frontend and
+#     one haproxy-<node>-url per host its hosts.map and its Host ACLs route (a
 #     frontend behind an abstract socket's at the bind relaying to it) -
 #     and its exporters where they really listen, while they run, tag
 #     prometheus with metrics_path and scheme: janus-exporter (its main
 #     address, then the one it's moved to, absent while off),
-#     node-exporter (absent while stopped), haproxy-exporter (a frontend
+#     node-exporter (absent while stopped), haproxy-<node>-exporter (a frontend
 #     serving HAProxy's prometheus-exporter);
 #   - a map entry added at runtime is a URL in the catalog within 60 s;
 #   - the frontends' checks are TTL ones janusd feeds from show stat: a
@@ -365,17 +367,27 @@ until out="$(members)" && grep -q "node-a=1" <<<"$out" && grep -q "node-b=1" <<<
 done
 echo "  ok: both agents joined the server's LAN pool, alive ($out)"
 
-consul_api GET /v1/acl/tokens > "$WORKDIR/tokens.json"
-python3 - "$WORKDIR/tokens.json" "${ID[a]}" "${ID[b]}" <<'PY' || fail "the nodes' tokens: $(cat "$WORKDIR/tokens.json")"
+tokens_ok() {
+  consul_api GET /v1/acl/tokens > "$WORKDIR/tokens.json"
+  python3 - "$WORKDIR/tokens.json" "${ID[a]}" "${ID[b]}" <<'PY'
 import json, sys
 toks, a, b = json.load(open(sys.argv[1])), sys.argv[2], sys.argv[3]
 for name, nid in (("node-a", a), ("node-b", b)):
     t = [t for t in toks if any(ni["NodeName"] == name and ni["Datacenter"] == "lgs" for ni in t.get("NodeIdentities") or [])]
     assert len(t) == 1, (name, t)
-    assert [p["Name"] for p in t[0]["Policies"]] == ["janus-nodes"], t[0]
+    # Once its layer carries its scope back: no legacy right left.
+    assert sorted(p["Name"] for p in t[0]["Policies"]) == ["janus-nodes", "janus-scope-" + name], t[0]
     assert t[0]["Description"].startswith("janus node %s (%s) - Controller " % (name, nid)), t[0]["Description"]
 PY
-echo "  ok: one token per node - its node identity and janus-nodes, described by its name and ID"
+}
+deadline=$((SECONDS + 120))
+until tokens_ok 2>/dev/null; do
+  [ "$SECONDS" -lt "$deadline" ] || { tokens_ok; fail "the nodes' tokens: $(cat "$WORKDIR/tokens.json")"; }
+  sleep 3
+done
+consul_api GET /v1/acl/policy/name/janus-nodes | python3 -c 'import json,sys; r=json.load(sys.stdin)["Rules"]; assert "haproxy-" not in r, r' ||
+  fail "janus-nodes still lets any node write any haproxy-... service"
+echo "  ok: one token per node - its node identity, janus-nodes and its scope's policy (no legacy right once its layer carries the scope), described by its name and ID"
 
 # The node's metadata reaches the catalog with its agent's sync - a
 # moment after it joined: read at once, it was missing once.
@@ -398,19 +410,19 @@ services() { # services NODE: its services in the catalog, "ID name" per line
   consul_api GET "/v1/catalog/node-services/$1" | python3 -c 'import json,sys; [print(s["ID"], s["Service"]) for s in (json.load(sys.stdin) or {}).get("Services") or []]'
 }
 deadline=$((SECONDS + 90))
-until out="$(services node-a)" && grep -q "^janus:url:fe_sites:www.example.test haproxy-url" <<<"$out"; do
+until out="$(services node-a)" && grep -q "^janus:url:fe_sites:www.example.test haproxy-node-a-url" <<<"$out"; do
   [ "$SECONDS" -lt "$deadline" ] || fail "A's services never all came: $out; node: $(ctl a network consul managed 2>&1)"
   sleep 3
 done
 for want in "janus:janus janus" "janus:janus-exporter janus-exporter" "janus:node-exporter node-exporter" \
-  "janus:haproxy-exporter:fe_stats haproxy-exporter" "janus:haproxy:fe_sites haproxy-fe-sites" \
-  "janus:url:fe_sites:www.example.test haproxy-url" "janus:url:fe_sites:shop.example.test haproxy-url" \
-  "janus:url:fe_sites:status.example.test haproxy-url" "janus:haproxy:fe_in haproxy-fe-in" \
-  "janus:url:fe_inner:inner.example.test haproxy-url"; do
+  "janus:haproxy-exporter:fe_stats haproxy-node-a-exporter" "janus:haproxy:fe_sites haproxy-node-a-fe-sites" \
+  "janus:url:fe_sites:www.example.test haproxy-node-a-url" "janus:url:fe_sites:shop.example.test haproxy-node-a-url" \
+  "janus:url:fe_sites:status.example.test haproxy-node-a-url" "janus:haproxy:fe_in haproxy-node-a-fe-in" \
+  "janus:url:fe_inner:inner.example.test haproxy-node-a-url"; do
   grep -qx "$want" <<<"$out" || fail "A's catalog has no $want: $out"
 done
 if grep -q "wild\|10.0.0.1" <<<"$out"; then fail "a wildcard or an IP became a URL: $out"; fi
-consul_api GET /v1/catalog/service/haproxy-url > "$WORKDIR/urls.json"
+consul_api GET /v1/catalog/service/haproxy-node-a-url > "$WORKDIR/urls.json"
 python3 - "$WORKDIR/urls.json" "$NET.11" <<'PY' || fail "the URLs' metadata: $(cat "$WORKDIR/urls.json")"
 import json, sys
 urls = {s["ServiceID"]: s for s in json.load(open(sys.argv[1]))}
@@ -431,9 +443,9 @@ if grep -q "^janus:haproxy:fe_inner " <<<"$out"; then fail "fe_inner, only on a 
 # What a Prometheus job filters on: the tag proto=http (consul_sd_configs
 # tags), the meta (filter) - A's four URLs.
 count() { python3 -c 'import json,sys; print(len(json.load(sys.stdin)))'; }
-n="$(consul_api GET '/v1/catalog/service/haproxy-url?tag=proto%3Dhttp' | count)"
+n="$(consul_api GET '/v1/catalog/service/haproxy-node-a-url?tag=proto%3Dhttp' | count)"
 [ "$n" = 4 ] || fail "the URLs tagged proto=http: $n"
-n="$(consul_api GET '/v1/catalog/service/haproxy-url?filter=ServiceMeta.proto%20%3D%3D%20%22http%22' | count)"
+n="$(consul_api GET '/v1/catalog/service/haproxy-node-a-url?filter=ServiceMeta.proto%20%3D%3D%20%22http%22' | count)"
 [ "$n" = 4 ] || fail "the URLs whose meta proto is http: $n"
 # The exporters: where they really listen - the Janus and node exporters
 # on the main interface (eth0 here, the default route's), HAProxy's on
@@ -449,7 +461,7 @@ MAIN_A="$(ctl a system metrics | sed -n 's|^Exporter: http://\([0-9.]*\):10056/m
 [ -n "$MAIN_A" ] || fail "A's exporter address: $(ctl a system metrics)"
 check "janus-exporter where it listens" "^$MAIN_A:10056 /metrics http janus,prometheus,scheme=http$" "$(exporter janus-exporter)"
 check "node-exporter where it listens" "^$MAIN_A:9100 /metrics http janus,prometheus,scheme=http$" "$(exporter node-exporter)"
-check "haproxy-exporter on fe_stats" "^$NET.11:8405 /metrics http haproxy,prometheus,scheme=http$" "$(exporter haproxy-exporter)"
+check "haproxy-node-a-exporter on fe_stats" "^$NET.11:8405 /metrics http haproxy,prometheus,scheme=http$" "$(exporter haproxy-node-a-exporter)"
 health() { # health NODE SERVICE-ID: its checks' worst status
   consul_api GET "/v1/health/node/$1" | python3 -c '
 import json, sys
@@ -493,8 +505,8 @@ check "janusctl shows the managed layer" "^Managed by: janus-controller " "$out"
 check "the token never comes back" "^ACL token: +set" "$out"
 check "the services registered" "^Services: +[0-9]+ registered" "$out"
 out="$(ctl a network consul services)"
-check "janusctl lists the agent's services" "^haproxy-url +janus:url:fe_sites:www.example.test +$NET.11:8081 +haproxy,url,http,scheme=http,proto=http +http://www.example.test:8081 +- +Janus$" "$out"
-check "janusctl shows an exporter's path" "^haproxy-exporter +janus:haproxy-exporter:fe_stats .* http /metrics, frontend fe_stats +[a-z]+ +Janus$" "$out"
+check "janusctl lists the agent's services" "^haproxy-node-a-url +janus:url:fe_sites:www.example.test +$NET.11:8081 +haproxy,url,http,scheme=http,proto=http +http://www.example.test:8081 +- +Janus$" "$out"
+check "janusctl shows an exporter's path" "^haproxy-node-a-exporter +janus:haproxy-exporter:fe_stats .* http /metrics, frontend fe_stats +[a-z]+ +Janus$" "$out"
 api -X POST "$API/api/consul/run" >/dev/null
 deadline=$((SECONDS + 30))
 until api "$API/api/consul/nodes" > "$WORKDIR/nodes.json" && python3 - "$WORKDIR/nodes.json" <<'PY'; do
@@ -510,7 +522,26 @@ until [ "$(health node-a janus:janus-exporter)" = passing ] && [ "$(health node-
   [ "$SECONDS" -lt "$deadline" ] || fail "A's exporters' checks: $(health node-a janus:janus-exporter) $(health node-a janus:node-exporter) $(health node-a janus:haproxy-exporter:fe_stats)"
   sleep 2
 done
-echo "  ok: A registered janus, haproxy-fe-sites and a haproxy-url per host (the map's, the ACL's - no wildcard, no IP), its exporters where they listen ($MAIN_A:10056, $MAIN_A:9100, $NET.11:8405, tag prometheus); their checks pass; B its own"
+echo "  ok: A registered janus, haproxy-node-a-fe-sites and a haproxy-node-a-url per host (the map's, the ACL's - no wildcard, no IP), its exporters where they listen ($MAIN_A:10056, $MAIN_A:9100, $NET.11:8405, tag prometheus); their checks pass; B its own"
+
+# A's token writes its own scope's services only (security review
+# 2026-11-05 #28): registering under B's scope, or any haproxy-..., is
+# refused by the Consul server itself; under its own, allowed.
+acc_a="$(consul_api GET /v1/acl/tokens | python3 -c 'import json,sys; print([t["AccessorID"] for t in json.load(sys.stdin) if any(n["NodeName"] == "node-a" for n in t.get("NodeIdentities") or [])][0])')"
+secret_a="$(consul_api GET "/v1/acl/token/$acc_a" | python3 -c 'import json,sys; print(json.load(sys.stdin)["SecretID"])')"
+addr_a="$(consul_api GET /v1/catalog/node/node-a | python3 -c 'import json,sys; print(json.load(sys.stdin)["Node"]["Address"])')"
+register_as_a() { # register_as_a SERVICE: the HTTP code of a catalog registration on node-a with A's token
+  curl -s -m 10 --cacert "$CA" -o /dev/null -w '%{http_code}' -H "X-Consul-Token: $secret_a" -X PUT "https://127.0.0.1:$P_CONSUL/v1/catalog/register" \
+    -d "{\"Node\": \"node-a\", \"Address\": \"$addr_a\", \"Service\": {\"ID\": \"scope-probe\", \"Service\": \"$1\", \"Port\": 1}}"
+}
+code="$(register_as_a haproxy-node-b-fe-sites)"
+[ "$code" = 403 ] || fail "A's token registered under B's scope: $code"
+code="$(register_as_a haproxy-fe-sites)"
+[ "$code" = 403 ] || fail "A's token registered an unscoped haproxy-... service: $code"
+code="$(register_as_a haproxy-node-a-probe)"
+[ "$code" = 200 ] || fail "A's token refused its own scope: $code"
+consul_api PUT /v1/catalog/deregister '{"Node": "node-a", "ServiceID": "scope-probe"}' >/dev/null
+echo "  ok: A's token registers haproxy-node-a-... only - B's scope and haproxy-... refused by the server (403)"
 
 # --- the exporters follow ---------------------------------------------------------
 out="$(ctl a system metrics -address "$NET.11" 2>&1)" || fail "move A's exporter: $out"
@@ -543,7 +574,7 @@ echo "  ok: the exporter moved to $NET.11: its service followed; off: gone; node
 # --- a map entry added at runtime -------------------------------------------------
 t0=$SECONDS
 out="$(ctl a haproxy map-set /etc/haproxy/files/hosts.map new.example.test be_www 2>&1)" || fail "map-set: $out"
-until services node-a | grep -qx "janus:url:fe_sites:new.example.test haproxy-url"; do
+until services node-a | grep -qx "janus:url:fe_sites:new.example.test haproxy-node-a-url"; do
   [ $((SECONDS - t0)) -lt 60 ] || fail "the new host never became a URL: $(services node-a)"
   sleep 1
 done

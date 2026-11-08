@@ -268,8 +268,65 @@ func TestServiceName(t *testing.T) {
 		"fe_https": "haproxy-fe-https", "Web.Front": "haproxy-web-front", "__": "haproxy-frontend",
 		strings.Repeat("a", 80): "haproxy-" + strings.Repeat("a", 55),
 	} {
-		if got := ServiceName(in); got != want {
+		if got := ServiceName("", in); got != want {
 			t.Errorf("ServiceName(%q) = %q", in, got)
+		}
+	}
+	// Named after the node's cluster - or the node alone: its token may
+	// register its own scope's only (security review 2026-11-05 #28).
+	for in, want := range map[[2]string]string{
+		{"kluster-prod", "fe_https"}:   "haproxy-kluster-prod-fe-https",
+		{"Edge.1", "Web"}:              "haproxy-edge-1-web",
+		{"--", "web"}:                  "haproxy-web",
+		{"k", strings.Repeat("a", 80)}: "haproxy-k-" + strings.Repeat("a", 53),
+	} {
+		if got := ServiceName(in[0], in[1]); got != want {
+			t.Errorf("ServiceName(%q, %q) = %q, want %q", in[0], in[1], got, want)
+		}
+	}
+	for scope, want := range map[string]string{"kluster-prod": "haproxy-kluster-prod-", "": "haproxy-", "Edge_1": "haproxy-edge-1-"} {
+		if got := ServicePrefix(scope); got != want {
+			t.Errorf("ServicePrefix(%q) = %q", scope, got)
+		}
+	}
+	m := &Managed{NodeName: "edge-1", Scope: "web"}
+	for _, c := range []struct {
+		managed *Managed
+		cluster string
+		want    string
+	}{{m, "kluster", "web"}, {&Managed{NodeName: "edge-1"}, "kluster", "kluster"}, {&Managed{NodeName: "edge-1"}, "", "edge-1"}, {nil, "", ""}} {
+		if got := ScopeOf(c.managed, c.cluster); got != c.want {
+			t.Errorf("ScopeOf(%+v, %q) = %q, want %q", c.managed, c.cluster, got, c.want)
+		}
+	}
+}
+
+// TestDesiredScoped: with a scope, every HAProxy service - a frontend's,
+// the URLs', HAProxy's own exporter's - is named after it; the others
+// (janus, the exporters) and every ID stay as they are.
+func TestDesiredScoped(t *testing.T) {
+	src := sitesSources()
+	src.Scope = "kluster-prod"
+	got, _, err := Desired(Toggles{Janus: true, Exporters: true, Frontends: true, URLs: true}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, _, _ := Desired(Toggles{Janus: true, Exporters: true, Frontends: true, URLs: true}, sitesSources())
+	if len(got) != len(plain) {
+		t.Fatalf("%d services scoped, %d not", len(got), len(plain))
+	}
+	for i, s := range got {
+		p := plain[i]
+		if s.ID != p.ID {
+			t.Fatalf("%d: ID %s, unscoped %s", i, s.ID, p.ID)
+		}
+		switch {
+		case strings.HasPrefix(p.Name, "haproxy-"):
+			if want := "haproxy-kluster-prod-" + strings.TrimPrefix(p.Name, "haproxy-"); s.Name != want {
+				t.Errorf("%s: %s, want %s", s.ID, s.Name, want)
+			}
+		case s.Name != p.Name:
+			t.Errorf("%s: %s renamed %s", s.ID, p.Name, s.Name)
 		}
 	}
 }

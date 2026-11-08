@@ -27,6 +27,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/nodeproxy"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/consul"
 )
 
 // The nodes' Consul agents (internal/consulctl, docs/guide/
@@ -93,13 +94,18 @@ type consulNodeState struct {
 	Error string `json:"error,omitempty"`
 	// NodeName is its node name in Consul.
 	NodeName string `json:"node_name,omitempty"`
+	// Scope is what its HAProxy services are named after - its cluster,
+	// or itself (haproxy-<scope>-...); Legacy: its release doesn't name
+	// them so yet, its token keeps the older, wider right.
+	Scope  string `json:"scope,omitempty"`
+	Legacy bool   `json:"legacy,omitempty"`
 	// TokenAccessor is its token's accessor ID - not a secret.
 	TokenAccessor string `json:"token_accessor,omitempty"`
 	// Member is its agent's state in the LAN pool: alive, failed, left,
 	// "" when it isn't a member.
 	Member string `json:"member,omitempty"`
-	// Services and URLs are its services in the catalog, its haproxy-url
-	// instances among them.
+	// Services and URLs are its services in the catalog, its URL
+	// instances (haproxy-<scope>-url) among them.
 	Services int       `json:"services"`
 	URLs     int       `json:"urls"`
 	Checked  time.Time `json:"checked,omitzero"`
@@ -226,8 +232,9 @@ func (a *app) consulManagedBy(m *janusv1alpha1.ConsulManaged) string {
 		Join                                                []string
 		Meta                                                map[string]string
 		Services                                            [4]bool
+		Scope                                               string `json:",omitempty"`
 	}{m.GetDatacenter(), m.GetNodeName(), m.GetAdvertiseAddr(), m.GetEncrypt(), m.GetAgentToken(), m.GetCaPem(), m.GetRetryJoin(), m.GetNodeMeta(),
-		[4]bool{m.GetServices().GetJanus(), m.GetServices().GetExporters(), m.GetServices().GetFrontends(), m.GetServices().GetUrls()}})
+		[4]bool{m.GetServices().GetJanus(), m.GetServices().GetExporters(), m.GetServices().GetFrontends(), m.GetServices().GetUrls()}, m.GetScope()})
 	sum := sha256.Sum256(b)
 	return consulManagedByPrefix(a.controllerID) + hex.EncodeToString(sum[:4])
 }
@@ -274,6 +281,9 @@ func (a *app) consulPass(ctx context.Context) (again bool) {
 				if clErr == nil {
 					clErr = c.store.SetPolicyID(id)
 				}
+				if clErr == nil {
+					clErr = client.EnsureLegacyPolicy(cctx)
+				}
 			}
 			cancel()
 		}
@@ -315,7 +325,7 @@ func (a *app) consulPass(ctx context.Context) (again bool) {
 			if svcs, err := client.NodeServices(nctx, st.NodeName); err == nil {
 				st.Services = len(svcs)
 				for _, s := range svcs {
-					if s.Service == "haproxy-url" {
+					if strings.HasPrefix(s.ID, consul.IDPrefix+"url:") {
 						st.URLs++
 					}
 				}
@@ -327,6 +337,22 @@ func (a *app) consulPass(ctx context.Context) (again bool) {
 			again = true
 		}
 		view[n.ID] = st
+	}
+
+	// The scope policies no node uses any more: a cluster deleted, a node
+	// gone or gone into a cluster - not while a node's state is unsure.
+	if reachable && !again {
+		used := map[string]bool{}
+		for _, st := range view {
+			if st.Scope != "" {
+				used[consulctl.ScopePolicyName(st.Scope)] = true
+			}
+		}
+		dctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		if err := client.DropScopePolicies(dctx, used); err != nil {
+			log.Printf("consul: the scope policies no node uses: %v", err)
+		}
+		cancel()
 	}
 
 	// The nodes gone: their tokens deleted, their entries deregistered.
@@ -442,15 +468,31 @@ func (a *app) consulNode(ctx context.Context, n *store.Node, set consulctl.Setti
 		return st
 	}
 
+	// What its HAProxy services are named after: its cluster, or itself -
+	// its token may register those only. A node whose layer doesn't carry
+	// that scope yet (not given it so far, or a release before scoped
+	// names, which drops the field) keeps the older right to any
+	// haproxy-... until it does.
+	st.Scope = a.clusterOf(n.ID)
+	if st.Scope == "" {
+		st.Scope = name
+	}
+	st.Legacy = cur.GetManaged().GetScope() != st.Scope
+	if err := client.EnsureScopePolicy(ctx, st.Scope); err != nil {
+		st.State, st.Error = "error", "its scope's policy: "+err.Error()
+		return st
+	}
+	spec := consulctl.TokenSpec{Description: a.tokenDescription(n), Node: name, Datacenter: cl.Datacenter, Scope: st.Scope, Legacy: st.Legacy}
+
 	// Its token: made once, made again if deleted in Consul, brought back
-	// to what it should be if changed (renamed node: another identity).
-	desc := a.tokenDescription(n)
+	// to what it should be if changed (renamed node: another identity;
+	// another scope; its release names its services by scope now).
 	if hasTok && (tok.Server != set.Address || tok.Datacenter != cl.Datacenter) {
 		_ = client.DeleteToken(ctx, tok.AccessorID) // another cluster's, likely gone with it
 		hasTok = false
 	}
 	if hasTok {
-		ts, err := client.CheckToken(ctx, tok.AccessorID, desc, name, cl.Datacenter)
+		ts, err := client.CheckToken(ctx, tok.AccessorID, spec)
 		switch {
 		case err != nil:
 			st.State, st.Error = "error", "its token: "+err.Error()
@@ -458,7 +500,7 @@ func (a *app) consulNode(ctx context.Context, n *store.Node, set consulctl.Setti
 		case ts == consulctl.TokenMissing:
 			hasTok = false
 		case ts == consulctl.TokenDiffers:
-			if err := client.UpdateToken(ctx, tok.AccessorID, desc, name, cl.Datacenter); err != nil {
+			if err := client.UpdateToken(ctx, tok.AccessorID, spec); err != nil {
 				st.State, st.Error = "error", "its token: "+err.Error()
 				return st
 			}
@@ -473,7 +515,7 @@ func (a *app) consulNode(ctx context.Context, n *store.Node, set consulctl.Setti
 		}
 	}
 	if !hasTok {
-		acc, secret, err := client.CreateToken(ctx, desc, name, cl.Datacenter)
+		acc, secret, err := client.CreateToken(ctx, spec)
 		if err != nil {
 			st.State, st.Error = "error", "its token: "+err.Error()
 			return st
@@ -493,6 +535,7 @@ func (a *app) consulNode(ctx context.Context, n *store.Node, set consulctl.Setti
 		Encrypt: cl.GossipKey, AgentToken: tok.SecretID, CaPem: set.RPCCAPEM, NodeMeta: a.consulMeta(n, set),
 		Services: &janusv1alpha1.ConsulManagedServices{Janus: set.Services.Janus, Exporters: set.Services.Exporters,
 			Frontends: set.Services.Frontends, Urls: set.Services.URLs},
+		Scope: st.Scope,
 	}
 	want.ManagedBy = a.consulManagedBy(want)
 	if have == want.ManagedBy {

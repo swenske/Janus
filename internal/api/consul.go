@@ -83,6 +83,7 @@ func managedToProto(m *consul.Managed) *janusv1alpha1.ConsulManaged {
 		CaPem: r.CAPEM, NodeMeta: r.NodeMeta,
 		Services: &janusv1alpha1.ConsulManagedServices{Janus: r.Services.Janus, Exporters: r.Services.Exporters,
 			Frontends: r.Services.Frontends, Urls: r.Services.URLs},
+		Scope: r.Scope,
 	}
 }
 
@@ -96,6 +97,7 @@ func managedFromProto(p *janusv1alpha1.ConsulManaged) *consul.Managed {
 		NodeMeta: p.GetNodeMeta(),
 		Services: consul.Toggles{Janus: p.GetServices().GetJanus(), Exporters: p.GetServices().GetExporters(),
 			Frontends: p.GetServices().GetFrontends(), URLs: p.GetServices().GetUrls()},
+		Scope: p.GetScope(),
 	}
 }
 

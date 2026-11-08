@@ -19,8 +19,8 @@ const NODE_DOCS = 'https://janus.sw-servers.net/docs/consul.md#from-the-controll
 const SERVICES = [
   ['janus', 'janus', "janusd's API (:9505)"],
   ['exporters', 'janus-exporter, node-exporter', 'the exporters, for Prometheus'],
-  ['frontends', 'haproxy-<frontend>', 'each frontend and listen section'],
-  ['urls', 'haproxy-url', 'each host its maps and Host ACLs route - for a blackbox probe'],
+  ['frontends', 'haproxy-<cluster>-<frontend>', 'each frontend and listen section - named after the node\'s cluster, or the node alone'],
+  ['urls', 'haproxy-<cluster>-url', 'each host its maps and Host ACLs route - for a blackbox probe'],
 ]
 
 function Field({ label, children, grow, className = '' }) {

@@ -16,13 +16,46 @@ import (
 	"time"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/httpsclient"
+	"github.com/swenske/Janus/internal/consul"
 )
 
 // PolicyName is the policy every node's token has, besides its node
 // identity (node "<name>" write, service_prefix "" read): the agent's
 // own reads, the other members (the node's status lists them), and
-// writing the services a node registers.
+// writing the services every node registers. Its HAProxy services -
+// haproxy-<scope>-... - take its scope's policy (ScopePolicyName).
 const PolicyName = "janus-nodes"
+
+// ScopePolicyName is the policy of the nodes whose HAProxy services are
+// named after scope - a cluster's members, or a node alone: writing
+// haproxy-<scope>-... only, so a node can't register another cluster's
+// services (security review 2026-11-05 #28).
+func ScopePolicyName(scope string) string { return scopePolicyPrefix + consul.ScopeLabel(scope) }
+
+const scopePolicyPrefix = "janus-scope-"
+
+func scopeRules(scope string) string {
+	return fmt.Sprintf(`# Made by the Janus Controller: the HAProxy services of the Janus nodes
+# named after %q - a cluster's members, or a node alone.
+service_prefix %q {
+  policy = "write"
+}
+`, scope, consul.ServicePrefix(scope))
+}
+
+// LegacyPolicyName is what a node keeps until it names its HAProxy
+// services after its scope - an older release: any haproxy-..., as
+// janus-nodes allowed before. The Controller drops it once the node's
+// layer carries its scope.
+const LegacyPolicyName = "janus-nodes-legacy"
+
+const legacyRules = `# Made by the Janus Controller: the HAProxy services of a Janus node of a
+# release that doesn't name them after its cluster yet - dropped from its
+# token once it does.
+service_prefix "haproxy-" {
+  policy = "write"
+}
+`
 
 // PolicyRules are janus-nodes's rules.
 const PolicyRules = `# Made by the Janus Controller: what a Janus node's agent token needs
@@ -41,9 +74,6 @@ service "janus-exporter" {
   policy = "write"
 }
 service "node-exporter" {
-  policy = "write"
-}
-service_prefix "haproxy-" {
   policy = "write"
 }
 `
@@ -231,15 +261,50 @@ func (c *Client) gossipKey(ctx context.Context, dc string) (string, error) {
 
 // EnsurePolicy creates or updates janus-nodes; it returns its ID.
 func (c *Client) EnsurePolicy(ctx context.Context) (string, error) {
+	return c.ensurePolicy(ctx, PolicyName, "Janus nodes: made and kept by the Janus Controller", PolicyRules)
+}
+
+// EnsureScopePolicy creates or updates the policy of scope's HAProxy
+// services (ScopePolicyName).
+func (c *Client) EnsureScopePolicy(ctx context.Context, scope string) error {
+	_, err := c.ensurePolicy(ctx, ScopePolicyName(scope), "Janus nodes named after "+scope+": made and kept by the Janus Controller", scopeRules(scope))
+	return err
+}
+
+// EnsureLegacyPolicy creates or updates LegacyPolicyName.
+func (c *Client) EnsureLegacyPolicy(ctx context.Context) error {
+	_, err := c.ensurePolicy(ctx, LegacyPolicyName, "Janus nodes of a release before scoped service names: made and kept by the Janus Controller", legacyRules)
+	return err
+}
+
+// DropScopePolicies deletes the scope policies no node uses any more - a
+// cluster deleted, a node gone or joined one; used holds the names kept.
+func (c *Client) DropScopePolicies(ctx context.Context, used map[string]bool) error {
+	var list []struct{ ID, Name string }
+	if err := c.do(ctx, http.MethodGet, "/v1/acl/policies", nil, &list); err != nil {
+		return err
+	}
+	for _, p := range list {
+		if !strings.HasPrefix(p.Name, scopePolicyPrefix) || used[p.Name] {
+			continue
+		}
+		if err := c.do(ctx, http.MethodDelete, "/v1/acl/policy/"+url.PathEscape(p.ID), nil, nil); err != nil && !notFound(err) {
+			return fmt.Errorf("delete policy %s: %w", p.Name, err)
+		}
+	}
+	return nil
+}
+
+func (c *Client) ensurePolicy(ctx context.Context, name, description, rules string) (string, error) {
 	type policy struct {
 		ID          string `json:",omitempty"`
 		Name        string
 		Description string
 		Rules       string
 	}
-	want := policy{Name: PolicyName, Description: "Janus nodes: made and kept by the Janus Controller", Rules: PolicyRules}
+	want := policy{Name: name, Description: description, Rules: rules}
 	var cur policy
-	err := c.do(ctx, http.MethodGet, "/v1/acl/policy/name/"+PolicyName, nil, &cur)
+	err := c.do(ctx, http.MethodGet, "/v1/acl/policy/name/"+url.PathEscape(name), nil, &cur)
 	switch {
 	case err == nil:
 		if cur.Rules == want.Rules && cur.Description == want.Description {
@@ -269,17 +334,39 @@ type aclToken struct {
 	NodeIdentities []struct{ NodeName, Datacenter string }
 }
 
-func tokenBody(description, node, dc string) aclToken {
-	t := aclToken{Description: description}
-	t.Policies = []struct{ Name string }{{Name: PolicyName}}
-	t.NodeIdentities = []struct{ NodeName, Datacenter string }{{NodeName: node, Datacenter: dc}}
+// TokenSpec is what a node's token holds besides its node identity and
+// janus-nodes: its scope's policy, and the legacy one while it needs it.
+type TokenSpec struct {
+	Description, Node, Datacenter string
+	Scope                         string // ScopePolicyName's; "" none
+	Legacy                        bool   // LegacyPolicyName
+}
+
+func (s TokenSpec) policies() []string {
+	p := []string{PolicyName}
+	if s.Scope != "" {
+		p = append(p, ScopePolicyName(s.Scope))
+	}
+	if s.Legacy {
+		p = append(p, LegacyPolicyName)
+	}
+	return p
+}
+
+func tokenBody(s TokenSpec) aclToken {
+	t := aclToken{Description: s.Description}
+	for _, p := range s.policies() {
+		t.Policies = append(t.Policies, struct{ Name string }{Name: p})
+	}
+	t.NodeIdentities = []struct{ NodeName, Datacenter string }{{NodeName: s.Node, Datacenter: s.Datacenter}}
 	return t
 }
 
-// CreateToken makes a node's token: its node identity and janus-nodes.
-func (c *Client) CreateToken(ctx context.Context, description, node, dc string) (accessor, secret string, err error) {
+// CreateToken makes a node's token: its node identity, janus-nodes, and
+// what s adds.
+func (c *Client) CreateToken(ctx context.Context, s TokenSpec) (accessor, secret string, err error) {
 	var out aclToken
-	if err := c.do(ctx, http.MethodPut, "/v1/acl/token", tokenBody(description, node, dc), &out); err != nil {
+	if err := c.do(ctx, http.MethodPut, "/v1/acl/token", tokenBody(s), &out); err != nil {
 		return "", "", err
 	}
 	if out.AccessorID == "" || out.SecretID == "" {
@@ -297,8 +384,9 @@ const (
 	TokenDiffers // another node identity, another policy, another description
 )
 
-// CheckToken says how accessor stands against what it should be.
-func (c *Client) CheckToken(ctx context.Context, accessor, description, node, dc string) (TokenState, error) {
+// CheckToken says how accessor stands against what it should be - its
+// policies exactly s's.
+func (c *Client) CheckToken(ctx context.Context, accessor string, s TokenSpec) (TokenState, error) {
 	var cur aclToken
 	if err := c.do(ctx, http.MethodGet, "/v1/acl/token/"+url.PathEscape(accessor), nil, &cur); err != nil {
 		if notFound(err) {
@@ -306,17 +394,24 @@ func (c *Client) CheckToken(ctx context.Context, accessor, description, node, dc
 		}
 		return 0, err
 	}
-	want := tokenBody(description, node, dc)
+	want := tokenBody(s)
+	var have []string
+	for _, p := range cur.Policies {
+		have = append(have, p.Name)
+	}
+	slices.Sort(have)
+	wantNames := s.policies()
+	slices.Sort(wantNames)
 	if cur.Description != want.Description || len(cur.NodeIdentities) != 1 || cur.NodeIdentities[0] != want.NodeIdentities[0] ||
-		!slices.ContainsFunc(cur.Policies, func(p struct{ Name string }) bool { return p.Name == PolicyName }) {
+		!slices.Equal(have, wantNames) {
 		return TokenDiffers, nil
 	}
 	return TokenOK, nil
 }
 
 // UpdateToken makes accessor what it should be - its secret kept.
-func (c *Client) UpdateToken(ctx context.Context, accessor, description, node, dc string) error {
-	body := tokenBody(description, node, dc)
+func (c *Client) UpdateToken(ctx context.Context, accessor string, s TokenSpec) error {
+	body := tokenBody(s)
 	body.AccessorID = accessor
 	return c.do(ctx, http.MethodPut, "/v1/acl/token/"+url.PathEscape(accessor), body, nil)
 }
