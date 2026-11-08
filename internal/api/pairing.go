@@ -154,6 +154,7 @@ func (p *Pairing) Rescue(ctx context.Context, req *janusv1alpha1.RescueRequest) 
 	certPEM, err := ca.IssueFor(pub, pki.IssueOptions{
 		CommonName: cn, Roles: []string{pki.RoleAdmin},
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, Validity: pairing.RescueValidity,
+		Console: true, // its code came from the console only (pki.ConsoleOID)
 	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "issue: %v", err)

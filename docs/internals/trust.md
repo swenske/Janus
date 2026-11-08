@@ -113,16 +113,19 @@ flowchart TB
 ```
 
 - **The node's own CA** always lets in, with any role - and only a
-  certificate of its own CA can make the node forget its fleet
-  (`TrustReset`).
+  certificate its own CA issued **at its console** (a rescue
+  certificate, marked so: OID 2.999.1.2, which no API call puts in a
+  certificate) can make the node forget its fleet (`TrustReset`).
 - **A certificate the root signs itself** lets in too: the way back when
   every issuing CA is lost (`janusctl fleet ... -kit`).
 - **What an admin carries away**: an `os:admin` calling the node itself
   can export its state (`StateExport`) - the keys of the sites it
   serves among it. Its **identity** - the node CA's key - goes only to
-  a certificate of one of the two roots above: the node's own CA or the
-  fleet's root itself, never an issuing CA's 12 hours (`-kit`,
-  [replacing a node](../guide/replacing-a-node.md#identity-the-same-node-or-a-new-one)).
+  the fleet's root's own certificate (`-kit`) or one the node's CA
+  issued at its console (a rescue certificate) - never an issuing CA's
+  12 hours, nor a certificate of the node's CA an admin had it issue
+  through its API
+  ([replacing a node](../guide/replacing-a-node.md#identity-the-same-node-or-a-new-one)).
 - **An issuing CA the newest bundle no longer lists** lets nobody in: a
   bundle is how an issuing CA leaves the fleet, without touching the
   nodes. A bundle can **limit** an issuing CA to roles - one that may

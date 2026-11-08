@@ -16,11 +16,12 @@ import (
 // certificates. They leave the node only with its whole state - an
 // admin calling the node itself (StateExport, StateExportGrant), a
 // member of its cluster (ClusterExport) - and its identity only to a
-// certificate of its own CA or of the fleet's root itself (Caller.
-// RootSigned): an os:admin certificate of an issuing CA that could carry
-// the node CA's key away would keep its access - or impersonate the node
-// - long after it expired, the key signing certificates valid for a
-// year. List and DiskUsage still show their names and sizes.
+// certificate of the fleet's root itself or one its own CA issued at its
+// console (Caller.RootSigned): an os:admin certificate of an issuing CA
+// that could carry the node CA's key away would keep its access - or
+// impersonate the node - long after it expired, the key signing
+// certificates valid for a year. List and DiskUsage still show their
+// names and sizes.
 //
 // Two checks. SecretPaths, matched against the path the kernel resolved
 // for the open file (/proc/self/fd), so a symlink or /proc/self/root
