@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -37,11 +38,14 @@ func TestCSPReport(t *testing.T) {
 	t.Cleanup(func() { log.SetOutput(prev); log.SetFlags(flags) })
 
 	h := cspReport()
-	post := func(body string) int {
+	postFrom := func(addr, body string) int {
 		rec := httptest.NewRecorder()
-		h(rec, httptest.NewRequest(http.MethodPost, cspReportPath, strings.NewReader(body)))
+		req := httptest.NewRequest(http.MethodPost, cspReportPath, strings.NewReader(body))
+		req.RemoteAddr = addr
+		h(rec, req)
 		return rec.Code
 	}
+	post := func(body string) int { return postFrom("192.0.2.1:1234", body) }
 	report := `{"csp-report":{"document-uri":"https://c.example/nodes/n1/","violated-directive":"img-src 'self' data: blob:","blocked-uri":"https://evil.example/x.png\n"}}`
 	if code := post(report); code != http.StatusNoContent {
 		t.Fatalf("report answered %d", code)
@@ -49,8 +53,18 @@ func TestCSPReport(t *testing.T) {
 	if want := `csp: "https://c.example/nodes/n1/" blocked "img-src": "https://evil.example/x.png\n"` + "\n"; logs.String() != want {
 		t.Errorf("logged %q, want %q", logs.String(), want)
 	}
+	// One address posting in a loop gets its few lines, not the minute's
+	// budget: the others' reports still come through, up to the budget.
 	for range 2 * cspReportsPerMinute {
 		post(report)
+	}
+	if n := strings.Count(logs.String(), "csp: "); n != cspReportsPerSource {
+		t.Errorf("one address: %d lines logged, want %d", n, cspReportsPerSource)
+	}
+	for i := range 2 * cspReportsPerMinute {
+		if code := postFrom(fmt.Sprintf("198.51.100.%d:443", i+1), report); code != http.StatusNoContent {
+			t.Fatalf("answered %d", code)
+		}
 	}
 	if n := strings.Count(logs.String(), "csp: "); n != cspReportsPerMinute {
 		t.Errorf("%d lines logged in a minute, want %d", n, cspReportsPerMinute)

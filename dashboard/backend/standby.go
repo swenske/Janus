@@ -215,6 +215,9 @@ func (s *standby) pull(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	st, err := c.State(ctx)
+	if errors.Is(err, ha.ErrForgotten) {
+		return s.forgotten(err)
+	}
 	if err != nil {
 		_ = s.ha.NotePull(now, false, 0, err)
 		return fmt.Errorf("the active %s: %w", peerName(s.ha.State()), err)
@@ -230,6 +233,9 @@ func (s *standby) pull(ctx context.Context) error {
 		return err
 	}
 	archive, h, err := c.Do(ctx, http.MethodGet, "/ha/replica", nil, ha.MaxReplica)
+	if errors.Is(err, ha.ErrForgotten) {
+		return s.forgotten(err)
+	}
 	if err != nil {
 		_ = s.ha.NotePull(now, true, st.Epoch, err)
 		return err
@@ -238,6 +244,21 @@ func (s *standby) pull(ctx context.Context) error {
 		return nil
 	}
 	return s.ha.SaveReplica(archive, ha.ReplicaFrom(h, now))
+}
+
+// forgotten: the active said it no longer pairs with this standby - its
+// last copy, the active's data and master key, goes, and it pairs with
+// no one (ha.Store.Forget). A promotion under way keeps it.
+func (s *standby) forgotten(err error) error {
+	if s.promoting.Load() {
+		return err
+	}
+	name := peerName(s.ha.State())
+	if ferr := s.ha.Forget(); ferr != nil {
+		return fmt.Errorf("%w - and dropping the copy: %w", err, ferr)
+	}
+	log.Printf("ha: the active %s forgot this standby - its last copy is deleted, it pairs with no one (pair again: dashboardd standby -pair)", name)
+	return err
 }
 
 // status is what the standby's main port says to anyone: no address, no

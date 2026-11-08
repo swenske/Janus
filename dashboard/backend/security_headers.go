@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/swenske/Janus/dashboard/backend/internal/ratelimit"
 )
 
 // csp is the Content-Security-Policy of the page and the node pages,
@@ -51,6 +53,15 @@ func securityHeaders(next http.Handler) http.Handler {
 // reports, and one page left open repeats the same violation.
 const cspReportsPerMinute = 10
 
+// cspReportsPerSource bound what one address gets logged - three at
+// once, then one every cspSourceEvery: a stranger posting reports in a
+// loop no longer takes the minute's whole budget, and a browser's real
+// report still gets through (security review 2026-11-05 #28).
+const (
+	cspReportsPerSource = 3
+	cspSourceEvery      = 20 * time.Second
+)
+
 // cspReport logs what browsers say the policy blocked - `csp: "<page>"
 // blocked "<directive>": "<what>"` - a page that broke under it shows in the
 // Controller's log. At most cspReportsPerMinute lines a minute, then how
@@ -59,6 +70,7 @@ func cspReport() http.HandlerFunc {
 	var mu sync.Mutex
 	var window time.Time
 	var logged, dropped int
+	perSource := ratelimit.New(cspReportsPerSource, cspSourceEvery)
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
@@ -95,7 +107,7 @@ func cspReport() http.HandlerFunc {
 			}
 			window, logged, dropped = now, 0, 0
 		}
-		if logged < cspReportsPerMinute {
+		if ok, _ := perSource.Allow(clientAddr(r)); ok && logged < cspReportsPerMinute {
 			logged++
 			log.Printf("csp: %q blocked %q: %q", clip(rep.Report.Document), clip(directive), clip(rep.Report.Blocked))
 		} else {
