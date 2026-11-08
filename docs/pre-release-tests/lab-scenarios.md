@@ -171,6 +171,11 @@ four times - the node's boot stages are read off its Janus exporter
 seconds after the kernel started), on node 02 and on the Controller's
 longterm machine through its node page, the release measured the same
 way first: what a kernel update changes in the boot itself.
+Since v2026.11.08-2, the serial console of every one of those boots
+on node 02 is kept and read (`serlog`): kernel warnings, oops, "Unknown
+kernel command line parameter", AVC denials, the kernel parameters init
+writes (the keys compared with the release's, any that fails) and the
+CIS line, the boot-timing line, janusd's `hardware:` line.
 
 ### Rollback
 
@@ -737,6 +742,7 @@ a frontend) given `consul` and node_exporter by `PATCH /api/machines`
 | Since v2026.10.29-4: the cluster's configuration in production's shape - a TCP `:443` splitting TLS by server name (one host passed through, the rest over `abns@` to an HTTP frontend reading a hosts map through a variable, a Host ACL), a TCP frontend refusing other sources -, on the release then the pre-release | the URLs registered, their tags and meta (`via`, `scheme=`, `proto=`); each frontend's check over minutes (the agent's output read through the node's page); a frontend disabled by a version; HAProxy stopped; janusd restarted |
 | Since v2026.10.29-4: the cluster updated on another image (one more extension), a machine updated by Terraform | when the image factory's build happens against the member's drain and its machine's phase; `apply` and the next `plan` |
 | Since v2026.10.29-5: a machine with BIRD (a minimal configuration), Consul, node_exporter and the guest agent, updated by the Controller (`wait_for_health`), janusd restarted minutes after the update's confirmation, three times - and on the release, the same restart for comparison | janusd back or not, its console (init's lines), its extensions running again, the Controller's view of the node |
+| Since v2026.11.08-2, **the scope**: the machines made on the release, the Controller updated first, then the cluster updated in place member by member, the machine alone updated, a machine made on the pre-release, the cluster deleted; the catalog read every second | the policies in Consul (`janus-nodes`, `janus-nodes-legacy`, `janus-scope-<scope>`) and each token's after every step; each member's services renamed `haproxy-<scope>-…` with no duplicate; the node's layer `scope` (`/api/network/consul/managed`); with a node's own token, `PUT /v1/catalog/register` of another scope's `haproxy-<other>-x` (403 expected) and of its own (200, deregistered after) |
 
 ### Prometheus finding them
 
@@ -749,6 +755,10 @@ merged) and their probes, which targets a drained member leaves -
 both members drained - and a node out of the selector.
 Since v2026.10.29-4, the example's `tags: [url, proto=http]`
 against `tags: [url, proto=tcp]` and the `filter` the notes suggest.
+Since v2026.11.08-2, main's example through the Consul scenario's
+scope renaming, every 5 s: each series' samples read back from
+Prometheus - a gap longer than one interval, and whether the series
+stay the same across the rename.
 
 ### The image factory's mirror
 
@@ -1191,6 +1201,23 @@ each tried on the release first, where the hole shows:
 | CSP reports (#28) | 50 reports from the build box and 10 from a KVM host within a minute, one more a minute later | the Controller's log lines per source, the "more reports" line |
 | The pairing window (#28) | a bare node (nothing provided) left with its window open over an hour, its serial log read every minute (each code's time first seen and a hash of it, never the code); then `fleet adopt -code` with the first code and with the newest, into a throwaway fleet | when the code changes, the window's certificate, the old code's refusal message, the new code's adoption |
 
+### The hardware a kernel drives
+
+Since v2026.11.08-2 (#590): janusd's `hardware:` line, logged once a
+boot - the drivers the boot disk and each network interface are bound
+to -, read on every kind of machine the lab has: the nodes made by hand
+on libvirt, the Controller's machines on both KVM hosts (both kernel
+tracks, with and without extensions, an auto-scaled one), the USB node,
+and a machine made by hand with its disk on virtio-SCSI and e1000e
+interfaces (the defaults of a Proxmox VM, the lab having no Proxmox
+host); the libvirt definitions read for every other domain (machine
+type, disk buses, NIC models). Each driver is compared with the list of
+a reduced kernel (`KERNEL_DRIVERS` in `variants.mk`, #591's branch): a
+driver outside it is a finding for that kernel. With empty lists, no
+update is refused and `lifecycle upgrade -help` lists
+`-allow-unsupported-hardware`; the refusal itself is
+`qemu-lifecycle-upgrade-test`'s.
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -1429,3 +1456,15 @@ ran:
   `pwatch NAME OUT`: a bare node's pairing codes as they appear (time and
   hash only); `p2-renew NAME OUT`: the first and newest codes tried with
   `fleet adopt` in a throwaway fleet (v2026.11.08).
+- `serlog NAME DOMAIN [OFFSET]`, `serlog-size DOMAIN`: a libvirt
+  domain's serial console since OFFSET (every boot) or its last boot,
+  summarized - warnings, unknown parameters, AVC, init's kernel
+  parameters and their keys, the `hardware:` line; `consul75 STEP`: the
+  throwaway Consul server (from 56); `cview [NAME]`: Consul's services,
+  the nodes' tokens and the `janus-*` policies; `cwatch OUT`: the
+  catalog every second, a line per change; `k-write NODE SERVICE
+  register|deregister`: a catalog write with a node's own token;
+  `promgaps NAME FROM TO`: each Prometheus series' samples, gaps and
+  zeros; `awatch NAME SECONDS`: an auto-scaled machine's size, status and
+  CPUs; `manual-vm2` (`NICMODEL=`, `DISKOPT=`, `CTRLOPT=`): a node made
+  by hand with other disk buses and NIC models (v2026.11.08-2).
