@@ -229,7 +229,10 @@ the Controller asks for nothing more - whatever its policy. To trust it
 only when it says it did, give the values its ID token must carry: an
 `acr` or an `amr`. When the token doesn't carry one, the Controller asks
 for its own. A Synology says nothing: trust it as is, or keep the
-Controller's.
+Controller's. Trusted as is, the provider stands for the second factor
+of the accounts it made only: an account with a password or a second
+factor of its own here - one you linked - keeps them, or whoever has its
+provider's password would skip both.
 
 With Keycloak:
 

@@ -75,7 +75,7 @@ func (a *Access) TrustSet(ctx context.Context, req *janusv1alpha1.TrustSetReques
 
 func (a *Access) TrustReset(ctx context.Context, _ *emptypb.Empty) (*janusv1alpha1.TrustState, error) {
 	if !viaLocalCA(ctx, a.Local.CA().Cert.Raw) {
-		return nil, status.Error(codes.PermissionDenied, "only a certificate of the node's own CA may forget its fleet")
+		return nil, status.Error(codes.PermissionDenied, "only a certificate the node's own CA issued at its console - a rescue certificate (janusctl access rescue) - may forget its fleet")
 	}
 	if err := a.Fleet.Reset(); err != nil {
 		return nil, status.Errorf(codes.Internal, "forget the fleet: %v", err)
@@ -138,7 +138,10 @@ func parseAdminPublicKey(p []byte) (crypto.PublicKey, error) {
 }
 
 // viaLocalCA reports whether the call's client certificate chains to the
-// node's own CA (local, DER) - not to its fleet.
+// node's own CA (local, DER) - not to its fleet - and was issued at the
+// node's console (pki.ConsoleOID): one the node issued through its API,
+// for an admin of the fleet, says nothing about the console (security
+// review 2026-11-05 #28).
 func viaLocalCA(ctx context.Context, local []byte) bool {
 	p, ok := peer.FromContext(ctx)
 	if !ok {
@@ -149,7 +152,7 @@ func viaLocalCA(ctx context.Context, local []byte) bool {
 		return false
 	}
 	for _, chain := range info.State.VerifiedChains {
-		if len(chain) > 0 && string(chain[len(chain)-1].Raw) == string(local) {
+		if len(chain) > 0 && string(chain[len(chain)-1].Raw) == string(local) && pki.IsConsole(chain[0]) {
 			return true
 		}
 	}

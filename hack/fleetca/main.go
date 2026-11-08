@@ -11,7 +11,9 @@
 //	machine holding an issuing CA's key could make without janusctl,
 //	which keeps to the bundle's limit (hack/qemu-fleetctl-test.sh) - or
 //	a node's own CA read off its STATE, a test's admin certificate
-//	(hack/state-read.sh).
+//	(hack/state-read.sh). It carries the console mark (pki.ConsoleOID):
+//	who reads a node's CA key off its disk stands for someone at its
+//	console; an issuing CA's ignores it.
 //
 // DIR gets root.crt, stranger-root.crt (a CA of no fleet); bundle-1.json (lists issuing), bundle-2.json (lists
 // other); and <name>.crt/<name>.key, each certificate followed by the CA
@@ -113,7 +115,7 @@ func sign(certFile, keyFile, role, name, out string, validity time.Duration) {
 		log.Fatal(err)
 	}
 	ca := must(pki.LoadCA(certPEM, keyPEM))
-	leaf, key, err := ca.Issue(pki.IssueOptions{CommonName: name, Roles: []string{role}, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, Validity: validity})
+	leaf, key, err := ca.Issue(pki.IssueOptions{CommonName: name, Roles: []string{role}, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, Validity: validity, Console: true})
 	if err != nil {
 		log.Fatal(err)
 	}

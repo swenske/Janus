@@ -53,11 +53,14 @@ other.
 **The identity leaves only with a root's certificate.** The node CA's
 key is good for years and makes admin certificates of the node: the
 node gives it away - exported, or granted to another node - only to a
-certificate its own CA signed (a [rescue
-certificate](recovery.md#neither), an older node's admin credential) or
-one the fleet's root itself signed. A Controller sign-in's or a janusctl
-fleet's certificate comes from an issuing CA, for 12 hours: add `-kit
-KIT`, the fleet's recovery kit. janusctl opens it on your machine
+certificate its own CA issued at its console (a [rescue
+certificate](recovery.md#neither)) or one the fleet's root itself
+signed. A Controller sign-in's or a janusctl fleet's certificate comes
+from an issuing CA, for 12 hours; a certificate of the node's own CA an
+admin had it issue through its API (`janusctl pki
+generate-client-config`, the Controller's node page) or an older node's
+first-boot admin credential says nothing about its console either: add
+`-kit KIT`, the fleet's recovery kit. janusctl opens it on your machine
 (its passphrase asked, or `JANUS_KIT_PASSPHRASE`), signs a certificate
 of an hour for that call alone, and keeps neither the root's key nor
 the certificate.

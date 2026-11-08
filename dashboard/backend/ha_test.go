@@ -114,8 +114,14 @@ func TestHAPeerRoutesNeedTheToken(t *testing.T) {
 			}
 			rec := httptest.NewRecorder()
 			mux.ServeHTTP(rec, req)
-			if rec.Code != http.StatusUnauthorized {
-				t.Errorf("%s %s with %q: %d", r.method, r.path, bearer, rec.Code)
+			// No secret: not a peer. Another secret: a standby this
+			// Controller doesn't pair with - gone.
+			want := http.StatusGone
+			if bearer == "" {
+				want = http.StatusUnauthorized
+			}
+			if rec.Code != want {
+				t.Errorf("%s %s with %q: %d, want %d", r.method, r.path, bearer, rec.Code, want)
 			}
 		}
 	}
@@ -585,4 +591,50 @@ func TestHALeftovers(t *testing.T) {
 		t.Errorf("kept at a start: %s", got)
 	}
 	tidyHA(t.TempDir()) // no ha/ at all: nothing to do, nothing said
+}
+
+// TestForgottenStandbyDropsItsCopy: a standby the active forgot hears so
+// at its next pull (410, over the active's pinned HA certificate) and
+// drops its last copy - the active's data and master key -, pairing with
+// no one (security review 2026-11-05 #28).
+func TestForgottenStandbyDropsItsCopy(t *testing.T) {
+	active := newHAActive(t)
+	token, _, err := active.app.ha.NewPairing(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sdir := t.TempDir()
+	shs := mustOpenHA(t, sdir)
+	ctx := context.Background()
+	if _, err := pairStandby(ctx, shs, active.addr, token, "b", "b:8443"); err != nil {
+		t.Fatal(err)
+	}
+	sb := &standby{ha: shs, dataDir: sdir}
+	if err := sb.pull(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := shs.LastReplica(); err != nil {
+		t.Fatalf("no copy after the pull: %v", err)
+	}
+	if err := active.app.ha.Unpair(); err != nil {
+		t.Fatal(err)
+	}
+	err = sb.pull(ctx)
+	if !errors.Is(err, ha.ErrForgotten) {
+		t.Fatalf("the pull after the active forgot it: %v", err)
+	}
+	if _, _, err := shs.LastReplica(); err == nil {
+		t.Error("the forgotten standby kept its copy")
+	}
+	for _, name := range []string{"replica.sealed", "replica.json"} {
+		if _, err := os.Stat(filepath.Join(sdir, ha.Dir, name)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if st := shs.State(); st.Peer != nil || st.Role != ha.Standby {
+		t.Errorf("the forgotten standby: %+v", st)
+	}
+	if err := sb.pull(ctx); err == nil || !strings.Contains(err.Error(), "not paired") {
+		t.Errorf("a pull with no peer: %v", err)
+	}
 }

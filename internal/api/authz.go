@@ -71,13 +71,16 @@ type Caller struct {
 	// Transfer: a new node's state transfer certificate, by its SHA-256
 	// - one StateExport while its grant lives (state_grant.go).
 	Transfer string
-	// RootSigned: the certificate was signed by this node's own CA, or by
-	// the fleet's root itself (a recovery kit's) - not by an issuing CA
-	// under the root (the Controller's, janusctl fleet's), never relayed.
+	// RootSigned: the certificate was signed by the fleet's root itself (a
+	// recovery kit's), or by this node's own CA at its console (a rescue
+	// certificate, pki.ConsoleOID) - not by an issuing CA under the root
+	// (the Controller's, janusctl fleet's), not by the node's CA through
+	// its API (GenerateClientConfiguration, LocalCARotate), never relayed.
 	// Only such a certificate carries the node's identity away
 	// (StateExport, StateExportGrant with it): a short-lived admin
 	// certificate an issuing CA makes doesn't turn into the node CA's key,
-	// valid for years (security review 2026-11-05 #5).
+	// valid for years - nor through a certificate of the node's own CA it
+	// had the node issue (security review 2026-11-05 #5 and #28).
 	RootSigned bool
 }
 
@@ -267,8 +270,9 @@ func authorize(ctx context.Context, fullMethod string) (Caller, error) {
 }
 
 // rootSigned reports whether a verified chain's leaf was signed by the
-// node's own CA (by its key: the CA a rotation cross-signs keeps it) or
-// by the fleet's root itself.
+// fleet's root itself, or by the node's own CA (by its key: the CA a
+// rotation cross-signs keeps it) at the node's console - the leaf
+// carries pki.ConsoleOID, which no API call puts in a certificate.
 func rootSigned(chains [][]*x509.Certificate) bool {
 	var local, root *x509.Certificate
 	if LocalCA != nil {
@@ -282,7 +286,7 @@ func rootSigned(chains [][]*x509.Certificate) bool {
 			continue
 		}
 		issuer := chain[1]
-		if local != nil && bytes.Equal(pki.CAKey(issuer), pki.CAKey(local)) {
+		if local != nil && bytes.Equal(pki.CAKey(issuer), pki.CAKey(local)) && pki.IsConsole(chain[0]) {
 			return true
 		}
 		if root != nil && issuer.Equal(root) && chain[len(chain)-1].Equal(root) {

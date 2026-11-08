@@ -51,15 +51,17 @@ func (s *System) transferAllowed(c Caller, identity bool) error {
 
 // identityAllowed refuses the node's identity - its CA's key, valid for
 // years - to a certificate an issuing CA signed, for twelve hours (a
-// Controller sign-in, janusctl fleet): only this node's own CA's or the
-// fleet's root's own certificates (a recovery kit's) carry it away, and
-// a state transfer certificate whose grant includes it (transferExport
-// checks the grant; the grant took a root's certificate).
+// Controller sign-in, janusctl fleet), and to one the node's own CA
+// issued through the API: only the fleet's root's own certificates (a
+// recovery kit's) and a certificate the node issued at its console (a
+// rescue certificate) carry it away (Caller.RootSigned), and a state
+// transfer certificate whose grant includes it (transferExport checks
+// the grant; the grant took such a certificate).
 func identityAllowed(c Caller) error {
 	if c.RootSigned || c.Transfer != "" {
 		return nil
 	}
-	return status.Errorf(codes.PermissionDenied, "the node's identity - its CA's key - goes only to a certificate this node's own CA or the fleet's root itself signs, and %s's comes from an issuing CA: add -kit KIT (the fleet's recovery kit) or use the node's own credential (janusctl access rescue) - docs/guide/replacing-a-node.md", c.Name)
+	return status.Errorf(codes.PermissionDenied, "the node's identity - its CA's key - goes only to a certificate the fleet's root itself signs or one the node issued at its console, and %s's is neither: add -kit KIT (the fleet's recovery kit) or use a rescue certificate (janusctl access rescue) - docs/guide/replacing-a-node.md", c.Name)
 }
 
 // StateExport streams the node's state.

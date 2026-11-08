@@ -49,7 +49,7 @@ func (p *prober) connection(ctx context.Context) error {
 	var conn net.Conn
 	for _, a := range addrs {
 		start := time.Now()
-		d := net.Dialer{Timeout: p.r.Timeout}
+		d := p.dialer()
 		if p.r.Source.IsValid() {
 			d.LocalAddr = &net.TCPAddr{IP: p.r.Source.AsSlice()}
 		}

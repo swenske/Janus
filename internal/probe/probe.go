@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -83,6 +84,41 @@ type Request struct {
 	// Timeout is each step's (a connection, a reply, a hop): 5 s, 2 s
 	// for ping and 1 s for traceroute by default.
 	Timeout time.Duration
+
+	// DenyLocal refuses to connect - tcp, tls, http, a dns server - to the
+	// node itself (loopback), a link-local address (169.254.169.254, a
+	// cloud's metadata service) or an unspecified one, whatever name or
+	// address led there: the node's own services listening there are for
+	// whoever may change its HAProxy configuration (internal/api: who
+	// may call ApplyConfig), not for an operator of its network (security
+	// review 2026-11-05 #28).
+	DenyLocal bool
+}
+
+// ErrLocal is a connection DenyLocal refused.
+var ErrLocal = errors.New("the node itself and link-local addresses are for whoever may change its HAProxy configuration")
+
+// localDestination reports whether a is the node itself, link-local or
+// unspecified.
+func localDestination(a netip.Addr) bool {
+	a = a.Unmap()
+	return a.IsLoopback() || a.IsLinkLocalUnicast() || a.IsLinkLocalMulticast() || a.IsInterfaceLocalMulticast() || a.IsUnspecified()
+}
+
+// dialer is a net.Dialer of the step's timeout that keeps to DenyLocal -
+// checked on the address the socket connects to, after any resolution.
+func (p *prober) dialer() net.Dialer {
+	d := net.Dialer{Timeout: p.r.Timeout}
+	if p.r.DenyLocal {
+		d.Control = func(_, address string, _ syscall.RawConn) error {
+			ap, err := netip.ParseAddrPort(address)
+			if err != nil || localDestination(ap.Addr()) {
+				return ErrLocal
+			}
+			return nil
+		}
+	}
+	return d
 }
 
 // Event is what a probe reports, as it goes.

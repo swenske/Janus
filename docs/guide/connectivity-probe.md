@@ -5,7 +5,11 @@ a DNS lookup, a TCP connection, a TLS handshake, an HTTP request, ICMP
 echo requests and a traceroute, run by the node and each step timed. A
 node has no shell, no `ping` and no `curl`: this is what answers "why is
 this backend down?" from where HAProxy stands. It takes the operator
-role.
+role. The node itself (`127.0.0.1`, `::1`) and link-local addresses
+(`169.254.169.254`, a cloud's metadata service) are reached only by
+whoever may also change its HAProxy configuration - an operator of the
+network domain alone gets a refused connection there, whatever name led
+to it.
 
 ## From the Controller
 

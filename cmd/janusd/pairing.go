@@ -1,11 +1,13 @@
 package main
 
 import (
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -62,12 +64,50 @@ func pairingListen(flagValue string, manageHost bool) string {
 
 // pairingWindow is the window open on this node.
 type pairingWindow struct {
-	code   pairing.Code
 	addr   string
 	window *pairing.Window
 	srv    *grpc.Server
 	// rescueUntil: a rescue volume's window, open until then.
 	rescueUntil time.Time
+	// listening is where the window answers (addr resolved).
+	listening net.Addr
+
+	mu   sync.Mutex
+	code pairing.Code
+	leaf tls.Certificate
+}
+
+// pairingRenewal is pairing.Renewal - a var so tests can shorten it.
+var pairingRenewal = pairing.Renewal
+
+// current is the window's certificate and code now.
+func (w *pairingWindow) current() (*tls.Certificate, pairing.Code) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	leaf := w.leaf
+	return &leaf, w.code
+}
+
+// renew gives the window a new certificate and code (pairing.Renewal):
+// handshakes present the new certificate, the old code no longer opens
+// the window, the console shows the new code.
+func (w *pairingWindow) renew(local *pki.Local, hostname string) {
+	leaf, err := pairing.NewLeaf(local.CA(), hostname, pki.LocalIPs())
+	if err != nil {
+		log.Printf("pairing: renewing the window's certificate: %v - the current one stays", err)
+		return
+	}
+	code, err := pairing.NewCode(leaf.Certificate[0])
+	if err != nil {
+		log.Printf("pairing: renewing the code: %v - the current one stays", err)
+		return
+	}
+	w.mu.Lock()
+	w.leaf, w.code = leaf, code
+	w.mu.Unlock()
+	w.window.Renew(code.SecretBytes())
+	log.Printf("pairing: the window on %s has a new certificate and code, its code on the console - the previous one no longer opens it", w.addr)
+	w.sayCode()
 }
 
 // openPairing opens the pairing window on addr: its own certificate, its
@@ -96,14 +136,15 @@ func openPairing(addr string, local *pki.Local, access *api.Access, fleet *pki.F
 	if rescue {
 		lifetime = time.Until(rescueUntil)
 	}
-	w := &pairingWindow{code: code, addr: addr, window: pairing.NewWindow(code.SecretBytes(), lifetime), rescueUntil: rescueUntil}
-	w.srv = grpc.NewServer(grpc.Creds(credentials.NewTLS(pairing.ServerTLS(leaf))), grpc.UnaryInterceptor(api.PairingInterceptor))
+	w := &pairingWindow{code: code, leaf: leaf, addr: addr, window: pairing.NewWindow(code.SecretBytes(), lifetime), rescueUntil: rescueUntil, listening: lis.Addr()}
+	w.srv = grpc.NewServer(grpc.Creds(credentials.NewTLS(pairing.ServerTLSFrom(func() *tls.Certificate { c, _ := w.current(); return c }))), grpc.UnaryInterceptor(api.PairingInterceptor))
 	janusv1alpha1.RegisterPairingServiceServer(w.srv, &api.Pairing{Window: w.window, Access: access, RescueVolume: rescue, OnRescue: rescued})
 	go func() {
 		if err := w.srv.Serve(lis); err != nil {
 			log.Printf("pairing: %v", err)
 		}
 	}()
+	every := pairingRenewal
 	// The window closes once the node trusts a fleet - paired, given one
 	// with TrustSet or by its Controller -, or after its tries: the port
 	// with it. A rescue window, once it gave its certificate (or a
@@ -111,9 +152,16 @@ func openPairing(addr string, local *pki.Local, access *api.Access, fleet *pki.F
 	go func() {
 		tick := time.NewTicker(2 * time.Second)
 		defer tick.Stop()
-		var end <-chan time.Time
+		var end, renewal <-chan time.Time
 		if rescue {
 			end = time.After(lifetime)
+		} else {
+			// A pairing window has no end of its own: its certificate and
+			// code are renewed, so the code's 59 bits never name one
+			// certificate for long (security review 2026-11-05 #28).
+			r := time.NewTicker(every)
+			defer r.Stop()
+			renewal = r.C
 		}
 	wait:
 		for {
@@ -123,6 +171,8 @@ func openPairing(addr string, local *pki.Local, access *api.Access, fleet *pki.F
 			case <-end:
 				w.window.Close("its time is up")
 				break wait
+			case <-renewal:
+				w.renew(local, hostname)
 			case <-tick.C:
 				if !rescue && fleet.Root() != nil {
 					w.window.Close("the node trusts a fleet")
@@ -152,9 +202,10 @@ func openPairing(addr string, local *pki.Local, access *api.Access, fleet *pki.F
 // sayCode shows the window's code on the console - never in janusd's log,
 // which Logs, the LOGS partition and log forwarding carry.
 func (w *pairingWindow) sayCode() {
+	_, code := w.current()
 	if !w.rescueUntil.IsZero() {
-		fmt.Fprintf(os.Stderr, "rescue: code %s on %s until %s - janusctl access rescue -endpoint ADDRESS -code CODE DIR\n", w.code, w.addr, w.rescueUntil.Format("15:04 MST"))
+		fmt.Fprintf(os.Stderr, "rescue: code %s on %s until %s - janusctl access rescue -endpoint ADDRESS -code CODE DIR\n", code, w.addr, w.rescueUntil.Format("15:04 MST"))
 		return
 	}
-	fmt.Fprintf(os.Stderr, "pairing: code %s on %s - janusctl fleet adopt NAME -endpoint ADDRESS -code CODE, or the Controller's Add node\n", w.code, w.addr)
+	fmt.Fprintf(os.Stderr, "pairing: code %s on %s - janusctl fleet adopt NAME -endpoint ADDRESS -code CODE, or the Controller's Add node\n", code, w.addr)
 }
