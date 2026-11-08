@@ -469,15 +469,19 @@ func (a *app) consulNode(ctx context.Context, n *store.Node, set consulctl.Setti
 	}
 
 	// What its HAProxy services are named after: its cluster, or itself -
-	// its token may register those only. A node whose layer doesn't carry
-	// that scope yet (not given it so far, or a release before scoped
-	// names, which drops the field) keeps the older right to any
-	// haproxy-... until it does.
+	// its token may register those only. A node that doesn't name them
+	// so yet (its layer not given that scope so far, or a release before
+	// scoped names, which drops the field) keeps the older right to any
+	// haproxy-... until it does: its services under their older names
+	// must still be deregistered.
 	st.Scope = a.clusterOf(n.ID)
 	if st.Scope == "" {
 		st.Scope = name
 	}
-	st.Legacy = cur.GetManaged().GetScope() != st.Scope
+	// What it names them after now - empty on a release that doesn't
+	// say (before v2026.11.08-3: v2026.11.08-2 kept the layer's scope).
+	named := cur.GetScope()
+	st.Legacy = named != st.Scope && cur.GetManaged().GetScope() != st.Scope
 	if err := client.EnsureScopePolicy(ctx, st.Scope); err != nil {
 		st.State, st.Error = "error", "its scope's policy: "+err.Error()
 		return st
@@ -538,7 +542,12 @@ func (a *app) consulNode(ctx context.Context, n *store.Node, set consulctl.Setti
 		Scope: st.Scope,
 	}
 	want.ManagedBy = a.consulManagedBy(want)
-	if have == want.ManagedBy {
+	// The same layer - unless the node names its services by scope but
+	// its layer lacks this one: it was given while the node ran a release
+	// that dropped the field, and kept since its update. Given again,
+	// once; a node that doesn't say (an older release) would drop it
+	// again.
+	if have == want.ManagedBy && (named == "" || cur.GetManaged().GetScope() == want.Scope) {
 		st.State = "applied"
 		return st
 	}

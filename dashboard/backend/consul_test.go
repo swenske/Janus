@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"encoding/pem"
@@ -27,8 +28,13 @@ const testConsulToken = "11111111-2222-3333-4444-555555555555"
 // fakeConsulNode is a node as ConsulManagedGet/Set see it.
 type fakeConsulNode struct {
 	notEnabled, old bool
-	managed         *janusv1alpha1.ConsulManaged // what it was set, secrets in
-	sets            int
+	// dropsScope: a release before scoped names (it drops the layer's
+	// scope); saysScope: one that reports what its services are named
+	// after (ConsulManagedGetResponse.scope) - cluster its cluster's name.
+	dropsScope, saysScope bool
+	cluster               string
+	managed               *janusv1alpha1.ConsulManaged // what it was set, secrets in
+	sets                  int
 }
 
 type fakeConsulNodes struct {
@@ -59,7 +65,11 @@ func (f *fakeConsulNodes) ManagedGet(_ context.Context, n *store.Node) (*janusv1
 	}
 	m := proto.Clone(fn.managed).(*janusv1alpha1.ConsulManaged)
 	m.HasEncrypt, m.HasAgentToken, m.Encrypt, m.AgentToken = m.Encrypt != "", m.AgentToken != "", "", ""
-	return &janusv1alpha1.ConsulManagedGetResponse{State: janusv1alpha1.ModuleState_MODULE_STATE_RUNNING, Managed: m}, nil
+	resp := &janusv1alpha1.ConsulManagedGetResponse{State: janusv1alpha1.ModuleState_MODULE_STATE_RUNNING, Managed: m}
+	if fn.saysScope && m.GetManagedBy() != "" {
+		resp.Scope = cmp.Or(m.GetScope(), fn.cluster, m.GetNodeName()) // consul.ScopeOf
+	}
+	return resp, nil
 }
 
 func (f *fakeConsulNodes) ManagedSet(_ context.Context, n *store.Node, m *janusv1alpha1.ConsulManaged) (*janusv1alpha1.ConsulManagedSetResponse, error) {
@@ -67,6 +77,9 @@ func (f *fakeConsulNodes) ManagedSet(_ context.Context, n *store.Node, m *janusv
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	fn.managed = proto.Clone(m).(*janusv1alpha1.ConsulManaged)
+	if fn.dropsScope {
+		fn.managed.Scope = ""
+	}
 	fn.sets++
 	return &janusv1alpha1.ConsulManagedSetResponse{Accepted: true, Restarted: true}, nil
 }
@@ -431,5 +444,94 @@ func TestConsulScopeIsTheCluster(t *testing.T) {
 	}
 	if srv.Policy("janus-scope-kluster-prod") != "" {
 		t.Errorf("the cluster's policy kept with no member: %v", srv.PolicyNames())
+	}
+}
+
+// TestConsulScopeAfterTheNodesUpdate is the order the notes give: the
+// Controller updated first, a node of a release before scoped names
+// given the layer (it drops the scope, keeps the layer's managed_by),
+// then the node updated - the layer given again, once, and the older
+// right taken off its token.
+func TestConsulScopeAfterTheNodesUpdate(t *testing.T) {
+	a, nodes, srv := consulTestApp(t)
+	ctx := context.Background()
+	edge := addConsulNode(t, a, "edge-1", "192.0.2.11:9505", nil)
+	nodes.node(edge).dropsScope = true
+	enableConsul(t, a, srv, nil)
+	policies := func() []string {
+		var names []string
+		for _, p := range srv.TokenFor("edge-1").Policies {
+			names = append(names, p.Name)
+		}
+		return names
+	}
+	legacy := []string{consulctl.PolicyName, "janus-scope-edge-1", consulctl.LegacyPolicyName}
+	for range 3 {
+		a.consulPass(ctx)
+	}
+	// The older release: given the layer once - not every pass, it would
+	// drop the scope again -, its token keeps the older right.
+	if m, sets := nodes.get(edge.ID); sets != 1 || m.GetScope() != "" || !slices.Equal(policies(), legacy) {
+		t.Fatalf("an older release: %d sets, scope %q, token %v", sets, m.GetScope(), policies())
+	}
+	if st := a.consul.state[edge.ID]; st.State != "applied" || !st.Legacy {
+		t.Fatalf("an older release: %+v", st)
+	}
+
+	// Updated: the same layer kept (no scope in it), the node naming its
+	// services after itself - the layer given again with the scope, the
+	// older right gone.
+	nodes.node(edge).dropsScope, nodes.node(edge).saysScope = false, true
+	a.consulPass(ctx)
+	if m, sets := nodes.get(edge.ID); sets != 2 || m.GetScope() != "edge-1" {
+		t.Fatalf("updated: %d sets, scope %q", sets, m.GetScope())
+	}
+	if got := policies(); !slices.Equal(got, []string{consulctl.PolicyName, "janus-scope-edge-1"}) {
+		t.Fatalf("updated: token %v", got)
+	}
+	for range 2 {
+		a.consulPass(ctx)
+	}
+	if _, sets := nodes.get(edge.ID); sets != 2 {
+		t.Fatalf("given again after it carried the scope: %d sets", sets)
+	}
+	if st := a.consul.state[edge.ID]; st.State != "applied" || st.Legacy || st.Scope != "edge-1" {
+		t.Fatalf("updated: %+v", st)
+	}
+}
+
+// TestConsulScopeNamedOtherwise: a node that says it names its services
+// after something else than the Controller's scope keeps the older right
+// until its layer carries the Controller's.
+func TestConsulScopeNamedOtherwise(t *testing.T) {
+	a, nodes, srv := consulTestApp(t)
+	ctx := context.Background()
+	edge := addConsulNode(t, a, "edge-1", "192.0.2.11:9505", nil)
+	enableConsul(t, a, srv, nil)
+	a.consulPass(ctx) // layer given (scope edge-1)
+	// Its layer's scope lost (restored from before), a cluster of its own
+	// the Controller doesn't know.
+	fn := nodes.node(edge)
+	nodes.mu.Lock()
+	fn.managed.Scope, fn.saysScope, fn.cluster = "", true, "elsewhere"
+	nodes.mu.Unlock()
+	a.consulPass(ctx)
+	if st := a.consul.state[edge.ID]; !st.Legacy {
+		t.Fatalf("named after another scope, and no older right: %+v", st)
+	}
+	if m, sets := nodes.get(edge.ID); sets != 2 || m.GetScope() != "edge-1" {
+		t.Fatalf("not given again: %d sets, scope %q", sets, m.GetScope())
+	}
+	a.consulPass(ctx)
+	if st := a.consul.state[edge.ID]; st.Legacy {
+		t.Fatalf("its layer carries the scope, the older right kept: %+v", st)
+	}
+	if !slices.Equal(func() (n []string) {
+		for _, p := range srv.TokenFor("edge-1").Policies {
+			n = append(n, p.Name)
+		}
+		return
+	}(), []string{consulctl.PolicyName, "janus-scope-edge-1"}) {
+		t.Fatal("the token kept the older right")
 	}
 }

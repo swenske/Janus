@@ -2876,10 +2876,15 @@ type ConsulManagedGetResponse struct {
 	// through, why not since, how many janusd keeps registered, and
 	// whether they're in maintenance (the node is drained, or going
 	// down).
-	SyncedUnix    int64  `protobuf:"varint,3,opt,name=synced_unix,json=syncedUnix,proto3" json:"synced_unix,omitempty"`
-	SyncError     string `protobuf:"bytes,4,opt,name=sync_error,json=syncError,proto3" json:"sync_error,omitempty"`
-	Registered    int32  `protobuf:"varint,5,opt,name=registered,proto3" json:"registered,omitempty"`
-	Maintenance   bool   `protobuf:"varint,6,opt,name=maintenance,proto3" json:"maintenance,omitempty"`
+	SyncedUnix  int64  `protobuf:"varint,3,opt,name=synced_unix,json=syncedUnix,proto3" json:"synced_unix,omitempty"`
+	SyncError   string `protobuf:"bytes,4,opt,name=sync_error,json=syncError,proto3" json:"sync_error,omitempty"`
+	Registered  int32  `protobuf:"varint,5,opt,name=registered,proto3" json:"registered,omitempty"`
+	Maintenance bool   `protobuf:"varint,6,opt,name=maintenance,proto3" json:"maintenance,omitempty"`
+	// What the node's HAProxy services are named after now
+	// (haproxy-<scope>-...): the layer's scope, else its cluster's name,
+	// else its node name in Consul. Empty: no layer, or a release before
+	// scoped names - one that drops the layer's scope.
+	Scope         string `protobuf:"bytes,7,opt,name=scope,proto3" json:"scope,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2954,6 +2959,13 @@ func (x *ConsulManagedGetResponse) GetMaintenance() bool {
 		return x.Maintenance
 	}
 	return false
+}
+
+func (x *ConsulManagedGetResponse) GetScope() string {
+	if x != nil {
+		return x.Scope
+	}
+	return ""
 }
 
 type ConsulManagedSetResponse struct {
@@ -4230,7 +4242,7 @@ const file_janus_v1alpha1_network_proto_rawDesc = "" +
 	"\x05janus\x18\x01 \x01(\bR\x05janus\x12\x1c\n" +
 	"\texporters\x18\x02 \x01(\bR\texporters\x12\x1c\n" +
 	"\tfrontends\x18\x03 \x01(\bR\tfrontends\x12\x12\n" +
-	"\x04urls\x18\x04 \x01(\bR\x04urls\"\x88\x02\n" +
+	"\x04urls\x18\x04 \x01(\bR\x04urls\"\x9e\x02\n" +
 	"\x18ConsulManagedGetResponse\x121\n" +
 	"\x05state\x18\x01 \x01(\x0e2\x1b.janus.v1alpha1.ModuleStateR\x05state\x127\n" +
 	"\amanaged\x18\x02 \x01(\v2\x1d.janus.v1alpha1.ConsulManagedR\amanaged\x12\x1f\n" +
@@ -4241,7 +4253,8 @@ const file_janus_v1alpha1_network_proto_rawDesc = "" +
 	"\n" +
 	"registered\x18\x05 \x01(\x05R\n" +
 	"registered\x12 \n" +
-	"\vmaintenance\x18\x06 \x01(\bR\vmaintenance\"l\n" +
+	"\vmaintenance\x18\x06 \x01(\bR\vmaintenance\x12\x14\n" +
+	"\x05scope\x18\a \x01(\tR\x05scope\"l\n" +
 	"\x18ConsulManagedSetResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x16\n" +
 	"\x06errors\x18\x02 \x03(\tR\x06errors\x12\x1c\n" +
