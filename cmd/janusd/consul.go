@@ -59,6 +59,14 @@ func startConsulRegistrar(mgr *consul.Manager, haproxyMgr *haproxy.Manager, hapr
 			}
 			src := consul.Sources{Address: mgr.Address(), Version: version, APIPort: 9505,
 				HAProxyConfig: string(cfg), Map: haproxyMgr.MapGet}
+			// Its HAProxy services named after its cluster, or itself:
+			// what its token may register (consul.ServicePrefix).
+			managed, _ := mgr.Managed()
+			cluster := ""
+			if m := clusterStore.Membership(); m != nil {
+				cluster = m.Name
+			}
+			src.Scope = consul.ScopeOf(managed, cluster)
 			// The exporters while they run, where they really listen.
 			if c, _, err := exporter.Load(); err == nil && c.Enabled {
 				src.Exporter = endpointOf(c.Address, c.Port, exporter.DefaultPort, mainIPv4(main()))

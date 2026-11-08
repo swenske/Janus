@@ -20,16 +20,16 @@ import (
 //
 //   - janus: janusd's API, a TCP check;
 //   - the exporters, each where it really listens, while it runs:
-//     janus-exporter, node-exporter (the extension's), haproxy-exporter
+//     janus-exporter, node-exporter (the extension's), haproxy-<scope>-exporter
 //     (each frontend that has HAProxy's own prometheus-exporter serve
 //     a request) - tags prometheus and scheme=<it>, meta metrics_path and
 //     scheme, for one Prometheus job to find them all;
-//   - haproxy-<name>: each frontend and listen section, on the port of
+//   - haproxy-<scope>-<name>: each frontend and listen section, on the port of
 //     its first bind (its address when it names one - an anycast VIP -,
 //     else the node's), tags haproxy, its mode and tls, proto=<mode> and
 //     scheme=<https|http> (none for TCP without ssl), a TTL check janusd
 //     feeds from HAProxy's own state of the frontend (register.go);
-//   - haproxy-url: one instance per URL the configuration routes, for a
+//   - haproxy-<scope>-url: one instance per URL the configuration routes, for a
 //     probe (Prometheus's blackbox exporter) to find - the hosts in the
 //     maps a use_backend reads by the Host header (or the TLS server
 //     name, in TCP mode), and the literal hosts of the Host ACLs a
@@ -39,6 +39,10 @@ import (
 //     frontend, backend, source. No check: what answers is the probe's to say. A frontend
 //     only on a socket (abns@...) has its URLs at the bind of the one
 //     relaying to it - meta via.
+//
+// <scope> is the node's cluster, or the node alone (ServicePrefix): a
+// cluster's members register the same services, and a node's token may
+// register its own cluster's only.
 
 // IDPrefix starts the IDs of the services janusd registers.
 const IDPrefix = "janus:"
@@ -144,6 +148,9 @@ type Sources struct {
 	// without a reload included).
 	HAProxyConfig string
 	Map           func(path string) (map[string]string, error)
+	// Scope is what the HAProxy services are named after: the node's
+	// cluster, or the node alone (ServicePrefix, ScopeOf).
+	Scope string
 }
 
 // Desired is the services the node registers. truncated: there were
@@ -249,7 +256,7 @@ func Desired(t Toggles, src Sources) (services []Service, truncated bool, err er
 			if entry != "" {
 				meta["via"] = entry
 			}
-			services = append(services, Service{ID: IDPrefix + "url:" + f.Name + ":" + r.host, Name: "haproxy-url",
+			services = append(services, Service{ID: IDPrefix + "url:" + f.Name + ":" + r.host, Name: ServicePrefix(src.Scope) + "url",
 				Tags: []string{"haproxy", "url", sch, "scheme=" + sch, "proto=" + proto}, Address: uhost, Port: uport, Meta: meta})
 			urls++
 		}
@@ -276,7 +283,7 @@ func Desired(t Toggles, src Sources) (services []Service, truncated bool, err er
 				}
 				tags = append(tags, "scheme="+scheme)
 				id := IDPrefix + "haproxy-exporter:" + f.Name
-				services = append(services, Service{ID: id, Name: "haproxy-exporter", Tags: tags,
+				services = append(services, Service{ID: id, Name: ServicePrefix(src.Scope) + "exporter", Tags: tags,
 					Address: host, Port: port, Meta: map[string]string{"metrics_path": path, "scheme": scheme, "frontend": f.Name},
 					Check: frontendCheck("haproxy-exporter "+f.Name, id, f.Name)})
 			}
@@ -299,7 +306,7 @@ func Desired(t Toggles, src Sources) (services []Service, truncated bool, err er
 				meta["maps"] = m
 			}
 			id := IDPrefix + "haproxy:" + f.Name
-			services = append(services, Service{ID: id, Name: ServiceName(f.Name), Tags: tags,
+			services = append(services, Service{ID: id, Name: ServiceName(src.Scope, f.Name), Tags: tags,
 				Address: host, Port: port, Meta: meta, Check: frontendCheck("haproxy "+f.Name, id, f.Name)})
 		}
 		if !t.URLs {
@@ -506,14 +513,49 @@ func defaultPort(scheme string) int {
 
 var notLabel = regexp.MustCompile(`[^a-z0-9]+`)
 
-// ServiceName is a frontend's service name: haproxy-<its name>, lower
-// case, what isn't a letter or a digit a dash - a DNS label.
-func ServiceName(frontend string) string {
-	n := strings.Trim(notLabel.ReplaceAllString(strings.ToLower(frontend), "-"), "-")
+// ScopeLabel is a scope as a service name carries it: lower case, what
+// isn't a letter or a digit a dash, no dash at either end.
+func ScopeLabel(scope string) string {
+	return strings.Trim(notLabel.ReplaceAllString(strings.ToLower(scope), "-"), "-")
+}
+
+// ServicePrefix begins the names of a node's HAProxy services:
+// haproxy-<scope>-, the scope being the node's cluster - or the node, alone
+// - so a node's Consul token may register its own cluster's services only
+// (the Controller's policy janus-scope-<scope>; security review
+// 2026-11-05 #28: any node could register another cluster's frontend).
+// No scope: haproxy-, as before.
+func ServicePrefix(scope string) string {
+	if l := ScopeLabel(scope); l != "" {
+		return "haproxy-" + l + "-"
+	}
+	return "haproxy-"
+}
+
+// ScopeOf is what a node's HAProxy services are named after: the scope
+// its managed layer gives (the Controller's), else its cluster's name,
+// else its node name in Consul.
+func ScopeOf(managed *Managed, cluster string) string {
+	if managed != nil && managed.Scope != "" {
+		return managed.Scope
+	}
+	if cluster != "" {
+		return cluster
+	}
+	if managed != nil {
+		return managed.NodeName
+	}
+	return ""
+}
+
+// ServiceName is a frontend's service name: haproxy-<scope>-<its name>,
+// lower case, what isn't a letter or a digit a dash - a DNS label.
+func ServiceName(scope, frontend string) string {
+	n := ScopeLabel(frontend)
 	if n == "" {
 		n = "frontend"
 	}
-	n = "haproxy-" + n
+	n = ServicePrefix(scope) + n
 	if len(n) > 63 {
 		n = strings.TrimRight(n[:63], "-")
 	}

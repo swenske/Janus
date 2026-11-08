@@ -19,6 +19,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/consulctl/consultest"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/clusters"
 )
 
 const testConsulToken = "11111111-2222-3333-4444-555555555555"
@@ -152,6 +153,22 @@ func TestConsulPass(t *testing.T) {
 	if srv.Policy(consulctl.PolicyName) == "" {
 		t.Fatal("no janus-nodes policy")
 	}
+	// Its HAProxy services named after itself (no cluster): the layer
+	// says so, its token may write haproxy-edge-1-... - and any haproxy-...
+	// until its layer carries the scope back (a release before it).
+	if m.GetScope() != "edge-1" || !strings.Contains(srv.Policy("janus-scope-edge-1"), `"haproxy-edge-1-"`) {
+		t.Fatalf("scope %q, its policy %q", m.GetScope(), srv.Policy("janus-scope-edge-1"))
+	}
+	policiesOf := func(node string) []string {
+		var names []string
+		for _, p := range srv.TokenFor(node).Policies {
+			names = append(names, p.Name)
+		}
+		return names
+	}
+	if got := policiesOf("edge-1"); !slices.Equal(got, []string{consulctl.PolicyName, "janus-scope-edge-1", consulctl.LegacyPolicyName}) {
+		t.Fatalf("the first pass's token: %v", got)
+	}
 	for id, want := range map[string]string{bare.ID: "no extension", old.ID: "unsupported", edge.ID: "applied"} {
 		if st := a.consul.state[id]; st.State != want {
 			t.Errorf("%s: %+v, want %s", id, st, want)
@@ -161,13 +178,17 @@ func TestConsulPass(t *testing.T) {
 		t.Fatal("a token for a node without the layer")
 	}
 
-	// The same again: nothing pushed, no token made.
+	// The same again: nothing pushed, no token made - the node carries
+	// its scope now, the legacy right goes.
 	a.consulPass(ctx)
 	if _, sets := nodes.get(edge.ID); sets != 1 || srv.TokenCount() != 1 {
 		t.Fatalf("a pass with nothing changed pushed (%d sets, %d tokens)", sets, srv.TokenCount())
 	}
+	if got := policiesOf("edge-1"); !slices.Equal(got, []string{consulctl.PolicyName, "janus-scope-edge-1"}) {
+		t.Fatalf("once the node names its services by scope: %v", got)
+	}
 	// The member's state and services, from Consul.
-	srv.SetMember("edge-1", 1, "janus", "haproxy-fe", "haproxy-url", "haproxy-url")
+	srv.SetMember("edge-1", 1, "janus", "haproxy-edge-1-fe", "haproxy-edge-1-url", "haproxy-edge-1-url")
 	a.consulPass(ctx)
 	if st := a.consul.state[edge.ID]; st.Member != "alive" || st.Services != 4 || st.URLs != 2 {
 		t.Fatalf("member: %+v", st)
@@ -361,5 +382,54 @@ func TestConsulOldNodeNotPicked(t *testing.T) {
 	}
 	if srv.TokenCount() != 0 {
 		t.Fatal("a token for a node without the layer")
+	}
+}
+
+// TestConsulScopeIsTheCluster: a member of one of the Controller's
+// clusters names its HAProxy services after the cluster - the layer's
+// scope, its token's scope policy; out of the cluster, after itself, and
+// the cluster's policy, used by no node any more, goes (security review
+// 2026-11-05 #28).
+func TestConsulScopeIsTheCluster(t *testing.T) {
+	a, nodes, srv := consulTestApp(t)
+	ctx := context.Background()
+	edge := addConsulNode(t, a, "edge-1", "192.0.2.11:9505", nil)
+	st, err := clusters.Open(a.dataDir, testSealer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.clusters = newClusterEngine(a, st)
+	c, err := st.Create("kluster-prod", 0, []string{"haproxy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	setMembers := func(m []clusters.Member) {
+		if _, err := st.Update(c.ID, func(c *clusters.Cluster) error { c.Members = m; return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setMembers([]clusters.Member{{NodeID: edge.ID, Name: "edge-1", Address: "192.0.2.11"}})
+	enableConsul(t, a, srv, nil)
+	policies := func() []string {
+		var names []string
+		for _, p := range srv.TokenFor("edge-1").Policies {
+			names = append(names, p.Name)
+		}
+		return names
+	}
+	a.consulPass(ctx)
+	a.consulPass(ctx)
+	if m, _ := nodes.get(edge.ID); m.GetScope() != "kluster-prod" || !slices.Equal(policies(), []string{consulctl.PolicyName, "janus-scope-kluster-prod"}) {
+		t.Fatalf("a member: scope %q, token %v", m.GetScope(), policies())
+	}
+	setMembers(nil)
+	for range 3 {
+		a.consulPass(ctx)
+	}
+	if m, _ := nodes.get(edge.ID); m.GetScope() != "edge-1" || !slices.Equal(policies(), []string{consulctl.PolicyName, "janus-scope-edge-1"}) {
+		t.Fatalf("out of the cluster: scope %q, token %v", m.GetScope(), policies())
+	}
+	if srv.Policy("janus-scope-kluster-prod") != "" {
+		t.Errorf("the cluster's policy kept with no member: %v", srv.PolicyNames())
 	}
 }
