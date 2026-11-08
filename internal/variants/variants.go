@@ -55,6 +55,10 @@ type Set struct {
 	Retired []schematic.Retired
 	// Suspended image targets (SUSPENDED_TARGETS), in variants.mk's order.
 	Suspended []string
+	// KernelFlavor and KernelDrivers: what the amd64 kernels drive
+	// (KERNEL_FLAVOR, KERNEL_DRIVERS) - both empty, every machine.
+	KernelFlavor  string
+	KernelDrivers []string
 }
 
 // VersionVar is the versions.mk variable pinning a variant's version.
@@ -173,6 +177,10 @@ func Parse(variantsMk, versionsMk []byte) (*Set, error) {
 		return nil, err
 	}
 	s.Suspended = suspended
+	s.KernelFlavor, s.KernelDrivers = vars["KERNEL_FLAVOR"], strings.Fields(vars["KERNEL_DRIVERS"])
+	if (s.KernelFlavor == "") != (len(s.KernelDrivers) == 0) {
+		return nil, fmt.Errorf("variants.mk: KERNEL_FLAVOR and KERNEL_DRIVERS go together (%q, %q)", s.KernelFlavor, vars["KERNEL_DRIVERS"])
+	}
 	// The catalog's own checks (names, one default each, retired entries).
 	if err := s.CatalogVariants().Validate(); err != nil {
 		return nil, err

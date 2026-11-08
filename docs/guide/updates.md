@@ -91,6 +91,19 @@ janusctl -n lb1 version           # the release now running, and its slot
   files of one release again. Refused once part of it was written, the
   node keeps running, but its other slot holds neither release: update
   it again with a sound bundle - `lifecycle rollback` refuses that slot.
+- A release whose kernel has no driver for the node's boot disk or for
+  one of its network interfaces is refused (`this release's kernel
+  (virt) has no driver for nvme (boot disk nvme0n1)`): a kernel that
+  can't see its disk waits for it forever, before anything on the node
+  could roll it back. Each image's `image.json` names what its kernel
+  drives; the node compares it with the drivers its boot disk and
+  network interfaces are bound to now - janusd logs them at every boot
+  (`hardware: boot disk vda: virtio_blk, virtio-pci; eth0: virtio_net,
+  virtio-pci`). `-allow-unsupported-hardware` installs it all the same,
+  only for a machine whose devices change before it boots the release
+  (`lifecycle install` checks the target disk the same way). The other
+  slot then holds the refused release: update again rather than roll
+  back.
 - `-kexec` reboots into the new release without going through the
   firmware: the running kernel jumps straight into the new one, in
   seconds, where a server's POST takes a minute. The same flag on

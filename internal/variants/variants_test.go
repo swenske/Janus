@@ -43,6 +43,8 @@ KERNEL_TRACKS        := stable longterm
 KERNEL_DEFAULT_TRACK := stable
 VARIANTS_RETIRED := haproxy:3.0:v2027.06.01
 SUSPENDED_TARGETS := vmware raspberry-pi
+KERNEL_FLAVOR  := virt
+KERNEL_DRIVERS := virtio-pci virtio_blk virtio_net
 `
 
 func TestParse(t *testing.T) {
@@ -55,6 +57,9 @@ func TestParse(t *testing.T) {
 	}
 	if d := s.Default(schematic.ComponentKernel); d.Name != "stable" || d.Version != "7.2.9" {
 		t.Errorf("default kernel: %+v", d)
+	}
+	if s.KernelFlavor != "virt" || strings.Join(s.KernelDrivers, ",") != "virtio-pci,virtio_blk,virtio_net" {
+		t.Errorf("kernel flavor: %q %q", s.KernelFlavor, s.KernelDrivers)
 	}
 	if len(s.Retired) != 1 || s.Retired[0].LastRelease != "v2027.06.01" {
 		t.Errorf("retired: %+v", s.Retired)
@@ -91,6 +96,8 @@ func TestParseRefuses(t *testing.T) {
 		"retired twice":  {"haproxy:3.0:", "haproxy:3.2:"},
 		"retired form":   {"haproxy:3.0:v2027.06.01", "haproxy-3.0"},
 		"unknown target": {"vmware raspberry-pi", "vmware rpi"},
+		"flavor alone":   {"KERNEL_DRIVERS := virtio-pci virtio_blk virtio_net", "KERNEL_DRIVERS :="},
+		"drivers alone":  {"KERNEL_FLAVOR  := virt", "KERNEL_FLAVOR  :="},
 	} {
 		doc := strings.Replace(good, edit[0], edit[1], 1)
 		if doc == good {

@@ -768,7 +768,7 @@ func main() {
 		grpc.ChainStreamInterceptor(api.StreamRecoveryInterceptor, api.StreamMetricsInterceptor, api.StreamAuthInterceptor),
 	)...)
 	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, LocalCA: local.CA, Cluster: clusterStore, ServiceLogs: serviceLogs, LogVolume: logVol, LogDevice: logDev, LogShip: ship, LogShipDir: logshipDir, Clients: clients, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp, Main: netMgr.MainAddresses, Sysctl: sysctlMgr, Console: console, StateRoot: stateRoot})
-	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{HAProxy: haproxyMgr, Version: version})
+	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{HAProxy: haproxyMgr, Version: version, CheckHardware: *manageHost})
 	// Every accepted configuration, next to haproxy.cfg - on STATE on a
 	// node, like the configuration itself.
 	haproxyHistory := &haproxy.History{Dir: filepath.Join(filepath.Dir(*haproxyCfg), "history")}
@@ -815,6 +815,7 @@ func main() {
 	log.Printf("janusd %s listening on %s (mTLS required)", version, *addr)
 	if *manageHost {
 		metrics.boot = measureBoot(haproxyServingAt)
+		logHardware()
 	}
 	kernelTrack, haproxyVersion := logImage(haproxyMgr)
 	pairingCode := ""

@@ -38,6 +38,14 @@ type ImageComponent struct {
 	Pinned bool `json:"pinned,omitempty"`
 	// Default: the variant is its release's default.
 	Default bool `json:"default,omitempty"`
+	// Flavor and Drivers, a kernel's: what it is built for ("virt") and
+	// the drivers it builds in among those a node's boot disk and network
+	// interfaces may be bound to, as sysfs names them (variants.mk's
+	// KERNEL_FLAVOR, KERNEL_DRIVERS). Upgrade and Install refuse the image
+	// on a machine with a device none of them drives (internal/hwsupport).
+	// None: a kernel for every machine the previous ones ran on.
+	Flavor  string   `json:"flavor,omitempty"`
+	Drivers []string `json:"drivers,omitempty"`
 }
 
 // NewImageInfo describes an image of sc built with r's variants.
