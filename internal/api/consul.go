@@ -121,6 +121,10 @@ func (n *Network) ConsulManagedGet(_ context.Context, _ *emptypb.Empty) (*janusv
 			resp.SyncedUnix = st.At.Unix()
 		}
 		resp.SyncError, resp.Registered, resp.Maintenance = st.Err, int32(min(st.Registered, 1<<30)), st.Maintenance //nolint:gosec // G115: bounded
+		// What its services are named after: the Controller checks the
+		// token's right against it - and gives the layer again to a node
+		// updated since it dropped the scope (an older release does).
+		resp.Scope = n.ConsulRegistrar.CurrentScope()
 	}
 	return resp, nil
 }

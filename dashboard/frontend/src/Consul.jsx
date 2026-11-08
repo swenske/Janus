@@ -291,6 +291,12 @@ agent_prefix ""   { policy = "read" }`}</pre>
                     <td className="num">{n.state === 'applied' || n.urls ? n.urls : '-'}</td>
                     <td className="mono small" title={n.token_accessor ? `accessor ${n.token_accessor}` : undefined}>
                       {n.token_accessor ? `${n.token_accessor.slice(0, 8)}…` : '-'}
+                      {n.scope && <div className="muted">writes haproxy-{n.scope}-…</div>}
+                      {n.legacy && (
+                        <div title="Its release doesn’t name its HAProxy services after its scope yet: its token may still write any haproxy-… service, until the node is updated.">
+                          <Badge tone="warn">and any haproxy-…</Badge>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}

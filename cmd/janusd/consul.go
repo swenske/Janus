@@ -50,23 +50,26 @@ func endpointOf(address string, port, defaultPort uint32, main string) *consul.E
 // startConsulRegistrar starts registering the node's services; it
 // returns what puts them in maintenance at once, before janusd stops.
 func startConsulRegistrar(mgr *consul.Manager, haproxyMgr *haproxy.Manager, haproxyCfg string, ext *extensions.Manager, clusterStore *cluster.Store, main func() []netip.Addr) *consul.Registrar {
+	// Its HAProxy services named after its cluster, or itself: what its
+	// token may register (consul.ServicePrefix).
+	scope := func() string {
+		managed, _ := mgr.Managed()
+		cluster := ""
+		if m := clusterStore.Membership(); m != nil {
+			cluster = m.Name
+		}
+		return consul.ScopeOf(managed, cluster)
+	}
 	r := &consul.Registrar{
 		Manager: mgr,
+		Scope:   scope,
 		Sources: func() (consul.Sources, error) {
 			cfg, err := os.ReadFile(haproxyCfg)
 			if err != nil {
 				return consul.Sources{}, err
 			}
 			src := consul.Sources{Address: mgr.Address(), Version: version, APIPort: 9505,
-				HAProxyConfig: string(cfg), Map: haproxyMgr.MapGet}
-			// Its HAProxy services named after its cluster, or itself:
-			// what its token may register (consul.ServicePrefix).
-			managed, _ := mgr.Managed()
-			cluster := ""
-			if m := clusterStore.Membership(); m != nil {
-				cluster = m.Name
-			}
-			src.Scope = consul.ScopeOf(managed, cluster)
+				HAProxyConfig: string(cfg), Map: haproxyMgr.MapGet, Scope: scope()}
 			// The exporters while they run, where they really listen.
 			if c, _, err := exporter.Load(); err == nil && c.Enabled {
 				src.Exporter = endpointOf(c.Address, c.Port, exporter.DefaultPort, mainIPv4(main()))
