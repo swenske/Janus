@@ -66,7 +66,7 @@ enregistrement `security/fixes/JANUS-*` :
 Prouvés sur de vrais nœuds enforcing et en campagne lab
 (`docs/pre-release-tests/v2026.11.05.md`).
 
-Les constats faibles (#15 à #27) et une partie des points de
+Les constats faibles (#15 à #27) et les premiers points de
 durcissement (#28) ont été corrigés et publiés dans la release **v2026.11.05-2**
 (2026-11-06) - prouvés de même (`docs/pre-release-tests/v2026.11.05-2.md`) :
 
@@ -84,7 +84,7 @@ durcissement (#28) ont été corrigés et publiés dans la release **v2026.11.05
 | 25 | JANUS-2026-025 (classé moyen) | #561 |
 | 26 | JANUS-2026-022 | #558 |
 | 27 | JANUS-2026-027 | #562 |
-| 28 | *(durcissement, pas d'enregistrement ; en partie)* | #566 |
+| 28 | *(durcissement, pas d'enregistrement ; la suite en v2026.11.08)* | #566 |
 
 Les deux constats qui demandaient une décision ont été tranchés le
 2026-11-06 et corrigés dans la release **v2026.11.07** (2026-11-07,
@@ -95,8 +95,19 @@ Les deux constats qui demandaient une décision ont été tranchés le
 | 5 | `os:admin` = toutes les clés du nœud, sauf son identité : la clé de sa CA ne part qu'avec un certificat de la CA du nœud ou de la racine de la flotte (le kit, `janusctl ... -kit`) | JANUS-2026-031 | #572 |
 | 12 | Les codes masqués pour tous, admins compris : ils se lisent sur la console de l'hyperviseur | JANUS-2026-032 | #571 |
 
-**Tous les constats de cette revue (#1 à #27) sont corrigés et publiés** ;
-des points de durcissement du #28, une partie reste ouverte.
+La release **v2026.11.08** (2026-11-08,
+`docs/pre-release-tests/v2026.11.08.md`) complète #5 et traite le #28 :
+
+| # | Enregistrement | PR |
+|---|---|---|
+| 5 (complément) | JANUS-2026-033 | #582 |
+| 28 | *(durcissement, pas d'enregistrement)* | #583, #584, #585, #586 |
+
+Le dernier point du #28 - les noms des services Consul - est corrigé sur
+`main` (#588) et part dans la release qui suit v2026.11.08.
+
+**Tous les constats de cette revue sont corrigés**, les points de
+durcissement du #28 traités ou relus et gardés.
 
 ## Tableau de synthèse
 
@@ -106,7 +117,7 @@ des points de durcissement du #28, une partie reste ouverte.
 | 2 | Élevée | Corrigé (JANUS-2026-009) | Autorisation | `dashboard/backend/acme_order.go` | Le Controller commande un certificat pour tout nom qu'un nœud demande |
 | 3 | Moyenne | Corrigé (JANUS-2026-018) | Chaîne de publication | `.github/workflows/schematic-build.yml` | `source_run` signe avec la clé de production les entrées de n'importe quel run |
 | 4 | Moyenne | Corrigé (JANUS-2026-010) | Durcissement nœud | `internal/haproxy/globalcheck.go` | La contrainte de la section `global` se contourne par les guillemets et les blocs `.if` |
-| 5 | Moyenne | Corrigé (JANUS-2026-031) | Secrets | `internal/api/system_state.go`, `state_grant.go`, `cluster.go` | Un `os:admin` direct emporte les clés des sites servis |
+| 5 | Moyenne | Corrigé (JANUS-2026-031, -033) | Secrets | `internal/api/system_state.go`, `state_grant.go`, `cluster.go` | Un `os:admin` direct emporte les clés des sites servis |
 | 6 | Moyenne | Corrigé (JANUS-2026-017) | Clusters | `internal/cluster/cluster.go`, `internal/clusters/engine.go` | Un membre retiré garde son accès de membre |
 | 7 | Moyenne | Corrigé (JANUS-2026-011) | Réseau | `internal/netmgr/dhcp.go`, `netmgr.go` | Nom d'hôte et domaine DHCP appliqués sans validation |
 | 8 | Moyenne | Corrigé (JANUS-2026-013) | RBAC | `dashboard/backend/cluster_api.go` | Les lecteurs du Controller lisent les versions de cluster non masquées |
@@ -129,7 +140,7 @@ des points de durcissement du #28, une partie reste ouverte.
 | 25 | Faible | Corrigé (JANUS-2026-025, classé moyen) | Outillage | `cmd/janusctl/effect_hook.go`, `effects.go` | Hook du plugin : commande dans une variable non vue, effets mal classés |
 | 26 | Faible | Corrigé (JANUS-2026-022) | CI | `.github/workflows/image-build.yml`, `release-promote.yml` | Release et pré-release publiables depuis n'importe quelle branche |
 | 27 | Faible | Corrigé (JANUS-2026-027) | Robustesse | `internal/api/cluster_pull.go`, `site/backend/github.go` | Plafonds manquants : pull de cluster, recherches GitHub du site |
-| 28 | Info | En partie traité (PR #566) | Divers | voir la section | Points de durcissement sans risque direct |
+| 28 | Info | Traité (PR #566, #583-#586, #588) | Divers | voir la section | Points de durcissement sans risque direct |
 
 ## 1. (Élevée) Une configuration HAProxy peut lire tout STATE, clé de la CA du nœud comprise
 
@@ -292,6 +303,17 @@ suit un admin qui appelle le nœud, comme le disent maintenant
 Le chemin `ClusterSet` avec une CA à soi reste ouvert à un admin - il
 fixe la liste des membres que vérifie `AcceptMember` (#6) -, cohérent
 avec cette décision : un pull de cluster ne porte jamais l'identité.
+
+**Complété (JANUS-2026-033, PR #582, v2026.11.08).** En traitant le #28,
+un contournement est apparu : n'importe quel admin peut faire émettre au
+nœud un certificat de sa propre CA (`GenerateClientConfiguration`,
+jusqu'à un an, aussi sur la page du nœud dans le Controller ;
+`LocalCARotate`), qui obtenait alors l'identité et passait `TrustReset`.
+Un certificat émis **à la console** - le secours - porte désormais une
+marque qu'aucun appel d'API ne pose (OID 2.999.1.2) : l'identité et
+`TrustReset` exigent cette marque, ou un certificat de la racine de la
+flotte (`-kit`). L'`admin.crt` du premier démarrage des anciens nœuds ne
+suffit plus.
 
 - **Où** : `internal/api/system_state.go:25-45` (`transferAllowed`
   refuse seulement `Via != ""`), `internal/api/state_grant.go:161-203`,
@@ -708,9 +730,43 @@ pas des vulnérabilités divulguées :
   workflow : ses jobs de test prennent les droits par défaut du dépôt,
   en lecture seule ; seul le job de publication fixe les siens.
 
-**Restent ouverts** : une dizaine d'autres points de durcissement, sans
-risque direct. Leur détail est **retenu jusqu'à leur traitement** ; ils
-sont suivis en interne et ce document sera complété.
+**Traités dans v2026.11.08** (PR #583 à #586), sans enregistrement sauf
+le premier :
+- l'heure du certificat de secours n'était pas une borne
+  (`LocalCARotate`, `GenerateClientConfiguration` donnaient un certificat
+  durable de la CA du nœud) : JANUS-2026-033, ci-dessus (#5) ;
+- le test de connectivité joignait `127.0.0.1` et `169.254.169.254` : un
+  opérateur limité au domaine `network` gagnait ce qu'`ApplyConfig` donne
+  aux opérateurs HAProxy. Ces destinations sont désormais réservées à qui
+  peut changer la configuration HAProxy, vérifiées sur l'adresse que le
+  socket joint (#584) ;
+- un standby retiré gardait sa dernière copie scellée : l'actif lui
+  répond 410, et il l'efface à son pull suivant ; un standby avertit
+  aussi d'une clé maîtresse dans son répertoire de données (#585) ;
+- le MFA « du fournisseur » sans ACR/AMR comptait toute connexion SSO
+  comme second facteur, y compris pour un compte lié qui a son mot de
+  passe ou son facteur : un tel compte garde le sien (#585) ;
+- le limiteur de `/csp-report` était global : il est désormais par
+  source, dans le plafond global (#585) ;
+- l'empreinte de 59 bits du code protégeait une fenêtre d'appairage sans
+  durée de vie : une fenêtre ouverte change de certificat et de code
+  toutes les heures (#586) ;
+- `findRescue` analysait les volumes dans PID 1 sans `recover()` : une
+  panique y saute l'étape, le démarrage continue (#584) ;
+- le CN `janus-controller` suffisait pour être affiché comme le
+  Controller dans les clients d'un nœud : seul le rôle `janus:controller`
+  compte (#584) ;
+- la TUI filtrait C0 mais pas C1, et la carte des flux contournait le
+  filtre : chaque cellule passe par le filtre, C1 et contrôles
+  bidirectionnels compris (#583).
+
+**Corrigé sur `main`, dans la release qui suit v2026.11.08** (PR #588) :
+la politique Consul `janus-nodes` permettait à tout nœud géré
+d'enregistrer un service `haproxy-*` d'un autre cluster. Les services
+HAProxy d'un nœud portent désormais le nom de son cluster (ou le sien
+s'il est seul), `haproxy-<scope>-...`, et son jeton n'écrit que ceux-là
+(une politique par scope) ; un nœud d'une release antérieure garde
+l'ancien droit jusqu'à sa mise à jour.
 
 ## Vérifié sans constat
 
