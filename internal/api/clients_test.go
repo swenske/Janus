@@ -89,6 +89,13 @@ func TestClientList(t *testing.T) {
 	if _, err := ctl.Events(streamCtx, &janusv1alpha1.EventsRequest{}); err != nil {
 		t.Fatal(err)
 	}
+	// An admin certificate named as the Controller's service credential,
+	// naming a user: an admin client like another (security review
+	// 2026-11-05 #28).
+	fake := dial(ServiceCredentialName, pki.RoleAdmin)
+	if _, err := fake.Version(as("mallory", "os:admin"), &emptypb.Empty{}); err != nil {
+		t.Fatal(err)
+	}
 	alice := dial("alice", pki.RoleReader)
 	conns["alice"].Connect() // connected, no call yet
 	root := dial("root", pki.RoleAdmin)
@@ -127,11 +134,11 @@ func TestClientList(t *testing.T) {
 	}
 	resp := waitFor("the Controller's stream", func(r *janusv1alpha1.ClientListResponse) bool {
 		c := controllerOf(r)
-		return c != nil && c.GetOpenStreams() == 1 && len(r.GetConnections()) == 4
+		return c != nil && c.GetOpenStreams() == 1 && len(r.GetConnections()) == 5
 	}, root, ctx)
 
-	if n := len(resp.GetConnections()); n != 4 {
-		t.Fatalf("%d connections, want 4: %v", n, resp)
+	if n := len(resp.GetConnections()); n != 5 {
+		t.Fatalf("%d connections, want 5: %v", n, resp)
 	}
 	byName := map[string]*janusv1alpha1.ClientConnection{}
 	for _, c := range resp.GetConnections() {
@@ -156,6 +163,9 @@ func TestClientList(t *testing.T) {
 	}
 	if r := byName["root"]; r == nil || !r.GetSelf() || r.GetController() || r.GetCalls() != 2 || r.GetRoles()[0] != pki.RoleAdmin {
 		t.Errorf("the caller's own: %v", r)
+	}
+	if f := byName[ServiceCredentialName]; f == nil || f.GetController() || len(f.GetUsers()) != 0 || f.GetUserCount() != 0 {
+		t.Errorf("a certificate named %s passed for the Controller: %v", ServiceCredentialName, f)
 	}
 	if a := byName["alice"]; a == nil || a.GetCalls() != 0 || a.GetSelf() {
 		t.Errorf("alice, connected, no call yet: %v", a)
@@ -205,6 +215,6 @@ func TestClientList(t *testing.T) {
 				return false
 			}
 		}
-		return len(r.GetConnections()) == 3
+		return len(r.GetConnections()) == 4
 	}, root, ctx)
 }
