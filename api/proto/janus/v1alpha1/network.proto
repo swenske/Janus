@@ -553,6 +553,11 @@ message ConsulManagedGetResponse {
   string sync_error = 4;
   int32 registered = 5;
   bool maintenance = 6;
+  // What the node's HAProxy services are named after now
+  // (haproxy-<scope>-...): the layer's scope, else its cluster's name,
+  // else its node name in Consul. Empty: no layer, or a release before
+  // scoped names - one that drops the layer's scope.
+  string scope = 7;
 }
 
 message ConsulManagedSetResponse {
