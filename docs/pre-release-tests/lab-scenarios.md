@@ -18,7 +18,7 @@ added.
 | The auto-scaled node | since v2026.10.14: a machine the Controller creates on the same host, 2 vCPU and 1 GiB from the release's default image, room for 4 vCPU and 2 GiB |
 | Backends | two nginx VMs, 1 vCPU each |
 | Load client | a 2-vCPU VM on the same host, with `wrk` - up to v2026.10.14, removed since: it took the host's CPUs from the nodes |
-| The clients | since v2026.10.14-2, outside the lab's host, reaching the front network through the routers like internet users: the three CI runners (16, 12 and 8 threads), used only while none runs a CI job, and since v2026.10.14-3 a fourth machine that isn't a runner (16 threads, always free: the probes run there; on a 2.5 GbE link since v2026.10.16-4, its path changed - the release measured again; left out of the campaigns from v2026.10.17-2 to v2026.10.18-3 for a memory fault, the probes then ran from a runner; back with its memory replaced for v2026.10.19, where it ran the browser while the load and probes stayed on the runners, to compare; for v2026.11.07 the fourth machine and one runner only - the other two runners' hosts were due for an update -, the release measured again from the same clients). A temporary `wrk` on each, removed afterwards. The host's CPUs go to the nodes |
+| The clients | since v2026.10.14-2, outside the lab's host, reaching the front network through the routers like internet users: the three CI runners (16, 12 and 8 threads), used only while none runs a CI job, and since v2026.10.14-3 a fourth machine that isn't a runner (16 threads, always free: the probes run there; on a 2.5 GbE link since v2026.10.16-4, its path changed - the release measured again; left out of the campaigns from v2026.10.17-2 to v2026.10.18-3 for a memory fault, the probes then ran from a runner; back with its memory replaced for v2026.10.19, where it ran the browser while the load and probes stayed on the runners, to compare; for v2026.11.07 and v2026.11.08 the fourth machine and one runner only - the other two runners' hosts were due for an update -, the release measured again from the same clients). A temporary `wrk` on each, removed afterwards. The host's CPUs go to the nodes |
 | Controller | Docker Compose with its updater, an admin with TOTP |
 | Proxy | since v2026.10.23-2: Squid 6.13 on the Controller's machine, asking for a username and password, open to the lab's networks only |
 
@@ -1178,6 +1178,19 @@ release first, where the code shows.
 | The hypervisor's console | the code there (the screen, or `virsh console` once the Controller's is closed), and `janusctl access rescue` with it |
 | The machine afterwards | the window closed, the node back in the fleet; AVC denials |
 
+### A console certificate, and the review's hardening
+
+Since v2026.11.08 (JANUS-2026-033 and the 2026-11-05 review's #28),
+each tried on the release first, where the hole shows:
+
+| Fix | How | Measured |
+|---|---|---|
+| The identity and the fleet's reset (#033) | a fresh Controller machine; with the Controller sign-in's context, an `os:admin` certificate of the node's own CA issued through the API (`pki generate-client-config`): `system state export -identity`, then `access trust-reset`; the names `rescue:…` and `kit:…` asked; on the pre-release, `-kit`, and a rescue certificate (a rescue volume, the code read on the hypervisor's console) | the export (a file? `pki/ca.key`?) or the refusal's message; the reset or its refusal; the names issued or refused; what the kit and the rescue certificate still reach |
+| The connectivity test (#28) | Controller accounts with an operator grant on the network domain alone and on HAProxy + network; each, and the admin, through the node page's Connectivity test: tcp to 127.0.0.1 (the API), http to 127.0.0.1 (HAProxy), http to 169.254.169.254, tcp to a backend | each step's outcome and message |
+| A node's clients (#28) | a certificate named `janus-controller` issued through the API, holding a stream with `-as-user` | `system clients`: the Controller or a plain client, the user it names |
+| CSP reports (#28) | 50 reports from the build box and 10 from a KVM host within a minute, one more a minute later | the Controller's log lines per source, the "more reports" line |
+| The pairing window (#28) | a bare node (nothing provided) left with its window open over an hour, its serial log read every minute (each code's time first seen and a hash of it, never the code); then `fleet adopt -code` with the first code and with the newest, into a throwaway fleet | when the code changes, the window's certificate, the old code's refusal message, the new code's adoption |
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -1406,3 +1419,13 @@ ran:
   without `-identity`, the export files removed after. `mdel NAME...`:
   Controller machines destroyed. `rlab73.sh`: the clients restricted to
   the fourth machine and one runner (v2026.11.07).
+- `t033 NODE OUT [JANUSCTL]`: certificates a node issues through its API
+  - the identity export, the `rescue:`/`kit:` names, a `janus-controller`
+  client with `-as-user` in `system clients`, `access trust-reset`;
+  `t033r NAME OUT`: the same node's identity with `-kit`, then a rescue
+  certificate's export and reset; `t28probe NODE OUT`: the node page's
+  connectivity test by the admin, a network-only and an HAProxy operator;
+  `t28csp OUT`: CSP reports from two addresses, the log lines counted;
+  `pwatch NAME OUT`: a bare node's pairing codes as they appear (time and
+  hash only); `p2-renew NAME OUT`: the first and newest codes tried with
+  `fleet adopt` in a throwaway fleet (v2026.11.08).
