@@ -49,7 +49,24 @@ func (f *Frame) Set(x, y int, r rune, s Style) {
 	if x < 0 || y < 0 || x >= f.W || y >= f.H {
 		return
 	}
-	f.cells[y*f.W+x] = Cell{r, s}
+	f.cells[y*f.W+x] = Cell{Printable(r), s}
+}
+
+// Printable is r, or a space for a character a terminal would act on
+// rather than draw: C0 controls and DEL, the C1 controls (U+0080-U+009F:
+// U+009B is a CSI to a terminal that honours 8-bit controls) and the
+// bidirectional overrides and isolates, which reorder what follows. Every
+// cell goes through it - Text and anything that sets cells itself, the
+// traffic map's labels included: names and labels come from nodes
+// (security review 2026-11-05 #28).
+func Printable(r rune) rune {
+	switch {
+	case r < ' ', r >= 0x7f && r <= 0x9f:
+		return ' '
+	case r >= 0x202a && r <= 0x202e, r >= 0x2066 && r <= 0x2069:
+		return ' '
+	}
+	return r
 }
 
 // At is the cell at x, y (a blank one outside the frame).
@@ -72,10 +89,7 @@ func (f *Frame) Text(x, y int, s string, st Style, maxW int) int {
 		if n >= maxW {
 			break
 		}
-		if r < ' ' || r == 0x7f {
-			r = ' '
-		}
-		f.Set(x+n, y, r, st)
+		f.Set(x+n, y, r, st) // Printable
 		n++
 	}
 	return max(n, 0)

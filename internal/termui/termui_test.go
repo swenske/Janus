@@ -345,3 +345,32 @@ func TestTruncatePad(t *testing.T) {
 		t.Error("Pad")
 	}
 }
+
+// TestNothingReachesTheTerminalAsAControl: whatever writes a cell - Text,
+// or Set directly as the traffic map does - C0, DEL, C1 and the
+// bidirectional controls become spaces; the box, braille and accented
+// characters the dashboard draws stay.
+func TestNothingReachesTheTerminalAsAControl(t *testing.T) {
+	for _, s := range []string{"\x1b[31m", "\u009b31m", "a\u0085b", "\u202eevil", "\u2066x\u2069", "\x7f"} {
+		f := NewFrame(10, 1)
+		f.Text(0, 0, s, Style{}, 0)
+		for x := 0; x < 10; x++ {
+			if r := f.At(x, 0).R; r < ' ' || (r >= 0x7f && r <= 0x9f) || (r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069) {
+				t.Errorf("%q: cell %d is %U", s, x, r)
+			}
+		}
+		g := NewFrame(10, 1)
+		for i, r := range []rune(s) {
+			g.Set(i, 0, r, Style{})
+		}
+		if g.Lines()[0] != f.Lines()[0] {
+			t.Errorf("%q: Set %q, Text %q", s, g.Lines()[0], f.Lines()[0])
+		}
+	}
+	f := NewFrame(8, 1)
+	keep := "é─│⣿▀█…"
+	f.Text(0, 0, keep, Style{}, 0)
+	if got := strings.TrimRight(f.Lines()[0], " "); got != keep {
+		t.Errorf("drawing characters changed: %q", got)
+	}
+}
