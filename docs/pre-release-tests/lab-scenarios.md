@@ -743,6 +743,7 @@ a frontend) given `consul` and node_exporter by `PATCH /api/machines`
 | Since v2026.10.29-4: the cluster updated on another image (one more extension), a machine updated by Terraform | when the image factory's build happens against the member's drain and its machine's phase; `apply` and the next `plan` |
 | Since v2026.10.29-5: a machine with BIRD (a minimal configuration), Consul, node_exporter and the guest agent, updated by the Controller (`wait_for_health`), janusd restarted minutes after the update's confirmation, three times - and on the release, the same restart for comparison | janusd back or not, its console (init's lines), its extensions running again, the Controller's view of the node |
 | Since v2026.11.08-2, **the scope**: the machines made on the release, the Controller updated first, then the cluster updated in place member by member, the machine alone updated, a machine made on the pre-release, the cluster deleted; the catalog read every second | the policies in Consul (`janus-nodes`, `janus-nodes-legacy`, `janus-scope-<scope>`) and each token's after every step; each member's services renamed `haproxy-<scope>-…` with no duplicate; the node's layer `scope` (`/api/network/consul/managed`); with a node's own token, `PUT /v1/catalog/register` of another scope's `haproxy-<other>-x` (403 expected) and of its own (200, deregistered after) |
+| Since v2026.11.08-3, **the transition and the single push**: the machines made on the release, the Controller updated first by its updater (from the pre-release before when it can't go back), three passes with the nodes still on the release; then the cluster updated in place, the lone node updated through its page, a machine made on the pre-release before and updated after; the lone node rolled back to the release and forward; each node's release, the Controller's `legacy` and its token's policies read every second | when `janus-nodes-legacy` leaves each token, from its API's return (with the pass the update runs itself, or the periodic one, else **Run now**); the Controller's "Consul layer … applied" lines - one per updated node, then none over two more passes, none at all for a node of the release before or of the pre-release before; `janusctl network consul managed`'s `Scope:` line; the Consul tab's `writes haproxy-<scope>-…` and "and any haproxy-…" badge before and after; the 403/200 writes with each node's token; after a rollback, how long the node's HAProxy services stay out of the catalog |
 
 ### Prometheus finding them
 
@@ -1468,3 +1469,13 @@ ran:
   zeros; `awatch NAME SECONDS`: an auto-scaled machine's size, status and
   CPUs; `manual-vm2` (`NICMODEL=`, `DISKOPT=`, `CTRLOPT=`): a node made
   by hand with other disk buses and NIC models (v2026.11.08-2).
+- `kwatch OUT NAME...`: each node's release, the Controller's Consul
+  view of it (state, scope, `legacy`) and its token's policies, every
+  second, a line per change; `knodes`: the Controller's Consul nodes and
+  its last pass; `krun`: **Run now**, waiting for the pass; `klog
+  [SINCE]`: the Controller's Consul log lines ("Consul layer …
+  applied" counted); `kmanaged NAME`: a node's layer `scope` and its
+  answer's `scope` through its page; `nlabel NAME JSON`: a node's own
+  labels; `pupgrade NAME VERSION`: a pre-release installed the way the
+  node's page does it (factory, `upgrade-url`); `gapwhere NAME FROM
+  TO`: where each Prometheus series' gaps fall (v2026.11.08-3).
