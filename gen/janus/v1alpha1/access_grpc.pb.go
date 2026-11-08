@@ -45,8 +45,10 @@ type AccessServiceClient interface {
 	// node's. The same bundle again changes nothing.
 	TrustSet(ctx context.Context, in *TrustSetRequest, opts ...grpc.CallOption) (*TrustState, error)
 	// Forgets the fleet: its certificates no longer let anyone in. Only a
-	// certificate of the node's own CA may do it - the way back when a
-	// fleet is lost, never for the fleet itself.
+	// certificate the node's own CA issued at its console - a rescue
+	// certificate - may do it: the way back when a fleet is lost, never
+	// for the fleet itself, nor for a certificate the node issued through
+	// its API.
 	TrustReset(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*TrustState, error)
 	// Replaces the node's own CA: a new CA, server certificate and admin
 	// certificate. Every certificate the old CA issued stops working - a
@@ -126,8 +128,10 @@ type AccessServiceServer interface {
 	// node's. The same bundle again changes nothing.
 	TrustSet(context.Context, *TrustSetRequest) (*TrustState, error)
 	// Forgets the fleet: its certificates no longer let anyone in. Only a
-	// certificate of the node's own CA may do it - the way back when a
-	// fleet is lost, never for the fleet itself.
+	// certificate the node's own CA issued at its console - a rescue
+	// certificate - may do it: the way back when a fleet is lost, never
+	// for the fleet itself, nor for a certificate the node issued through
+	// its API.
 	TrustReset(context.Context, *emptypb.Empty) (*TrustState, error)
 	// Replaces the node's own CA: a new CA, server certificate and admin
 	// certificate. Every certificate the old CA issued stops working - a

@@ -192,13 +192,25 @@ echo "  ok: bundle 2 drops the first issuing CA without touching the node; an ol
 # The file API never serves the fleet trust's files either.
 refuses "Read of the pinned root" PermissionDenied local system cat /etc/janus/pki/fleet/root.crt
 
-# --- forgetting the fleet: only through the node's own CA ---
+# --- forgetting the fleet: only through the node's own CA, at its console ---
 refuses "a fleet admin making the node forget its fleet" "node's own CA" admin-other access trust-reset
+# The admin certificate rotate-ca gave is the node's own CA's, but it came
+# through the API - a fleet's admin had it made above: it says nothing
+# about the console (security review 2026-11-05 #28).
+refuses "rotate-ca's admin certificate making the node forget its fleet" "issued at its console" local access trust-reset
+# A console certificate - a rescue's: this test's, signed from the node's
+# CA read off its disk (hack/state-read.sh's, the console mark included).
+deadline=$((SECONDS + 60))
+until (STATE_READ_TIMEOUT=0 state_pki "$DISK" "$WORKDIR/console") 2>/dev/null && cmp -s "$WORKDIR/console/ca.crt" "$WORKDIR/ca.crt"; do
+  [ "$SECONDS" -lt "$deadline" ] || fail "the rotated CA off the node's STATE"
+  sleep 2
+done
+cp "$WORKDIR/console/admin.crt" "$WORKDIR/console/admin.key" "$WORKDIR/"
 out="$(as local access trust-reset)" || fail "trust-reset with the node's own CA: $out"
 grep -q '^Fleet: *none' <<<"$out" || fail "trust-reset didn't forget the fleet: $out"
 refuses "the fleet after trust-reset" 'certificate|handshake|EOF|Unavailable' admin-other system hostname
 lets_in "the node's own CA after trust-reset" local system hostname
-echo "  ok: only the node's own CA makes it forget its fleet"
+echo "  ok: only the node's own CA, at its console, makes it forget its fleet - not rotate-ca's admin certificate"
 
 as local system shutdown >/dev/null || fail "Shutdown failed"
 deadline=$((SECONDS + 30))

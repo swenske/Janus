@@ -205,7 +205,10 @@ type SystemServiceClient interface {
 	MetaDelete(ctx context.Context, in *MetaDeleteRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// GenerateClientConfiguration issues a client certificate signed by
 	// this node's CA (see internal/pki), for the given roles, named after
-	// who it's for and valid one year or less.
+	// who it's for and valid one year or less. Issued through the API, it
+	// carries neither the node's identity away nor its fleet's reset -
+	// only a certificate from the console does (a rescue certificate) -
+	// and its name never starts with rescue: or kit:.
 	GenerateClientConfiguration(ctx context.Context, in *GenerateClientConfigurationRequest, opts ...grpc.CallOption) (*GenerateClientConfigurationResponse, error)
 	// CertificateRequest makes a new private key on the node for the given
 	// purpose and returns a signing request for it (PEM). The key never
@@ -220,11 +223,12 @@ type SystemServiceClient interface {
 	// its history, files, uploaded and ACME certificates, the TLS ticket
 	// key ring, the modules' configurations, the network configuration,
 	// the Controller registration, the fleet trust; with include_identity,
-	// the node's CA and keys too - only for a certificate this node's own
-	// CA or the fleet's root itself signed, not an issuing CA's. Private
-	// keys travel in it: refused through the Controller, so they never
-	// pass through one. Besides an admin, a node this one granted it
-	// (StateExportGrant) pulls it, once.
+	// the node's CA and keys too - only for a certificate the fleet's root
+	// itself signed or this node's own CA issued at its console (a rescue
+	// certificate), not an issuing CA's nor one the node issued through
+	// its API. Private keys travel in it: refused through the Controller,
+	// so they never pass through one. Besides an admin, a node this one
+	// granted it (StateExportGrant) pulls it, once.
 	StateExport(ctx context.Context, in *StateExportRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error)
 	// StateImport takes a StateExport stream onto this node: the first
 	// message carries the options, the others the stream. The node must be
@@ -1099,7 +1103,10 @@ type SystemServiceServer interface {
 	MetaDelete(context.Context, *MetaDeleteRequest) (*emptypb.Empty, error)
 	// GenerateClientConfiguration issues a client certificate signed by
 	// this node's CA (see internal/pki), for the given roles, named after
-	// who it's for and valid one year or less.
+	// who it's for and valid one year or less. Issued through the API, it
+	// carries neither the node's identity away nor its fleet's reset -
+	// only a certificate from the console does (a rescue certificate) -
+	// and its name never starts with rescue: or kit:.
 	GenerateClientConfiguration(context.Context, *GenerateClientConfigurationRequest) (*GenerateClientConfigurationResponse, error)
 	// CertificateRequest makes a new private key on the node for the given
 	// purpose and returns a signing request for it (PEM). The key never
@@ -1114,11 +1121,12 @@ type SystemServiceServer interface {
 	// its history, files, uploaded and ACME certificates, the TLS ticket
 	// key ring, the modules' configurations, the network configuration,
 	// the Controller registration, the fleet trust; with include_identity,
-	// the node's CA and keys too - only for a certificate this node's own
-	// CA or the fleet's root itself signed, not an issuing CA's. Private
-	// keys travel in it: refused through the Controller, so they never
-	// pass through one. Besides an admin, a node this one granted it
-	// (StateExportGrant) pulls it, once.
+	// the node's CA and keys too - only for a certificate the fleet's root
+	// itself signed or this node's own CA issued at its console (a rescue
+	// certificate), not an issuing CA's nor one the node issued through
+	// its API. Private keys travel in it: refused through the Controller,
+	// so they never pass through one. Besides an admin, a node this one
+	// granted it (StateExportGrant) pulls it, once.
 	StateExport(*StateExportRequest, grpc.ServerStreamingServer[Data]) error
 	// StateImport takes a StateExport stream onto this node: the first
 	// message carries the options, the others the stream. The node must be

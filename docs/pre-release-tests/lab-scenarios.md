@@ -528,7 +528,7 @@ command without it.
 |---|---|
 | What arrived | the new node's configuration, its answer, the file's SHA-256, the kernel parameter |
 | The identity | the CA the new node's API certificate is issued by, before and after - its own without `-identity`, the old node's with it |
-| The identity's certificate (#031) | `-identity` with the sign-in's certificate: refused, nothing staged; with `-kit`: granted, the old node's log naming `kit:<account>`; `system state export -identity` the same, without and with `-kit` |
+| The identity's certificate (#031, #033) | `-identity` with the sign-in's certificate: refused, nothing staged; with `-kit`: granted, the old node's log naming `kit:<account>`; `system state export -identity` the same, without and with `-kit`; since JANUS-2026-033, an admin certificate the node issued through its API (`pki generate-client-config`, the Controller's node page) refused the identity and `access trust-reset` too, a rescue certificate let through |
 | The way it went | both nodes' logs: the grant (until when, the identity or not, by whom), the export by the transfer certificate, the import |
 | The refusals | a grant asked with a reader's certificate; a second import onto a node already in use |
 

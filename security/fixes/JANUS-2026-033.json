@@ -1,0 +1,11 @@
+{
+  "id": "JANUS-2026-033",
+  "title": "An admin could still reach a node's identity through a certificate the node issued itself",
+  "severity": "medium",
+  "cvss": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N",
+  "cwe": [
+    "CWE-269"
+  ],
+  "target": "node",
+  "description": "JANUS-2026-031 kept a node's identity - its CA's key - for a certificate of the node's own CA or of the fleet's root itself, away from the 12-hour admin certificates an issuing CA signs. But any admin can have the node issue a certificate of its own CA: `SystemService.GenerateClientConfiguration` (valid up to a year, also offered on the Controller's node page) and `AccessService.LocalCARotate` (an admin certificate of the new CA). With one, a fleet admin's 12-hour certificate became a node-CA certificate, then the node's identity - and the same certificate passed the node-CA check of `TrustReset`, so it could make the node forget its fleet. It also meant a rescue certificate's hour wasn't a bound.\n\n**Affected**: v2026.11.07's identity rule, and `TrustReset` on every node that trusts a fleet.\n\n**Fix**: a certificate the node issues at its console - a rescue certificate - carries a mark no API call puts in a certificate (OID 2.999.1.2); the node's identity (`StateExport`, `StateExportGrant` with it) and `TrustReset` take a certificate of the node's own CA only with that mark, or one the fleet's root itself signed (`janusctl ... -kit`). Certificates issued through the API work as before for everything else; their names can't start with `rescue:` or `kit:`.\n\n**Besides updating**: an older node's first-boot admin credential no longer replaces its identity nor resets its fleet: use the recovery kit (`-kit`) or a rescue volume (`janusctl access rescue`)."
+}
