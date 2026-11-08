@@ -821,7 +821,8 @@ func main() {
 	var rescueShown time.Time
 	if pw != nil {
 		pw.sayCode()
-		pairingCode, rescueShown = pw.code.String(), pw.rescueUntil
+		_, code := pw.current()
+		pairingCode, rescueShown = code.String(), pw.rescueUntil
 	}
 	printMOTD(motdInfo{
 		Version:        version,

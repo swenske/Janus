@@ -44,6 +44,15 @@ func ServerTLS(leaf tls.Certificate) *tls.Config {
 	return &tls.Config{Certificates: []tls.Certificate{leaf}, ClientAuth: tls.NoClientCert, MinVersion: tls.VersionTLS13}
 }
 
+// ServerTLSFrom is ServerTLS for a window whose certificate is renewed
+// (Renewal): each handshake presents what current gives then.
+func ServerTLSFrom(current func() *tls.Certificate) *tls.Config {
+	return &tls.Config{
+		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) { return current(), nil },
+		ClientAuth:     tls.NoClientCert, MinVersion: tls.VersionTLS13,
+	}
+}
+
 // verifier checks a window's chain against a code - the leaf the code
 // names, signed by the CA that follows it - and keeps that CA.
 type verifier struct {
@@ -57,7 +66,7 @@ func (v *verifier) verify(raw [][]byte, _ [][]*x509.Certificate) error {
 		return errors.New("the node presents no CA with its pairing certificate")
 	}
 	if !v.code.Names(raw[0]) {
-		return errors.New("the node's pairing certificate isn't the one its code names - another code, or not that node")
+		return errors.New("the node's pairing certificate isn't the one its code names - another code (an open window's is renewed every hour: read it again on the node's console), or not that node")
 	}
 	leaf, err := x509.ParseCertificate(raw[0])
 	if err != nil {
