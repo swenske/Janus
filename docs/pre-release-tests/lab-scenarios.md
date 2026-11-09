@@ -1253,6 +1253,49 @@ the figure the landing page shows), the UKI, both kernels, the root
 filesystem and the base. A change in the landing page's figure is
 reported for the promotion.
 
+### Update downloads asked again
+
+Since v2026.11.09-2 (#603): a small HTTP server on the Controller's
+host serves the pre-release's bundle (GitHub's files, checked against
+their digests), every request logged with its time and status; under
+`/flaky/`, each file answers 504 the first time it is asked, as in
+`qemu-lifecycle-upgrade-url-test`. A fresh Controller machine updated
+with `janusctl lifecycle upgrade -wait-for-health -sha256 …`, each
+streamed line timestamped: from `/flaky` on the previous release (the
+baseline: it stops at the first 504), from GitHub's release URL (a real
+504 noted if one comes), from `/flaky` once on the pre-release (each
+"trying again in 5s (2/5)" line, and the server's 504 then 200 for each
+file, the delay between them), from a path without a bundle (a 404:
+refused at once, one request), and from `/flaky` through the node
+page's "the node downloads it" (what the page receives, what janusd's
+log keeps). Expected: the three files asked again after the retry's
+delay and the update done; the 404 final.
+
+When a release's hardware refusal can't be met on the lab's machines (a
+janusd whose kernel lacks a device's driver never runs with that device
+bound), the refusal is shown with a lab-built bundle instead: the
+pre-release's root filesystem rebuilt with an `image.json` whose
+`kernel.drivers` leaves out a driver the machine uses (`virtio_net`),
+padded to the same size, its hash tree made again (the salt = the new
+file's SHA-256, as the release's) and both UKIs' `.cmdline` given the
+new root hash (`objcopy --update-section`, same length), unsigned and
+installed with `-insecure-skip-signature-check`: the node writes the
+slot and refuses before switching. Never booted.
+
+### The CPUfreq warning
+
+Since v2026.11.09-2 (#607): every kind of machine's kernel log, on the
+release then on the pre-release - node 02's serial console over its six
+boot-stage boots, the cluster update's boots of both nodes, a machine
+made by hand with Proxmox's default devices (made on the release,
+updated through its page), and through the LOGS partition each boot of
+the Controller's longterm, Let's Encrypt and default machines
+(`system dmesg -boot N`, the boot's release from janusd's log of the
+same boot): "Processor Platform Limit", "CPUfreq", any cpufreq,
+governor, scaling or pstate line, and after a CPU hot-add; with
+`/sys/devices/system/cpu/cpufreq`'s content. Expected: the warning
+gone, no new line, the boot stages unchanged.
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -1519,3 +1562,10 @@ ran:
   boot time read before and after; `allowup NAME [SECONDS]`: the update
   forced with `-allow-unsupported-hardware`, the serial console followed
   from the call (v2026.11.09).
+- `flaky-serve.py PORT DIR`: a bundle served with a 504 for each file's
+  first request under `/flaky/` (`/flaky/reset` forgets them), every
+  request logged; `urlup NAME NODE URL`: `janusctl lifecycle upgrade`
+  from URL, each line timestamped, with the server's log over the same
+  window; `boots PREFIX NODE [DOMAIN]`: `bstage` firmware ×2 and kexec
+  ×4, the serial console since before them (`serlog`), the last boot's
+  kernel log, and the CPUfreq lines (v2026.11.09-2).
