@@ -293,6 +293,13 @@ func runUpgrade(w http.ResponseWriter, r *http.Request, client janusv1alpha1.Lif
 		return
 	}
 
+	// A page asking for NDJSON gets each of the node's messages as it
+	// comes - a download asked again after a 504 (v2026.11.09-2's lab
+	// campaign: up to ~110 s of silence per file otherwise) - in the
+	// relay's lines, "done" or "error" last. A refusal before any message
+	// is still the plain 502 it always was.
+	streaming := strings.Contains(r.Header.Get("Accept"), "application/x-ndjson")
+	var out *progressWriter
 	var last *janusv1alpha1.UpgradeResponse
 	for {
 		msg, err := stream.Recv()
@@ -300,13 +307,30 @@ func runUpgrade(w http.ResponseWriter, r *http.Request, client janusv1alpha1.Lif
 			break
 		}
 		if err != nil {
+			if out != nil {
+				out.send(relayProgress{Stage: "error", Message: fmt.Sprintf("Upgrade stream: %v", err)})
+				return
+			}
 			http.Error(w, fmt.Sprintf("Upgrade stream: %v", err), http.StatusBadGateway)
 			return
 		}
 		last = msg
+		if streaming {
+			if out == nil {
+				w.Header().Set("Content-Type", "application/x-ndjson")
+				w.Header().Set("Cache-Control", "no-store")
+				w.WriteHeader(http.StatusOK)
+				out = newProgressWriter(w)
+			}
+			out.send(relayProgress{Stage: msg.GetStage(), Message: msg.GetMessage(), Percent: uint32(msg.GetProgress()*100 + 0.5)})
+		}
 	}
 	if last == nil {
 		http.Error(w, "Upgrade returned no progress messages", http.StatusBadGateway)
+		return
+	}
+	if out != nil {
+		out.send(relayProgress{Stage: "done", Message: last.GetMessage()})
 		return
 	}
 
