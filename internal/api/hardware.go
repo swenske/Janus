@@ -34,7 +34,7 @@ func (l *Lifecycle) checkHardware(src *janusv1alpha1.ImageSource, image *schemat
 			return fmt.Sprintf("can't tell whether %s drives this machine (%v) - installed all the same (allow_unsupported_hardware)", kernel, err), nil
 		}
 		return "", status.Errorf(codes.FailedPrecondition,
-			"can't tell whether this release's kernel (%s) drives this machine: %v - set allow_unsupported_hardware to install it all the same", image.Kernel.Flavor, err)
+			"can't tell whether this release's kernel (%s) drives this machine: %v - janusctl's -allow-unsupported-hardware installs it all the same (allow_unsupported_hardware; the Controller's Update page doesn't offer it)", image.Kernel.Flavor, err)
 	}
 	missing := hwsupport.Missing(image.Kernel.Drivers, uses)
 	switch {
@@ -44,7 +44,7 @@ func (l *Lifecycle) checkHardware(src *janusv1alpha1.ImageSource, image *schemat
 		return fmt.Sprintf("%s has no driver for %s - installed all the same (allow_unsupported_hardware)", kernel, hwsupport.Describe(missing)), nil
 	}
 	return "", status.Errorf(codes.FailedPrecondition,
-		"this release's kernel (%s) has no driver for %s: %s. Set allow_unsupported_hardware only if those devices change before the node boots it",
+		"this release's kernel (%s) has no driver for %s: %s. Only if those devices change before the node boots it, janusctl's -allow-unsupported-hardware installs it all the same (allow_unsupported_hardware; the Controller's Update page doesn't offer it)",
 		image.Kernel.Flavor, hwsupport.Describe(missing), consequence(missing))
 }
 

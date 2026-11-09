@@ -328,6 +328,23 @@
 # (7.3), 443 -> 352 and 1087 -> 934 (6.18).
 #   # CONFIG_BLK_DEV_NVME is not set  # CONFIG_USB_SUPPORT is not set
 #
+# CPU_FREQ's core back, without a driver (2026-11-09): the virtual-machine
+# kernel above printed at every boot "Warning: Processor Platform Limit
+# event detected, but not handled. Consider compiling CPUfreq support
+# into your kernel." - include/acpi/processor.h's stand-in for
+# acpi_processor_ppc_has_changed when CPU_FREQ is off, met by the _PPC
+# notification QEMU's ACPI tables send (v2026.11.09's lab campaign).
+# With the core in, the real one runs and finds no policy to limit.
+# `scripts/config --enable CPU_FREQ --enable CPU_FREQ_GOV_PERFORMANCE
+# --enable CPU_FREQ_DEFAULT_GOV_PERFORMANCE`, every scaling driver
+# (X86_INTEL_PSTATE, X86_AMD_PSTATE, X86_ACPI_CPUFREQ, X86_PCC_CPUFREQ,
+# X86_P4_CLOCKMOD, X86_SPEEDSTEP_CENTRINO) and the other governors and
+# CPU_FREQ_STAT disabled, then make ARCH=x86_64 olddefconfig. The
+# resolved diff, both tracks: CPU_FREQ, CPU_FREQ_GOV_PERFORMANCE and its
+# default choice, CPUFREQ_ARCH_CUR_FREQ (a def_bool), the rest written
+# "is not set".
+#   CONFIG_CPU_FREQ=y  # CONFIG_X86_INTEL_PSTATE is not set
+#
 # Deliberately the FULL resolved config (every symbol explicit), not a
 # compact savedefconfig diff: a diff format resolves unlisted symbols
 # against the kernel's own defconfig-derived defaults, which would
@@ -785,6 +802,7 @@ CONFIG_ARCH_HAS_ADD_PAGES=y
 #
 # CONFIG_SUSPEND is not set
 # CONFIG_PM is not set
+# CONFIG_ENERGY_MODEL is not set
 CONFIG_ARCH_SUPPORTS_ACPI=y
 CONFIG_ACPI=y
 CONFIG_ACPI_LEGACY_TABLES_LOOKUP=y
@@ -840,7 +858,35 @@ CONFIG_X86_PM_TIMER=y
 #
 # CPU Frequency scaling
 #
-# CONFIG_CPU_FREQ is not set
+CONFIG_CPU_FREQ=y
+# CONFIG_CPU_FREQ_STAT is not set
+CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE=y
+# CONFIG_CPU_FREQ_DEFAULT_GOV_POWERSAVE is not set
+# CONFIG_CPU_FREQ_DEFAULT_GOV_USERSPACE is not set
+# CONFIG_CPU_FREQ_DEFAULT_GOV_ONDEMAND is not set
+# CONFIG_CPU_FREQ_DEFAULT_GOV_CONSERVATIVE is not set
+# CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL is not set
+CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
+# CONFIG_CPU_FREQ_GOV_POWERSAVE is not set
+# CONFIG_CPU_FREQ_GOV_USERSPACE is not set
+# CONFIG_CPU_FREQ_GOV_ONDEMAND is not set
+# CONFIG_CPU_FREQ_GOV_CONSERVATIVE is not set
+# CONFIG_CPU_FREQ_GOV_SCHEDUTIL is not set
+
+#
+# CPU frequency scaling drivers
+#
+# CONFIG_X86_INTEL_PSTATE is not set
+# CONFIG_X86_PCC_CPUFREQ is not set
+# CONFIG_X86_AMD_PSTATE is not set
+# CONFIG_X86_ACPI_CPUFREQ is not set
+# CONFIG_X86_SPEEDSTEP_CENTRINO is not set
+# CONFIG_X86_P4_CLOCKMOD is not set
+
+#
+# shared options
+#
+CONFIG_CPUFREQ_ARCH_CUR_FREQ=y
 # end of CPU Frequency scaling
 
 #

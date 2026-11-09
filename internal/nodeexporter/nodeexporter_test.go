@@ -138,16 +138,18 @@ func TestLoadSave(t *testing.T) {
 		t.Fatalf("loaded %+v %v %v", out, isDefault, err)
 	}
 	// Settings saved with a collector no longer offered keep the rest.
-	if err := os.WriteFile(filepath.Join(Dir, configFile), []byte(`{"enabled": true, "port": 9111, "collectors": ["cpu", "nvme", "meminfo"]}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(Dir, configFile), []byte(`{"enabled": true, "port": 9111, "collectors": ["cpu", "cpufreq", "nvme", "meminfo", "thermal_zone"]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out, isDefault, err = Load()
 	if err != nil || isDefault || out.Port != 9111 || !slices.Equal(out.Collectors, []string{"cpu", "meminfo"}) {
 		t.Fatalf("loaded with nvme: %+v %v %v", out, isDefault, err)
 	}
-	// Asking for it is refused, saying why.
-	c := Config{Collectors: []string{"cpu", "nvme"}}
-	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "no longer offered") {
-		t.Errorf("nvme asked for: %v", err)
+	// Asking for one is refused, saying why.
+	for _, gone := range []string{"nvme", "cpufreq", "thermal_zone"} {
+		c := Config{Collectors: []string{"cpu", gone}}
+		if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "no longer offered") {
+			t.Errorf("%s asked for: %v", gone, err)
+		}
 	}
 }
