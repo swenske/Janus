@@ -523,22 +523,26 @@ volume (method 3) to the installed disk's first boot.
 ## Physical hardware
 
 Physical machines are experimental
-([what Janus supports](private-cloud/README.md#what-janus-supports)):
-the drivers below are built in, proven under QEMU's emulated devices
-only. The images boot whatever the disk is called: their UKIs name the
+([what Janus supports](private-cloud/README.md#what-janus-supports)),
+and need a kernel of their own: the images' kernel is built for
+KVM/QEMU virtual machines and has no driver for a physical machine's
+NVMe disks, RAID controllers or network cards. Bare metal comes back
+with a kernel for it, once someone tests it
+([suspended targets](internals/image-build.md#suspended-targets)); an
+update refuses to install a kernel that can't drive a node's boot disk
+or network cards ([updates](guide/updates.md#with-janusctl)). The
+images boot whatever the disk is called: their UKIs name the
 partitions by GPT label (`PARTLABEL=BOOT-A-DATA`...), and the kernel
-waits for them (`dm-mod.waitfor`) - virtio (`/dev/vda`), SATA/SAS/USB
-(`/dev/sda`), NVMe (`/dev/nvme0n1`).
+waits for them (`dm-mod.waitfor`) - virtio-blk (`/dev/vda`),
+virtio-scsi or SATA (`/dev/sda`).
 
-- **Disks**: AHCI (SATA), NVMe, USB, virtio-blk and virtio-scsi
-  (Proxmox's default controller), VMware pvscsi, Broadcom MegaRAID
-  RAID/HBA controllers (Dell PERC), Broadcom/LSI SAS (mpt3sas),
-  Microchip SmartPQI (HPE).
-- **Network cards**: Intel e1000, e1000e, igb, igc, ixgbe, i40e;
-  Realtek r8169; Broadcom tg3, bnxt; Mellanox ConnectX-4 and later
-  (mlx5); VMware vmxnet3; virtio. No firmware file is shipped: a card
-  that needs one (Intel ice, Broadcom bnx2x...) isn't supported.
-- **Processors**: every core (SMP, up to 512), x2APIC, NUMA.
+- **Disks**: virtio-blk, virtio-scsi (Proxmox's default controller),
+  AHCI (SATA: q35's, and the CD-ROM a NoCloud volume comes on), PIIX
+  (IDE: i440fx's).
+- **Network cards**: virtio, and the Intel e1000 and e1000e QEMU and
+  Proxmox emulate. No firmware file is shipped.
+- **Processors**: every core (SMP, up to 512), x2APIC, NUMA, CPU and
+  memory hot-plug.
 - **Console**: the screen (UEFI framebuffer) and the `ttyS0` serial
   port - the pairing code included.
 - One Janus installation per machine: two Janus disks would carry the

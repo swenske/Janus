@@ -90,8 +90,9 @@ on a Janus node. The default ones: `cpu`, `diskstats`, `filefd`,
 `filesystem`, `loadavg`, `meminfo`, `netdev`, `netstat`, `os`,
 `pressure`, `sockstat`, `stat`, `time`, `timex`, `uname`, `vmstat`. More
 can be turned on: `arp`, `conntrack`, `cpufreq`, `dmi`, `entropy`,
-`interrupts`, `netclass`, `nvme`, `softirqs`, `softnet`,
-`thermal_zone`, `udp_queues`.
+`interrupts`, `netclass`, `softirqs`, `softnet`, `thermal_zone`,
+`udp_queues` (`nvme` no longer: the kernel is a virtual machine's, and
+settings that named it keep the rest).
 
 ```sh
 janusctl system node-exporter                                  # show
