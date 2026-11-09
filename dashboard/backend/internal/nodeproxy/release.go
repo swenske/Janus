@@ -320,6 +320,7 @@ func releaseSecurity(ctx context.Context, tag, url string) ([]releaseFix, error)
 	securityByTag.Lock()
 	securityByTag.m[tag] = fixes
 	securityByTag.Unlock()
+	releaseCacheDirty.Store(true)
 	return fixes, nil
 }
 
@@ -494,6 +495,11 @@ func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 	// Newest version first, not GitHub's order (ReleasesURL): the first
 	// release is the latest, the first pre-release the newest.
 	calver.SortNewestFirst(releases, func(r ghRelease) string { return r.TagName })
+	// Every release's security.json not read yet, at once (#553): one
+	// after the other, ~60 of them took minutes when GitHub answered in
+	// 8-10 s. The list below takes them from securityByTag.
+	fetchSecurities(ctx, releases)
+	defer saveReleaseCache()
 
 	var info *ReleaseInfo
 	var pre *ghRelease // the newest pre-release
@@ -511,7 +517,7 @@ func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 		}
 		if info != nil {
 			info.tags = append(info.tags, rel.TagName)
-			info.readSecurity(ctx, rel)
+			info.readSecurity(rel)
 			if m := maintenanceName.FindStringSubmatch(rel.Name); m != nil {
 				mi, err := releaseInfo(ctx, rel)
 				if err != nil {
@@ -529,7 +535,7 @@ func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 		}
 		info.tags = []string{rel.TagName}
 		info.security = map[string][]releaseFix{}
-		info.readSecurity(ctx, rel)
+		info.readSecurity(rel)
 	}
 	if info == nil {
 		return nil, fmt.Errorf("no published releases found")
@@ -572,21 +578,70 @@ func releaseInfo(ctx context.Context, rel ghRelease) (*ReleaseInfo, error) {
 	return info, nil
 }
 
-// readSecurity reads a release's security.json, when it has one - one
-// that doesn't come leaves the release's fixes out of this list
-// (partial), the release offered all the same.
-func (r *ReleaseInfo) readSecurity(ctx context.Context, rel ghRelease) {
+// readSecurity takes a release's security.json from securityByTag
+// (fetchSecurities read it) - one that didn't come leaves the release's
+// fixes out of this list (partial), the release offered all the same.
+func (r *ReleaseInfo) readSecurity(rel ghRelease) {
+	if securityURL(rel) == "" {
+		return
+	}
+	securityByTag.Lock()
+	fixes, ok := securityByTag.m[rel.TagName]
+	securityByTag.Unlock()
+	if !ok {
+		r.partial = true
+		return
+	}
+	r.security[rel.TagName] = fixes
+}
+
+// securityURL is a release's security.json, "" when it has none.
+func securityURL(rel ghRelease) string {
 	for _, asset := range rel.Assets {
 		if asset.Name == "security.json" {
-			fixes, err := releaseSecurity(ctx, rel.TagName, asset.BrowserDownloadURL)
-			if err != nil {
-				log.Printf("releases: %s's security.json: %v - read again in %s", rel.TagName, err, partialRetry)
-				r.partial = true
-				continue
-			}
-			r.security[rel.TagName] = fixes
+			return asset.BrowserDownloadURL
 		}
 	}
+	return ""
+}
+
+// securityFetches bounds how many security.json are read at once, and
+// securityFetchTimeout each one.
+const (
+	securityFetches      = 8
+	securityFetchTimeout = 20 * time.Second
+)
+
+// fetchSecurities reads the security.json of every published release
+// that has one and isn't in securityByTag yet, securityFetches at a time;
+// one that doesn't come is said in the log and read again next time.
+func fetchSecurities(ctx context.Context, releases []ghRelease) {
+	sem := make(chan struct{}, securityFetches)
+	var wg sync.WaitGroup
+	for _, rel := range releases {
+		u := securityURL(rel)
+		if rel.Draft || rel.Prerelease || u == "" {
+			continue
+		}
+		securityByTag.Lock()
+		_, ok := securityByTag.m[rel.TagName]
+		securityByTag.Unlock()
+		if ok {
+			continue
+		}
+		wg.Add(1)
+		go func(tag, u string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			fctx, cancel := context.WithTimeout(ctx, securityFetchTimeout)
+			defer cancel()
+			if _, err := releaseSecurity(fctx, tag, u); err != nil {
+				log.Printf("releases: %s's security.json: %v - read again in %s", tag, err, partialRetry)
+			}
+		}(rel.TagName, u)
+	}
+	wg.Wait()
 }
 
 // assetTexts are the small text assets read off releases, by URL: read
@@ -611,6 +666,7 @@ func cachedAssetText(ctx context.Context, url string) (string, error) {
 	assetTexts.Lock()
 	assetTexts.m[url] = text
 	assetTexts.Unlock()
+	releaseCacheDirty.Store(true)
 	return text, nil
 }
 
