@@ -1105,7 +1105,10 @@ machine's inactive definition, started; then a USB keyboard plugged in
 live and taken out. The same on a node of the release before. Measured:
 the AVC denials after the boot and after the plug, the console's "USB
 disconnect", when the tablet is enumerated against when the policy is
-loaded.
+loaded. Since v2026.11.09 (#591, a kernel without USB): the same steps
+must show **nothing** - the xHCI controller on the PCI bus only, no
+driver bound, no USB, xHCI or HID line, no "USB disconnect" -, with zero
+AVC denials and no error in the kernel log or on the console.
 
 ### The Content Security Policy
 
@@ -1217,7 +1220,38 @@ a reduced kernel (`KERNEL_DRIVERS` in `variants.mk`, #591's branch): a
 driver outside it is a finding for that kernel. With empty lists, no
 update is refused and `lifecycle upgrade -help` lists
 `-allow-unsupported-hardware`; the refusal itself is
-`qemu-lifecycle-upgrade-test`'s.
+`qemu-lifecycle-upgrade-test`'s. Since v2026.11.09 the line is read
+before and after the update on every machine, and must not change.
+
+### Refused on hardware the kernel can't drive
+
+Since v2026.11.09 (#591's kernel, #590's guard in the release before):
+machines made by hand on a KVM host from the previous release's image,
+with devices the new kernel has no driver for - vmxnet3 cards; an NVMe
+boot disk (given through QEMU's command line: libvirt has no `nvme`
+disk bus; the domain's AppArmor profile told about the image, a boot
+index so OVMF connects it) - and one with Proxmox's default devices (a
+virtio-SCSI disk, e1000e cards). Each updated through its node page;
+what the node says read before and after (version, active and inactive
+slot, boot time). Expected: the out-of-list machines refused at once
+with a message naming the device, the node on the same slot with the
+same boot time (no reboot), its other slot marked; the Proxmox-like one
+updated and booted. Then each refused machine forced with `janusctl
+lifecycle upgrade -allow-unsupported-hardware -wait-for-health`
+(the Controller doesn't relay it), its serial console followed from the
+call: what the boot does, whether its boot health reverts it, how long
+it waits; then the way back - its devices changed while off and a
+rollback through the API, or the machine destroyed. An LSI SCSI
+controller can't be tried (OVMF can't boot from it), nor an `rtl8139`
+card (no driver in the release before either).
+
+### The release's sizes
+
+Since v2026.11.09: the release's files compared with the previous
+release's by their published sizes - the VM disk image (`janus.qcow2`,
+the figure the landing page shows), the UKI, both kernels, the root
+filesystem and the base. A change in the landing page's figure is
+reported for the promotion.
 
 ## The scripts
 
@@ -1479,3 +1513,9 @@ ran:
   labels; `pupgrade NAME VERSION`: a pre-release installed the way the
   node's page does it (factory, `upgrade-url`); `gapwhere NAME FROM
   TO`: where each Prometheus series' gaps fall (v2026.11.08-3).
+- `nvme-vm NAME`: a node made by hand booting from an NVMe disk (QEMU's
+  own command line, the domain's AppArmor profile, a boot index);
+  `hwup NAME VERSION`: `pupgrade` with the node's slots, versions and
+  boot time read before and after; `allowup NAME [SECONDS]`: the update
+  forced with `-allow-unsupported-hardware`, the serial console followed
+  from the call (v2026.11.09).
