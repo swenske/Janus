@@ -63,9 +63,15 @@ fail() {
 # --- the cluster ---
 docker build -q -t "$IMAGE" hack/elasticsearch >/dev/null
 docker rm -f "$NAME" >/dev/null 2>&1 || true
+# No disk watermarks: on a runner whose disk is above 85-90 % (the QEMU
+# images beside it), Elasticsearch didn't allocate its security index and
+# answered 503 - "failed to retrieve password hash for reserved user
+# [elastic]" - until the deadline (v2026.11.09-2's first build, #500).
+# A throwaway single-node cluster has nowhere else to put its shards.
 docker run -d --name "$NAME" --network host \
   -e discovery.type=single-node -e ELASTIC_PASSWORD="$PW" -e ES_JAVA_OPTS="-Xms1g -Xmx1g" \
   -e http.port="$P_ES" -e transport.port="$P_ES_T" -e xpack.ml.enabled=false \
+  -e cluster.routing.allocation.disk.threshold_enabled=false \
   "$IMAGE" >/dev/null
 deadline=$((SECONDS + 180))
 until docker exec "$NAME" test -s /usr/share/elasticsearch/config/certs/http_ca.crt 2>/dev/null; do
