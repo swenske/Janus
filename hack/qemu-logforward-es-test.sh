@@ -140,7 +140,7 @@ fi
 grep -q "no certificate the server presented has the SHA-256 fingerprint" <<<"$out" || fail "a wrong fingerprint: $out"
 target "$CA_FP" > "$WORKDIR/es.json"
 ctl system log-forwarding set "$WORKDIR/es.json" >/dev/null || fail "log-forwarding set refused"
-if ctl system log-forwarding get | grep -q "$API_KEY"; then fail "the API key came back"; fi
+if grep -q "$API_KEY" <<<"$(ctl system log-forwarding get)"; then fail "the API key came back"; fi
 ctl system log-forwarding test es >/dev/null || fail "test es failed"
 wait_doc "the test record" 'message:"log forwarding test from"'
 echo "Part 1 OK: an API key limited to logs-janus*, the cluster trusted by its CA's fingerprint - a wrong one refused - the test record stored, the key never shown"
