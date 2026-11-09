@@ -138,6 +138,13 @@ func main() {
 	if err := lockDataDir(*dataDir); err != nil {
 		log.Fatal(err)
 	}
+	// What was read of each release's files, kept across a restart
+	// (#553): a Controller starting while GitHub is slow knows the
+	// latest release after one call, not after every security.json.
+	nodeproxy.ReleaseCacheFile = filepath.Join(*dataDir, "release-cache.json")
+	if err := nodeproxy.LoadReleaseCache(); err != nil {
+		log.Printf("releases: %v - read again from GitHub", err)
+	}
 	if err := keyReadable(*masterKeyFile); err != nil {
 		log.Fatal(err)
 	}

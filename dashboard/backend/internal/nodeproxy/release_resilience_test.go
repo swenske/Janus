@@ -2,9 +2,13 @@ package nodeproxy
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -33,8 +37,8 @@ func freshAssetCaches(t *testing.T) {
 	})
 }
 
-// saveReleaseCache puts the release cache back as it was after the test.
-func saveReleaseCache(t *testing.T) {
+// keepReleaseCache puts the release cache back as it was after the test.
+func keepReleaseCache(t *testing.T) {
 	t.Helper()
 	freshAssetCaches(t)
 	releaseCache.mu.Lock()
@@ -55,7 +59,7 @@ func saveReleaseCache(t *testing.T) {
 // offered all the same, its fixes read once they come, each small asset
 // read once.
 func TestReleaseOfferedDespiteDownloads(t *testing.T) {
-	saveReleaseCache(t)
+	keepReleaseCache(t)
 	var down atomic.Bool
 	down.Store(true)
 	var listed, sums, v3json atomic.Int32
@@ -126,7 +130,7 @@ func TestReleaseOfferedDespiteDownloads(t *testing.T) {
 // list for staleTTL, tried again every staleRetry - not dropped after
 // releaseCacheTTL.
 func TestReleaseListKeptWhileGitHubFails(t *testing.T) {
-	saveReleaseCache(t)
+	keepReleaseCache(t)
 	var failing atomic.Bool
 	failing.Store(true)
 	var calls atomic.Int32
@@ -168,5 +172,97 @@ func TestReleaseListKeptWhileGitHubFails(t *testing.T) {
 	releaseCache.mu.Unlock()
 	if _, err := getLatestRelease(context.Background()); err == nil {
 		t.Fatal("a list older than staleTTL kept")
+	}
+}
+
+// TestReleaseFilesKeptAcrossARestart: what was read of each release's
+// files is written to ReleaseCacheFile and read back by a Controller
+// starting again - which then downloads none of them (#553).
+func TestReleaseFilesKeptAcrossARestart(t *testing.T) {
+	keepReleaseCache(t)
+	var downloads atomic.Int32
+	var gh *httptest.Server
+	gh = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asset := func(name, path string) string {
+			return `{"name":"` + name + `","browser_download_url":"` + gh.URL + path + `"}`
+		}
+		switch r.URL.Path {
+		case "/releases":
+			_, _ = io.WriteString(w, `[
+				{"tag_name":"v2026.11.09","html_url":"https://github.invalid/r/releases/tag/v2026.11.09","assets":[`+
+				asset("rootfs.squashfs.sha256", "/v3.sha")+`,`+asset("security.json", "/v3.json")+`]},
+				{"tag_name":"v2026.11.08","html_url":"https://github.invalid/r/releases/tag/v2026.11.08","assets":[`+asset("security.json", "/v2.json")+`]}]`)
+		case "/v3.sha":
+			downloads.Add(1)
+			_, _ = io.WriteString(w, "abc\n")
+		case "/v3.json":
+			downloads.Add(1)
+			_, _ = io.WriteString(w, `{"updates":[{"name":"linux","target":"node","fixes":[{"id":"k","severity":"critical"}]}]}`)
+		case "/v2.json":
+			downloads.Add(1)
+			_, _ = io.WriteString(w, `{"updates":[]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(gh.Close)
+	prevFile := ReleaseCacheFile
+	ReleaseCacheFile = filepath.Join(t.TempDir(), "release-cache.json")
+	t.Cleanup(func() { ReleaseCacheFile = prevFile })
+	ReleasesURL = gh.URL + "/releases"
+
+	if _, err := fetchLatestRelease(context.Background()); err != nil || downloads.Load() != 3 {
+		t.Fatalf("first fetch: %v, %d downloads", err, downloads.Load())
+	}
+	if _, err := os.Stat(ReleaseCacheFile); err != nil {
+		t.Fatalf("nothing kept: %v", err)
+	}
+
+	// A restart: the caches empty, read back from the file.
+	freshAssetCaches(t)
+	if err := LoadReleaseCache(); err != nil {
+		t.Fatal(err)
+	}
+	rel, err := fetchLatestRelease(context.Background())
+	if err != nil || downloads.Load() != 3 {
+		t.Fatalf("after a restart: %v, %d downloads - want none more", err, downloads.Load())
+	}
+	if sev, _ := rel.SecurityUpdate("v2026.11.08", "node", NodeImage{}); sev != "critical" || rel.SHA256 != "abc" {
+		t.Fatalf("read back: severity %q, sha256 %q", sev, rel.SHA256)
+	}
+}
+
+// TestSecuritiesReadAtOnce: the security.json not read yet are read
+// together - 12 that each take 200 ms take well under their 2.4 s in a
+// row (#553: ~60 of them, minutes when GitHub was slow).
+func TestSecuritiesReadAtOnce(t *testing.T) {
+	keepReleaseCache(t)
+	var gh *httptest.Server
+	var list strings.Builder
+	gh = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/releases" {
+			_, _ = io.WriteString(w, list.String())
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+		_, _ = io.WriteString(w, `{"updates":[]}`)
+	}))
+	t.Cleanup(gh.Close)
+	list.WriteString("[")
+	for i := 12; i >= 1; i-- {
+		if i < 12 {
+			list.WriteString(",")
+		}
+		tag := fmt.Sprintf("v2026.10.%02d", i)
+		list.WriteString(`{"tag_name":"` + tag + `","html_url":"https://github.invalid/r/releases/tag/` + tag + `","assets":[{"name":"security.json","browser_download_url":"` + gh.URL + "/" + tag + `.json"}]}`)
+	}
+	list.WriteString("]")
+	ReleasesURL = gh.URL + "/releases"
+	start := time.Now()
+	if _, err := fetchLatestRelease(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took > 1500*time.Millisecond {
+		t.Fatalf("12 security.json took %s", took)
 	}
 }
