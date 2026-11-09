@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -174,5 +175,70 @@ func TestDownloadStatsPersist(t *testing.T) {
 	}
 	if _, ok := r.data.Days["2025-01-01"]; ok {
 		t.Error("a day older than the retention was kept")
+	}
+}
+
+// GitHub not answering for a release's catalog doesn't hold the summary
+// (the builder page loads it): the counts come at once, without the
+// HAProxy and kernel choices, and the summary is done again partialTTL
+// later - complete once GitHub answers, kept summaryTTL then.
+func TestDownloadSummaryWithGitHubDown(t *testing.T) {
+	old := summaryLookups
+	summaryLookups = 300 * time.Millisecond
+	t.Cleanup(func() { summaryLookups = old })
+	a, gh, srv := newTestApp(t)
+	gh.catalog = variantCatalog
+	gh.mu.Lock()
+	gh.catalogDown, gh.catalogDelay = true, time.Minute
+	gh.mu.Unlock()
+	var later atomic.Int64 // the clock moved forward, for the handlers
+	a.stats.now = func() time.Time { return time.Now().Add(time.Duration(later.Load())) }
+	sc, _ := schematic.Parse([]byte(`{"customization":{"extensions":["qemu-guest-agent"],"haproxy":"3.2"}}`))
+	id, _ := a.store.PutSchematic(sc)
+	dir := a.store.ImageDir(id, "v2026.10.02", "amd64")
+	_ = os.MkdirAll(dir, 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "janus.qcow2"), []byte(strings.Repeat("x", 200)), 0o644)
+	m, _ := json.Marshal(manifest{Schematic: id, Version: "v2026.10.02", Arch: "amd64", Files: []manifestFile{{Name: "janus.qcow2", Size: 200}}})
+	_ = os.WriteFile(filepath.Join(dir, "manifest.json"), m, 0o644)
+	if code := get(t, srv.URL+"/image/"+id+"/v2026.10.02/amd64/janus.qcow2"); code != 200 {
+		t.Fatalf("download: %d", code)
+	}
+
+	summary := func() (downloadSummary, time.Duration) {
+		var sum downloadSummary
+		start := time.Now()
+		if code := call(t, "GET", srv.URL+"/api/v1/stats/downloads", "", &sum); code != 200 {
+			t.Fatalf("stats: %d", code)
+		}
+		return sum, time.Since(start)
+	}
+	sum, took := summary()
+	if took > 3*time.Second {
+		t.Errorf("the summary waited %s for GitHub", took)
+	}
+	if sum.Total.Images != 1 || sum.Extensions["qemu-guest-agent"].Images != 1 || len(sum.HAProxy) != 0 || len(sum.Kernel) != 0 {
+		t.Fatalf("GitHub down: %+v", sum)
+	}
+
+	// GitHub back: the same summary until partialTTL has passed, then
+	// complete.
+	gh.mu.Lock()
+	gh.catalogDown = false
+	gh.mu.Unlock()
+	if sum, _ := summary(); len(sum.HAProxy) != 0 {
+		t.Fatalf("done again before partialTTL: %+v", sum.HAProxy)
+	}
+	later.Store(int64(partialTTL + time.Second))
+	sum, _ = summary()
+	if sum.HAProxy["3.2"].Images != 1 || sum.Kernel["stable"].Images != 1 {
+		t.Fatalf("GitHub back: %+v %+v", sum.HAProxy, sum.Kernel)
+	}
+	// Complete: kept summaryTTL, GitHub down again or not.
+	gh.mu.Lock()
+	gh.catalogDown = true
+	gh.mu.Unlock()
+	later.Store(int64(partialTTL + 2*time.Minute))
+	if sum, _ := summary(); sum.HAProxy["3.2"].Images != 1 {
+		t.Fatalf("a complete summary not kept: %+v", sum.HAProxy)
 	}
 }
