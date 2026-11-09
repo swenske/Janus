@@ -232,7 +232,7 @@ for i in $NODES; do
   v="$(ctl "$i" version)"
   check "lb-$i runs $TO" "^Node: $TO$" "$v"
   check "lb-$i on slot B" "^Active slot: B$" "$v"
-  if ctl "$i" cluster get | grep -q "Drained"; then fail "lb-$i still drained after the update"; fi
+  if grep -q "Drained" <<<"$(ctl "$i" cluster get)"; then fail "lb-$i still drained after the update"; fi
   has_entry "$i" || fail "lb-$i lost the stick table entry"
   wait_for 60 "lb-$i's peers up after the update" peers_up "$i" 1
 done
