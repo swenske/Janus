@@ -257,7 +257,8 @@ func checkSchematic(src *janusv1alpha1.ImageSource, nodeCmdline string, uki []by
 // rootfs/init/main.go for the same parsing applied to finding STATE
 // instead.
 type bootContext struct {
-	disk        string
+	disk        string // the partitions' prefix (vda, nvme0n1p)
+	wholeDisk   string // the disk itself (vda, nvme0n1)
 	currentSlot string
 	targetSlot  string
 	espDevice   string
@@ -268,7 +269,12 @@ func resolveBootContext() (*bootContext, error) {
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "read /proc/cmdline: %v", err)
 	}
-	dataDev, ok := bootslot.DataDevice(string(cmdline))
+	return bootContextOf(string(cmdline))
+}
+
+// bootContextOf is the boot context a kernel command line says.
+func bootContextOf(cmdline string) (*bootContext, error) {
+	dataDev, ok := bootslot.DataDevice(cmdline)
 	if !ok {
 		return nil, status.Errorf(codes.FailedPrecondition, "couldn't find a dm-mod.create= verity data device in /proc/cmdline - not booted from a recognized A/B image")
 	}
@@ -280,12 +286,14 @@ func resolveBootContext() (*bootContext, error) {
 	if !ok {
 		return nil, status.Errorf(codes.Internal, "couldn't derive the disk from root device %q", dataDev)
 	}
+	whole, _ := bootslot.WholeDisk(dataDev)
 	espDev, ok := bootslot.ESPDevice(dataDev)
 	if !ok {
 		return nil, status.Errorf(codes.Internal, "couldn't derive the ESP device from root device %q", dataDev)
 	}
 	return &bootContext{
 		disk:        disk,
+		wholeDisk:   whole,
 		currentSlot: current,
 		targetSlot:  bootslot.OtherSlot(current),
 		espDevice:   espDev,
@@ -552,7 +560,10 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 	// Its kernel must drive this machine: a kernel without the boot
 	// disk's driver never gets as far as init, so nothing on the node
 	// could roll it back.
-	hardware, err := l.checkHardware(req.GetSource(), image, bc.disk)
+	// The disk itself: an NVMe disk's partitions are nvme0n1p<N>, its
+	// sysfs entry nvme0n1 (v2026.11.09's lab campaign: "can't tell...
+	// lstat /sys/block/nvme0n1p").
+	hardware, err := l.checkHardware(req.GetSource(), image, bc.wholeDisk)
 	if err != nil {
 		slotWritten(bc.targetSlot, nil, errors.New("holds a release whose kernel can't drive this machine"), false)
 		return status.Errorf(status.Code(err), "%s - slot %s now holds it, and Rollback won't switch to it", status.Convert(err).Message(), bc.targetSlot)
