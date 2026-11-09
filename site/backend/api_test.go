@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/swenske/Janus/internal/schematic"
 	"github.com/swenske/Janus/internal/variants"
@@ -24,6 +25,10 @@ type fakeGitHub struct {
 	dispatches []map[string]string
 	runs       []map[string]any
 	catalog    string // v2026.10.02's schematic-catalog.json, if not the default one
+	// catalogDown: GitHub answering 504 for v2026.10.02's catalog after
+	// catalogDelay.
+	catalogDown  bool
+	catalogDelay time.Duration
 }
 
 func newFakeGitHub(t *testing.T) *fakeGitHub {
@@ -45,7 +50,18 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 			{"tag_name": "v2099.01.01", "draft": true},
 		})
 	})
-	mux.HandleFunc("GET /dl/v2026.10.02/schematic-catalog.json", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /dl/v2026.10.02/schematic-catalog.json", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		down, delay := f.catalogDown, f.catalogDelay
+		f.mu.Unlock()
+		if down {
+			select {
+			case <-time.After(delay):
+			case <-r.Context().Done():
+			}
+			http.Error(w, "gateway timeout", http.StatusGatewayTimeout)
+			return
+		}
 		if f.catalog != "" {
 			_, _ = io.WriteString(w, f.catalog)
 			return
