@@ -13,6 +13,7 @@ import (
 // releases after its own fix, from their security.json assets - each read
 // once.
 func TestSecurityUpdate(t *testing.T) {
+	freshAssetCaches(t)
 	var reads atomic.Int32
 	var gh *httptest.Server
 	gh = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

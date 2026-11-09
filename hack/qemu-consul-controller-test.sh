@@ -504,6 +504,7 @@ out="$(ctl a network consul managed)"
 check "janusctl shows the managed layer" "^Managed by: janus-controller " "$out"
 check "the token never comes back" "^ACL token: +set" "$out"
 check "the services registered" "^Services: +[0-9]+ registered" "$out"
+check "janusctl shows what the node names its services after" "^Scope: +node-a - its HAProxy services are haproxy-<scope>-" "$out"
 out="$(ctl a network consul services)"
 check "janusctl lists the agent's services" "^haproxy-node-a-url +janus:url:fe_sites:www.example.test +$NET.11:8081 +haproxy,url,http,scheme=http,proto=http +http://www.example.test:8081 +- +Janus$" "$out"
 check "janusctl shows an exporter's path" "^haproxy-node-a-exporter +janus:haproxy-exporter:fe_stats .* http /metrics, frontend fe_stats +[a-z]+ +Janus$" "$out"
@@ -512,7 +513,8 @@ deadline=$((SECONDS + 30))
 until api "$API/api/consul/nodes" > "$WORKDIR/nodes.json" && python3 - "$WORKDIR/nodes.json" <<'PY'; do
 import json, sys
 a = [n for n in json.load(open(sys.argv[1])) if n["name"] == "node-a"][0]
-sys.exit(0 if a["state"] == "applied" and a.get("member") == "alive" and a["urls"] >= 3 and a["services"] > a["urls"] else 1)
+sys.exit(0 if a["state"] == "applied" and a.get("member") == "alive" and a["urls"] >= 3 and a["services"] > a["urls"]
+         and a.get("scope") == "node-a" and not a.get("legacy") else 1)
 PY
   [ "$SECONDS" -lt "$deadline" ] || fail "the Controller's view of A: $(cat "$WORKDIR/nodes.json")"
   sleep 2
