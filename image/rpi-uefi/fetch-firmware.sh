@@ -21,7 +21,7 @@ WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
 ZIP="$WORKDIR/firmware.zip"
-curl -fsSL -o "$ZIP" "$URL"
+curl -fsSL --retry 6 --retry-delay 20 -o "$ZIP" "$URL"
 
 echo "${SHA256}  ${ZIP}" | sha256sum -c - >/dev/null
 

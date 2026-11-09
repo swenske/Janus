@@ -21,7 +21,7 @@ ARG BIRD_SHA256
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
-RUN curl -fsSLO "https://bird.nic.cz/download/bird-${BIRD_VERSION}.tar.gz" \
+RUN curl -fsSLO --retry 6 --retry-delay 20 "https://bird.nic.cz/download/bird-${BIRD_VERSION}.tar.gz" \
     && echo "${BIRD_SHA256}  bird-${BIRD_VERSION}.tar.gz" | sha256sum -c - \
     && tar xzf "bird-${BIRD_VERSION}.tar.gz" && mv "bird-${BIRD_VERSION}" bird
 COPY --chmod=0755 <<'SCRIPT' /src/build.sh

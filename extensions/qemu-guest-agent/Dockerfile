@@ -17,7 +17,7 @@ ARG QEMU_SHA256
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates xz-utils \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
-RUN curl -fsSLO "https://download.qemu.org/qemu-${QEMU_VERSION}.tar.xz" \
+RUN curl -fsSLO --retry 6 --retry-delay 20 "https://download.qemu.org/qemu-${QEMU_VERSION}.tar.xz" \
     && echo "${QEMU_SHA256}  qemu-${QEMU_VERSION}.tar.xz" | sha256sum -c - \
     && tar xJf "qemu-${QEMU_VERSION}.tar.xz"
 

@@ -42,7 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /src
 RUN test -n "${KERNEL_SHA256}" \
     && major="$(echo "${KERNEL_VERSION}" | cut -d. -f1)" \
-    && curl -fsSLO "https://cdn.kernel.org/pub/linux/kernel/v${major}.x/linux-${KERNEL_VERSION}.tar.xz" \
+    && curl -fsSLO --retry 6 --retry-delay 20 "https://cdn.kernel.org/pub/linux/kernel/v${major}.x/linux-${KERNEL_VERSION}.tar.xz" \
     && echo "${KERNEL_SHA256}  linux-${KERNEL_VERSION}.tar.xz" | sha256sum -c - \
     && tar xf linux-${KERNEL_VERSION}.tar.xz
 # The source's own date - its release commit's, which kernel.org's

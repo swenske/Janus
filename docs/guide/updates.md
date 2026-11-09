@@ -79,6 +79,11 @@ janusctl -n lb1 version           # the release now running, and its slot
   [image factory](../image-factory.md#getting-an-image-janussw-serversnet)
   gives for it - and refuses another schematic's unless
   `-allow-schematic-change`.
+- A server that fails to answer - no answer, a timeout, 408, 429 or a
+  5xx gateway error, as GitHub's downloads did for hours some days - is
+  asked again 5, 15, 30 and 60 seconds later (its `Retry-After`, up to
+  a minute, if it gives one), each new try shown as the update goes
+  (`… 504 Gateway Timeout - trying again in 5s (2/5)`); a 404 is final.
 - A node that can't reach the URL: `janusctl lifecycle upload-release
   DIR` streams a bundle from where `janusctl` runs, then `upgrade` takes
   the directory it prints. The root filesystem goes straight into the
