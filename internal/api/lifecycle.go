@@ -149,13 +149,9 @@ func fetchBundleFile(ctx context.Context, bundleRef, filename string, maxBytes i
 		url := strings.TrimSuffix(bundleRef, "/") + "/" + filename
 		fetchCtx, cancel := context.WithTimeout(ctx, upgradeFetchTimeout)
 		defer cancel()
-		req, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, url, nil)
+		resp, err := getRetrying(fetchCtx, url)
 		if err != nil {
-			return nil, fmt.Errorf("build request for %s: %w", url, err)
-		}
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("GET %s: %w", url, err)
+			return nil, err
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode == http.StatusNotFound {
@@ -408,8 +404,10 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 		return status.Errorf(codes.InvalidArgument, "source.reference is required - a local release bundle directory or an http(s):// URL (see image/release/assemble.sh)")
 	}
 
-	send := func(stage string, progress float64, message string) error {
-		return stream.Send(&janusv1alpha1.UpgradeResponse{Stage: stage, Progress: progress, Message: message})
+	stage, progress := "verifying", 0.0
+	send := func(st string, p float64, message string) error {
+		stage, progress = st, p
+		return stream.Send(&janusv1alpha1.UpgradeResponse{Stage: st, Progress: p, Message: message})
 	}
 
 	unlock, err := lockSlots()
@@ -422,7 +420,9 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 		return err
 	}
 
-	ctx := stream.Context()
+	// A download asked again (GitHub answering 504) is said where the
+	// update stands.
+	ctx := withFetchNotice(stream.Context(), func(msg string) { _ = send(stage, progress, msg) })
 	verb := "reading"
 	if strings.HasPrefix(bundleRef, "http://") || strings.HasPrefix(bundleRef, "https://") {
 		verb = "downloading"

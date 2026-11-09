@@ -102,7 +102,24 @@ ln -s "$V2_BUNDLE/rootfs.squashfs" "$V1_ROOTFS/rootfs.verity" "$V2_BUNDLE/mixed-
 # --- serve the v2 bundle over real HTTP from the host - bound to all
 # interfaces so slirp's NAT can actually reach it from the guest side,
 # not just 127.0.0.1 ---
-( cd "$V2_BUNDLE" && exec python3 -m http.server "$BUNDLE_HTTP_PORT" --bind 0.0.0.0 >"$WORKDIR/http-server.log" 2>&1 ) &
+# Under /flaky/, each file answers 504 the first time it's asked - as
+# GitHub's release downloads did for hours (2026-11-08/09): the update
+# below goes through it, the node asking again (internal/api/fetch.go).
+cat > "$WORKDIR/serve.py" <<'PY'
+import functools, http.server, sys
+seen = set()
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        if self.path.startswith('/flaky/'):
+            if self.path not in seen:
+                seen.add(self.path)
+                self.send_error(504, 'Gateway Timeout')
+                return
+            self.path = self.path[len('/flaky'):]
+        super().do_GET()
+http.server.ThreadingHTTPServer(('0.0.0.0', int(sys.argv[1])), functools.partial(Handler, directory=sys.argv[2])).serve_forever()
+PY
+python3 "$WORKDIR/serve.py" "$BUNDLE_HTTP_PORT" "$V2_BUNDLE" >"$WORKDIR/http-server.log" 2>&1 &
 HTTP_SERVER_PID=$!
 sleep 1
 if ! kill -0 "$HTTP_SERVER_PID" 2>/dev/null; then
@@ -227,7 +244,17 @@ echo "Mixed bundles refused: v2's UKI with v1's squashfs, v2's squashfs with v1'
 # this is the one line that actually differs from
 # hack/qemu-lifecycle-upgrade-test.sh's own equivalent call ---
 V2_SHA256="$(cat "$V2_BUNDLE/rootfs.squashfs.sha256")"
-UPGRADE_OUT="$("$CTL" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" lifecycle upgrade -insecure-skip-signature-check -sha256 "$V2_SHA256" "$BUNDLE_URL")"
+UPGRADE_OUT="$("$CTL" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" lifecycle upgrade -insecure-skip-signature-check -sha256 "$V2_SHA256" "$BUNDLE_URL/flaky")"
+# Each of the three files answered 504 once: asked again, said on the
+# update's stream.
+for f in uki-b.efi rootfs.verity rootfs.squashfs; do
+  if ! grep -q "GET $BUNDLE_URL/flaky/$f: unexpected status 504 Gateway Timeout - trying again in 5s (2/5)" <<<"$UPGRADE_OUT"; then
+    echo "Upgrade URL test FAILED: $f's 504 wasn't asked again on the stream:" >&2
+    echo "$UPGRADE_OUT" >&2
+    exit 1
+  fi
+done
+echo "  ok: each file's 504 asked again 5 s later, said on the update's stream"
 echo "$UPGRADE_OUT"
 if ! echo "$UPGRADE_OUT" | grep -qi "downloading"; then
   echo "Upgrade URL test FAILED: janusctl lifecycle upgrade never reported a 'downloading' stage - did fetchBundleFile take the local-path branch instead of the URL one?" >&2
