@@ -1089,6 +1089,7 @@ drivers/acpi/processor_core.c
 drivers/acpi/processor_driver.c
 drivers/acpi/processor_idle.c
 drivers/acpi/processor_pdc.c
+drivers/acpi/processor_perflib.c
 drivers/acpi/processor_thermal.c
 drivers/acpi/processor_throttling.c
 drivers/acpi/property.c
@@ -1175,6 +1176,9 @@ drivers/char/random.c
 drivers/char/virtio_console.c
 drivers/clocksource/acpi_pm.c
 drivers/clocksource/i8253.c
+drivers/cpufreq/cpufreq.c
+drivers/cpufreq/cpufreq_performance.c
+drivers/cpufreq/freq_table.c
 drivers/cpuidle/cpuidle-haltpoll.c
 drivers/cpuidle/cpuidle.c
 drivers/cpuidle/cpuidle.h
@@ -2066,6 +2070,7 @@ include/linux/cookie.h
 include/linux/coredump.h
 include/linux/cper.h
 include/linux/cpu.h
+include/linux/cpu_cooling.h
 include/linux/cpu_rmap.h
 include/linux/cpu_smt.h
 include/linux/cpufeature.h
@@ -3988,6 +3993,7 @@ kernel/sched/completion.c
 kernel/sched/core.c
 kernel/sched/cpudeadline.c
 kernel/sched/cpudeadline.h
+kernel/sched/cpufreq.c
 kernel/sched/cpupri.c
 kernel/sched/cpupri.h
 kernel/sched/cputime.c
