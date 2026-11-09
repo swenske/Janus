@@ -15,7 +15,7 @@ func logHardware() {
 	disk := ""
 	if cmdline, err := os.ReadFile("/proc/cmdline"); err == nil {
 		if dev, ok := bootslot.DataDevice(string(cmdline)); ok {
-			disk, _ = bootslot.Disk(dev)
+			disk, _ = bootslot.WholeDisk(dev) // nvme0n1, not its partitions' nvme0n1p
 		}
 	}
 	uses, err := hwsupport.InUse("/sys", disk)

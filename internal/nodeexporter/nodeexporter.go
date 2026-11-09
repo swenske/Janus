@@ -55,7 +55,6 @@ var Collectors = []Collector{
 	{"arp", "ARP table entries per interface", false},
 	{"conntrack", "connection tracking table usage", false},
 	{"cpu", "CPU time per mode and core", true},
-	{"cpufreq", "CPU frequencies", false},
 	{"diskstats", "disk I/O", true},
 	{"dmi", "hardware identity (vendor, product, BIOS)", false},
 	{"entropy", "kernel entropy pool", false},
@@ -73,7 +72,6 @@ var Collectors = []Collector{
 	{"softirqs", "soft interrupts per CPU", false},
 	{"softnet", "packets processed and dropped per CPU", false},
 	{"stat", "boot time, context switches, forks", true},
-	{"thermal_zone", "thermal zones (bare metal)", false},
 	{"time", "system time", true},
 	{"timex", "clock synchronization (adjtimex)", true},
 	{"udp_queues", "UDP socket queues", false},
@@ -110,7 +108,9 @@ func DefaultConfig() Config {
 // retired are collectors the settings no longer offer, and why: settings
 // saved with one keep the rest (Load), asking for one is refused.
 var retired = map[string]string{
-	"nvme": "the kernel is a virtual machine's, without NVMe",
+	"nvme":         "the kernel is a virtual machine's, without NVMe",
+	"cpufreq":      "the kernel is a virtual machine's, without frequency scaling",
+	"thermal_zone": "the kernel is a virtual machine's, without ACPI thermal zones",
 }
 
 // Validate checks c and normalizes it: port 0 is DefaultPort, no

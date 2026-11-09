@@ -89,10 +89,10 @@ collectors - from a fixed list, each one known to work
 on a Janus node. The default ones: `cpu`, `diskstats`, `filefd`,
 `filesystem`, `loadavg`, `meminfo`, `netdev`, `netstat`, `os`,
 `pressure`, `sockstat`, `stat`, `time`, `timex`, `uname`, `vmstat`. More
-can be turned on: `arp`, `conntrack`, `cpufreq`, `dmi`, `entropy`,
-`interrupts`, `netclass`, `softirqs`, `softnet`, `thermal_zone`,
-`udp_queues` (`nvme` no longer: the kernel is a virtual machine's, and
-settings that named it keep the rest).
+can be turned on: `arp`, `conntrack`, `dmi`, `entropy`, `interrupts`,
+`netclass`, `softirqs`, `softnet`, `udp_queues` (`nvme`, `cpufreq` and
+`thermal_zone` no longer: the kernel is a virtual machine's, without
+them, and settings that named one keep the rest).
 
 ```sh
 janusctl system node-exporter                                  # show
