@@ -180,13 +180,11 @@ type bundleData struct {
 func openBundleData(ctx context.Context, bundleRef, targetSlot, targetDataDev string) (*bundleData, error) {
 	if strings.HasPrefix(bundleRef, "http://") || strings.HasPrefix(bundleRef, "https://") {
 		url := strings.TrimSuffix(bundleRef, "/") + "/rootfs.squashfs"
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		// Asked again when the server fails to answer (getRetrying); a
+		// stream cut part way is the update's failure - nothing switched.
+		resp, err := getRetrying(ctx, url)
 		if err != nil {
-			return nil, fmt.Errorf("build request for %s: %w", url, err)
-		}
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("GET %s: %w", url, err)
+			return nil, err
 		}
 		if resp.StatusCode != http.StatusOK {
 			resp.Body.Close()

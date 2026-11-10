@@ -237,6 +237,9 @@ type IssueOptions struct {
 	// Scope makes a scoped certificate (scope.go): Roles is then
 	// RoleScoped alone.
 	Scope *Scope
+	// Console marks a certificate issued at the node's console - a rescue
+	// window's (console.go): never one the API issues.
+	Console bool
 }
 
 // Issue signs a new ECDSA P-256 leaf certificate with the CA's key,
@@ -278,6 +281,9 @@ func (ca *CA) IssueFor(pub crypto.PublicKey, opts IssueOptions) ([]byte, error) 
 			return nil, err
 		}
 		roles, extra = []string{RoleScoped}, []pkix.Extension{ext}
+	}
+	if opts.Console {
+		extra = append(extra, consoleExtension())
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,

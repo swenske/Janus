@@ -92,3 +92,45 @@ func TestCompare(t *testing.T) {
 		t.Error("an exception without a reason was accepted")
 	}
 }
+
+// driverSymbols: the config symbol that builds each driver variants.mk's
+// KERNEL_DRIVERS may name (sysfs driver names).
+var driverSymbols = map[string]string{
+	"virtio-pci":  "CONFIG_VIRTIO_PCI",
+	"virtio_blk":  "CONFIG_VIRTIO_BLK",
+	"virtio_scsi": "CONFIG_SCSI_VIRTIO",
+	"virtio_net":  "CONFIG_VIRTIO_NET",
+	"sd":          "CONFIG_BLK_DEV_SD",
+	"sr":          "CONFIG_BLK_DEV_SR",
+	"ahci":        "CONFIG_SATA_AHCI",
+	"ata_piix":    "CONFIG_ATA_PIIX",
+	"e1000":       "CONFIG_E1000",
+	"e1000e":      "CONFIG_E1000E",
+	"nvme":        "CONFIG_BLK_DEV_NVME",
+}
+
+// TestKernelDriversBuilt: every driver variants.mk says the kernels drive
+// (KERNEL_DRIVERS, written into each image's image.json - Upgrade refuses
+// a machine bound to another) is built into every track's kernel.
+func TestKernelDriversBuilt(t *testing.T) {
+	set, err := variants.Load("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range set.Kernel {
+		data, err := os.ReadFile("../../kernel/configs/janus_" + k.Name + "_defconfig")
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg := Parse(data)
+		for _, d := range set.KernelDrivers {
+			sym, ok := driverSymbols[d]
+			switch {
+			case !ok:
+				t.Errorf("KERNEL_DRIVERS: %s - say which config symbol builds it (driverSymbols)", d)
+			case cfg[sym] != "y":
+				t.Errorf("%s: KERNEL_DRIVERS names %s, but %s isn't built in (%q)", k.Name, d, sym, cfg[sym])
+			}
+		}
+	}
+}

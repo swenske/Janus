@@ -45,8 +45,8 @@ const CHECK_TONES = { passing: 'ok', warning: 'warn', critical: 'danger', mainte
 const SERVICES = [
   ['janus', 'janus'],
   ['exporters', 'exporters'],
-  ['frontends', 'haproxy-<frontend>'],
-  ['urls', 'haproxy-url'],
+  ['frontends', 'haproxy-<cluster>-<frontend>'],
+  ['urls', 'haproxy-<cluster>-url'],
 ]
 
 // Consul is the consul extension: the agent's state and its cluster, the

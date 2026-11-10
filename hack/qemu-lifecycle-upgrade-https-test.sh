@@ -54,17 +54,17 @@ fail() {
 # --- resolve the release to upgrade to (list endpoint, not /latest:
 # /latest skips pre-releases, which the first releases were) ---
 if [ -z "${JANUS_RELEASE_TAG:-}" ]; then
-  JANUS_RELEASE_TAG="$(curl -fsSL -H 'Accept: application/vnd.github+json' \
+  JANUS_RELEASE_TAG="$(curl -fsSL --retry 6 --retry-delay 20 -H 'Accept: application/vnd.github+json' \
     "https://api.github.com/repos/$REPO/releases" |
     python3 -c 'import json,sys; print(next(r["tag_name"] for r in json.load(sys.stdin) if not r["draft"]))')"
 fi
 RELEASE_URL="https://github.com/$REPO/releases/download/$JANUS_RELEASE_TAG"
 echo "Upgrading to $JANUS_RELEASE_TAG ($RELEASE_URL)"
 
-RELEASE_SHA256="$(curl -fsSL "$RELEASE_URL/rootfs.squashfs.sha256" | awk '{print $1}')"
+RELEASE_SHA256="$(curl -fsSL --retry 6 --retry-delay 20 "$RELEASE_URL/rootfs.squashfs.sha256" | awk '{print $1}')"
 [[ "$RELEASE_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail "couldn't read a sha256 from $RELEASE_URL/rootfs.squashfs.sha256"
 
-curl -fsSL -o "$WORKDIR/uki-b.efi" "$RELEASE_URL/uki-b.efi"
+curl -fsSL --retry 6 --retry-delay 20 -o "$WORKDIR/uki-b.efi" "$RELEASE_URL/uki-b.efi"
 # The UKI's .cmdline section is plain text inside the PE file - grepped
 # directly rather than extracted with objcopy, which the self-hosted
 # runner doesn't have.

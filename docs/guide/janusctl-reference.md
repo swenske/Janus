@@ -1846,7 +1846,7 @@ Install, upgrade, roll back.
 Partition a blank disk and write a release (paths on the node).
 
 ```text
-janusctl lifecycle install [-sha256 HEX] [-controller-address HOST:PORT] [-controller-ca FILE] [-controller-fleet-root FILE] [-network-config FILE] [-fleet-root FILE] [-fleet-bundle FILE] [-registration-token TOKEN] [-logs-size-mb MIB] [-insecure-skip-signature-check] DISK BUNDLE_DIR
+janusctl lifecycle install [-sha256 HEX] [-controller-address HOST:PORT] [-controller-ca FILE] [-controller-fleet-root FILE] [-network-config FILE] [-fleet-root FILE] [-fleet-bundle FILE] [-registration-token TOKEN] [-logs-size-mb MIB] [-insecure-skip-signature-check] [-allow-unsupported-hardware] DISK BUNDLE_DIR
 ```
 
 | Flag | |
@@ -1861,13 +1861,14 @@ janusctl lifecycle install [-sha256 HEX] [-controller-address HOST:PORT] [-contr
 | `-registration-token TOKEN` | a Controller enrollment token |
 | `-logs-size-mb MIB` | the LOGS partition's size (-1: none; default 5 % of the disk) |
 | `-insecure-skip-signature-check` | accept unsigned UKIs - development only |
+| `-allow-unsupported-hardware` | accept a kernel without a driver for the disk or a network interface |
 
 #### janusctl lifecycle upgrade
 
 Write a release to the inactive slot and reboot into it.
 
 ```text
-janusctl lifecycle upgrade [-sha256 HEX] [-wait-for-health] [-health-timeout SECONDS] [-insecure-skip-signature-check] [-allow-schematic-change] [-kexec] BUNDLE_DIR|URL
+janusctl lifecycle upgrade [-sha256 HEX] [-wait-for-health] [-health-timeout SECONDS] [-insecure-skip-signature-check] [-allow-schematic-change] [-allow-unsupported-hardware] [-kexec] BUNDLE_DIR|URL
 ```
 
 | Flag | |
@@ -1877,6 +1878,7 @@ janusctl lifecycle upgrade [-sha256 HEX] [-wait-for-health] [-health-timeout SEC
 | `-health-timeout SECONDS` | how long it has to be healthy |
 | `-insecure-skip-signature-check` | accept unsigned UKIs - development only |
 | `-allow-schematic-change` | accept another image schematic |
+| `-allow-unsupported-hardware` | accept a kernel without a driver for the boot disk or a network interface |
 | `-kexec` | reboot into the new slot without the firmware (seconds, not a POST) |
 
 #### janusctl lifecycle rollback

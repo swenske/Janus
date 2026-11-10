@@ -85,8 +85,16 @@ func (a *app) registerHAPeerRoutes(mux *http.ServeMux) {
 // haPeer lets in a request carrying the peers' secret only.
 func (a *app) haPeer(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if a.ha == nil || !a.ha.Authorized(bearerOf(r)) {
+		if a.ha == nil || bearerOf(r) == "" {
 			writeError(w, http.StatusUnauthorized, "not this Controller's peer")
+			return
+		}
+		if !a.ha.Authorized(bearerOf(r)) {
+			// A peer's secret this Controller doesn't share (any more): a
+			// standby it forgot, or one before the one it pairs with now.
+			// Gone - the standby drops its copy (ha.ErrForgotten); only
+			// this Controller, on its pinned HA certificate, can say so.
+			writeError(w, http.StatusGone, "this Controller no longer pairs with you: it forgot this standby, or pairs with another")
 			return
 		}
 		next(w, r)

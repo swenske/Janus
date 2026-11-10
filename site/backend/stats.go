@@ -60,7 +60,10 @@ const (
 	// statsRetention is how long a day's counts are kept.
 	statsRetention = 400 * 24 * time.Hour
 	summaryTTL     = 5 * time.Minute
-	dayLayout      = "2006-01-02"
+	// partialTTL: how long a summary missing a release's catalog is kept
+	// (summaryLookups).
+	partialTTL = 30 * time.Second
+	dayLayout  = "2006-01-02"
 )
 
 func newDownloadStats(dataDir string) (*downloadStats, error) {
@@ -282,6 +285,14 @@ func (s *downloadStats) window(days int) (map[string]int64, string) {
 	return sums, first
 }
 
+// summaryLookups bounds what a summary waits for GitHub (the releases'
+// catalogs, for the HAProxy and kernel choices): the builder page loads
+// it, and GitHub answering 504 for minutes held it 30 s and more - an
+// error in the page's console, Lighthouse's best-practices under budget
+// in site-deploy. A summary missing a catalog leaves those choices out
+// and is kept partialTTL only. A variable for the tests.
+var summaryLookups = 4 * time.Second
+
 func (s *downloadStats) cachedSummary(days int) *downloadSummary {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -291,13 +302,17 @@ func (s *downloadStats) cachedSummary(days int) *downloadSummary {
 	return nil
 }
 
-func (s *downloadStats) keepSummary(days int, sum *downloadSummary) {
+func (s *downloadStats) keepSummary(days int, sum *downloadSummary, partial bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.computed == nil {
 		s.computed, s.at = map[int]*downloadSummary{}, map[int]time.Time{}
 	}
-	s.computed[days], s.at[days] = sum, s.now()
+	at := s.now()
+	if partial {
+		at = at.Add(partialTTL - summaryTTL) // done again partialTTL later
+	}
+	s.computed[days], s.at[days] = sum, at
 }
 
 // counts are a choice's downloads: platforms' images, and updates.
@@ -343,14 +358,17 @@ type choices struct {
 // choicesOf resolves a schematic's choices for a release: false when the
 // schematic isn't known here. HAProxy and kernel stay "" for a release
 // whose catalog offers no choice.
-func (a *app) choicesOf(ctx context.Context, id, version, arch string) (choices, bool) {
+// choicesOf is what a schematic chose, for a version's image: its
+// console and extensions from the schematic, its HAProxy branch and
+// kernel track from the version's catalog - catalog nil: unknown.
+func (a *app) choicesOf(id, arch string, catalog *schematic.Catalog) (choices, bool) {
 	sc, err := a.store.Schematic(id)
 	if err != nil {
 		return choices{}, false
 	}
 	ch := choices{console: sc.ConsoleChoice(), extensions: sc.Extensions()}
-	if c, err := a.gh.Catalog(ctx, version); err == nil && c != nil {
-		if res, err := c.Resolve(sc, arch); err == nil {
+	if catalog != nil {
+		if res, err := catalog.Resolve(sc, arch); err == nil {
 			ch.haproxy, ch.kernel = res.HAProxy.Name, res.Kernel.Name
 		}
 	}
@@ -379,6 +397,24 @@ func (a *app) downloadSummary(ctx context.Context, days int) *downloadSummary {
 	}
 	sort.Strings(keys)
 	resolved := map[string]*choices{}
+	// Each version's catalog asked once, and GitHub waited for
+	// summaryLookups at most for all of them.
+	lctx, cancel := context.WithTimeout(ctx, summaryLookups)
+	defer cancel()
+	catalogs, partial := map[string]*schematic.Catalog{}, false
+	catalogOf := func(version string) *schematic.Catalog {
+		c, asked := catalogs[version]
+		if !asked {
+			var err error
+			if c, err = a.gh.Catalog(lctx, version); err != nil {
+				// No such release: nothing to wait for. Else GitHub
+				// didn't answer in time: done again soon.
+				c, partial = nil, partial || !errors.Is(err, errNotFound)
+			}
+			catalogs[version] = c
+		}
+		return c
+	}
 	for _, key := range keys {
 		n := sums[key]
 		parts := strings.SplitN(key, " ", 3)
@@ -397,7 +433,7 @@ func (a *app) downloadSummary(ctx context.Context, days int) *downloadSummary {
 		rk := id + " " + version + " " + arch
 		ch, done := resolved[rk]
 		if !done {
-			if c, ok := a.choicesOf(ctx, id, version, arch); ok {
+			if c, ok := a.choicesOf(id, arch, catalogOf(version)); ok {
 				ch = &c
 			}
 			resolved[rk] = ch
@@ -416,7 +452,7 @@ func (a *app) downloadSummary(ctx context.Context, days int) *downloadSummary {
 			bump(sum.Extensions, e, kind, n)
 		}
 	}
-	a.stats.keepSummary(days, sum)
+	a.stats.keepSummary(days, sum, partial)
 	return sum
 }
 

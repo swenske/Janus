@@ -197,8 +197,8 @@ janusctl -endpoint HOST:PORT -ca FILE -cert FILE -key FILE COMMAND ...
 
 ## Lifecycle
 
-- `janusctl lifecycle install [-sha256 HEX] [-controller-address HOST:PORT] [-controller-ca FILE] [-controller-fleet-root FILE] [-network-config FILE] [-fleet-root FILE] [-fleet-bundle FILE] [-registration-token TOKEN] [-logs-size-mb MIB] [-insecure-skip-signature-check] DISK BUNDLE_DIR` - **critical** - partition a blank disk and write a release (paths on the node). Partitions and writes a disk
-- `janusctl lifecycle upgrade [-sha256 HEX] [-wait-for-health] [-health-timeout SECONDS] [-insecure-skip-signature-check] [-allow-schematic-change] [-kexec] BUNDLE_DIR|URL` - **critical** - write a release to the inactive slot and reboot into it. Reboots into the new release
+- `janusctl lifecycle install [-sha256 HEX] [-controller-address HOST:PORT] [-controller-ca FILE] [-controller-fleet-root FILE] [-network-config FILE] [-fleet-root FILE] [-fleet-bundle FILE] [-registration-token TOKEN] [-logs-size-mb MIB] [-insecure-skip-signature-check] [-allow-unsupported-hardware] DISK BUNDLE_DIR` - **critical** - partition a blank disk and write a release (paths on the node). Partitions and writes a disk
+- `janusctl lifecycle upgrade [-sha256 HEX] [-wait-for-health] [-health-timeout SECONDS] [-insecure-skip-signature-check] [-allow-schematic-change] [-allow-unsupported-hardware] [-kexec] BUNDLE_DIR|URL` - **critical** - write a release to the inactive slot and reboot into it. Reboots into the new release
 - `janusctl lifecycle rollback` - **critical** - boot the other slot. Reboots into the other slot
 - `janusctl lifecycle upload-release BUNDLE_DIR` - **changes** - stream a local release bundle to the node. Stages a bundle: nothing runs it until upgrade
 - `janusctl image seed-controller [-controller-address HOST:PORT] [-controller-ca FILE] [-controller-fleet-root FILE] [-registration-token TOKEN] DISK` - **changes** - a Controller to self-register with. Writes onto a disk image on this machine

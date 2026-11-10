@@ -18,7 +18,7 @@ added.
 | The auto-scaled node | since v2026.10.14: a machine the Controller creates on the same host, 2 vCPU and 1 GiB from the release's default image, room for 4 vCPU and 2 GiB |
 | Backends | two nginx VMs, 1 vCPU each |
 | Load client | a 2-vCPU VM on the same host, with `wrk` - up to v2026.10.14, removed since: it took the host's CPUs from the nodes |
-| The clients | since v2026.10.14-2, outside the lab's host, reaching the front network through the routers like internet users: the three CI runners (16, 12 and 8 threads), used only while none runs a CI job, and since v2026.10.14-3 a fourth machine that isn't a runner (16 threads, always free: the probes run there; on a 2.5 GbE link since v2026.10.16-4, its path changed - the release measured again; left out of the campaigns from v2026.10.17-2 to v2026.10.18-3 for a memory fault, the probes then ran from a runner; back with its memory replaced for v2026.10.19, where it ran the browser while the load and probes stayed on the runners, to compare). A temporary `wrk` on each, removed afterwards. The host's CPUs go to the nodes |
+| The clients | since v2026.10.14-2, outside the lab's host, reaching the front network through the routers like internet users: the three CI runners (16, 12 and 8 threads), used only while none runs a CI job, and since v2026.10.14-3 a fourth machine that isn't a runner (16 threads, always free: the probes run there; on a 2.5 GbE link since v2026.10.16-4, its path changed - the release measured again; left out of the campaigns from v2026.10.17-2 to v2026.10.18-3 for a memory fault, the probes then ran from a runner; back with its memory replaced for v2026.10.19, where it ran the browser while the load and probes stayed on the runners, to compare; for v2026.11.07 and v2026.11.08 the fourth machine and one runner only - the other two runners' hosts were due for an update -, the release measured again from the same clients). A temporary `wrk` on each, removed afterwards. The host's CPUs go to the nodes |
 | Controller | Docker Compose with its updater, an admin with TOTP |
 | Proxy | since v2026.10.23-2: Squid 6.13 on the Controller's machine, asking for a username and password, open to the lab's networks only |
 
@@ -171,6 +171,11 @@ four times - the node's boot stages are read off its Janus exporter
 seconds after the kernel started), on node 02 and on the Controller's
 longterm machine through its node page, the release measured the same
 way first: what a kernel update changes in the boot itself.
+Since v2026.11.08-2, the serial console of every one of those boots
+on node 02 is kept and read (`serlog`): kernel warnings, oops, "Unknown
+kernel command line parameter", AVC denials, the kernel parameters init
+writes (the keys compared with the release's, any that fails) and the
+CIS line, the boot-timing line, janusd's `hardware:` line.
 
 ### Rollback
 
@@ -528,7 +533,7 @@ command without it.
 |---|---|
 | What arrived | the new node's configuration, its answer, the file's SHA-256, the kernel parameter |
 | The identity | the CA the new node's API certificate is issued by, before and after - its own without `-identity`, the old node's with it |
-| The identity's certificate (#031) | `-identity` with the sign-in's certificate: refused, nothing staged; with `-kit`: granted, the old node's log naming `kit:<account>`; `system state export -identity` the same, without and with `-kit` |
+| The identity's certificate (#031, #033) | `-identity` with the sign-in's certificate: refused, nothing staged; with `-kit`: granted, the old node's log naming `kit:<account>`; `system state export -identity` the same, without and with `-kit`; since JANUS-2026-033, an admin certificate the node issued through its API (`pki generate-client-config`, the Controller's node page) refused the identity and `access trust-reset` too, a rescue certificate let through |
 | The way it went | both nodes' logs: the grant (until when, the identity or not, by whom), the export by the transfer certificate, the import |
 | The refusals | a grant asked with a reader's certificate; a second import onto a node already in use |
 
@@ -737,6 +742,8 @@ a frontend) given `consul` and node_exporter by `PATCH /api/machines`
 | Since v2026.10.29-4: the cluster's configuration in production's shape - a TCP `:443` splitting TLS by server name (one host passed through, the rest over `abns@` to an HTTP frontend reading a hosts map through a variable, a Host ACL), a TCP frontend refusing other sources -, on the release then the pre-release | the URLs registered, their tags and meta (`via`, `scheme=`, `proto=`); each frontend's check over minutes (the agent's output read through the node's page); a frontend disabled by a version; HAProxy stopped; janusd restarted |
 | Since v2026.10.29-4: the cluster updated on another image (one more extension), a machine updated by Terraform | when the image factory's build happens against the member's drain and its machine's phase; `apply` and the next `plan` |
 | Since v2026.10.29-5: a machine with BIRD (a minimal configuration), Consul, node_exporter and the guest agent, updated by the Controller (`wait_for_health`), janusd restarted minutes after the update's confirmation, three times - and on the release, the same restart for comparison | janusd back or not, its console (init's lines), its extensions running again, the Controller's view of the node |
+| Since v2026.11.08-2, **the scope**: the machines made on the release, the Controller updated first, then the cluster updated in place member by member, the machine alone updated, a machine made on the pre-release, the cluster deleted; the catalog read every second | the policies in Consul (`janus-nodes`, `janus-nodes-legacy`, `janus-scope-<scope>`) and each token's after every step; each member's services renamed `haproxy-<scope>-…` with no duplicate; the node's layer `scope` (`/api/network/consul/managed`); with a node's own token, `PUT /v1/catalog/register` of another scope's `haproxy-<other>-x` (403 expected) and of its own (200, deregistered after) |
+| Since v2026.11.08-3, **the transition and the single push**: the machines made on the release, the Controller updated first by its updater (from the pre-release before when it can't go back), three passes with the nodes still on the release; then the cluster updated in place, the lone node updated through its page, a machine made on the pre-release before and updated after; the lone node rolled back to the release and forward; each node's release, the Controller's `legacy` and its token's policies read every second | when `janus-nodes-legacy` leaves each token, from its API's return (with the pass the update runs itself, or the periodic one, else **Run now**); the Controller's "Consul layer … applied" lines - one per updated node, then none over two more passes, none at all for a node of the release before or of the pre-release before; `janusctl network consul managed`'s `Scope:` line; the Consul tab's `writes haproxy-<scope>-…` and "and any haproxy-…" badge before and after; the 403/200 writes with each node's token; after a rollback, how long the node's HAProxy services stay out of the catalog |
 
 ### Prometheus finding them
 
@@ -749,6 +756,10 @@ merged) and their probes, which targets a drained member leaves -
 both members drained - and a node out of the selector.
 Since v2026.10.29-4, the example's `tags: [url, proto=http]`
 against `tags: [url, proto=tcp]` and the `filter` the notes suggest.
+Since v2026.11.08-2, main's example through the Consul scenario's
+scope renaming, every 5 s: each series' samples read back from
+Prometheus - a gap longer than one interval, and whether the series
+stay the same across the rename.
 
 ### The image factory's mirror
 
@@ -1094,7 +1105,10 @@ machine's inactive definition, started; then a USB keyboard plugged in
 live and taken out. The same on a node of the release before. Measured:
 the AVC denials after the boot and after the plug, the console's "USB
 disconnect", when the tablet is enumerated against when the policy is
-loaded.
+loaded. Since v2026.11.09 (#591, a kernel without USB): the same steps
+must show **nothing** - the xHCI controller on the PCI bus only, no
+driver bound, no USB, xHCI or HID line, no "USB disconnect" -, with zero
+AVC denials and no error in the kernel log or on the console.
 
 ### The Content Security Policy
 
@@ -1177,6 +1191,142 @@ release first, where the code shows.
 | The Controller's console | the `rescue: code` line and the banner's: the notice where the code was, for both accounts; the rest of the console as on the host |
 | The hypervisor's console | the code there (the screen, or `virsh console` once the Controller's is closed), and `janusctl access rescue` with it |
 | The machine afterwards | the window closed, the node back in the fleet; AVC denials |
+
+### A console certificate, and the review's hardening
+
+Since v2026.11.08 (JANUS-2026-033 and the 2026-11-05 review's #28),
+each tried on the release first, where the hole shows:
+
+| Fix | How | Measured |
+|---|---|---|
+| The identity and the fleet's reset (#033) | a fresh Controller machine; with the Controller sign-in's context, an `os:admin` certificate of the node's own CA issued through the API (`pki generate-client-config`): `system state export -identity`, then `access trust-reset`; the names `rescue:…` and `kit:…` asked; on the pre-release, `-kit`, and a rescue certificate (a rescue volume, the code read on the hypervisor's console) | the export (a file? `pki/ca.key`?) or the refusal's message; the reset or its refusal; the names issued or refused; what the kit and the rescue certificate still reach |
+| The connectivity test (#28) | Controller accounts with an operator grant on the network domain alone and on HAProxy + network; each, and the admin, through the node page's Connectivity test: tcp to 127.0.0.1 (the API), http to 127.0.0.1 (HAProxy), http to 169.254.169.254, tcp to a backend | each step's outcome and message |
+| A node's clients (#28) | a certificate named `janus-controller` issued through the API, holding a stream with `-as-user` | `system clients`: the Controller or a plain client, the user it names |
+| CSP reports (#28) | 50 reports from the build box and 10 from a KVM host within a minute, one more a minute later | the Controller's log lines per source, the "more reports" line |
+| The pairing window (#28) | a bare node (nothing provided) left with its window open over an hour, its serial log read every minute (each code's time first seen and a hash of it, never the code); then `fleet adopt -code` with the first code and with the newest, into a throwaway fleet | when the code changes, the window's certificate, the old code's refusal message, the new code's adoption |
+
+### The hardware a kernel drives
+
+Since v2026.11.08-2 (#590): janusd's `hardware:` line, logged once a
+boot - the drivers the boot disk and each network interface are bound
+to -, read on every kind of machine the lab has: the nodes made by hand
+on libvirt, the Controller's machines on both KVM hosts (both kernel
+tracks, with and without extensions, an auto-scaled one), the USB node,
+and a machine made by hand with its disk on virtio-SCSI and e1000e
+interfaces (the defaults of a Proxmox VM, the lab having no Proxmox
+host); the libvirt definitions read for every other domain (machine
+type, disk buses, NIC models). Each driver is compared with the list of
+a reduced kernel (`KERNEL_DRIVERS` in `variants.mk`, #591's branch): a
+driver outside it is a finding for that kernel. With empty lists, no
+update is refused and `lifecycle upgrade -help` lists
+`-allow-unsupported-hardware`; the refusal itself is
+`qemu-lifecycle-upgrade-test`'s. Since v2026.11.09 the line is read
+before and after the update on every machine, and must not change.
+
+### Refused on hardware the kernel can't drive
+
+Since v2026.11.09 (#591's kernel, #590's guard in the release before):
+machines made by hand on a KVM host from the previous release's image,
+with devices the new kernel has no driver for - vmxnet3 cards; an NVMe
+boot disk (given through QEMU's command line: libvirt has no `nvme`
+disk bus; the domain's AppArmor profile told about the image, a boot
+index so OVMF connects it) - and one with Proxmox's default devices (a
+virtio-SCSI disk, e1000e cards). Each updated through its node page;
+what the node says read before and after (version, active and inactive
+slot, boot time). Expected: the out-of-list machines refused at once
+with a message naming the device, the node on the same slot with the
+same boot time (no reboot), its other slot marked; the Proxmox-like one
+updated and booted. Then each refused machine forced with `janusctl
+lifecycle upgrade -allow-unsupported-hardware -wait-for-health`
+(the Controller doesn't relay it), its serial console followed from the
+call: what the boot does, whether its boot health reverts it, how long
+it waits; then the way back - its devices changed while off and a
+rollback through the API, or the machine destroyed. An LSI SCSI
+controller can't be tried (OVMF can't boot from it), nor an `rtl8139`
+card (no driver in the release before either).
+
+### The release's sizes
+
+Since v2026.11.09: the release's files compared with the previous
+release's by their published sizes - the VM disk image (`janus.qcow2`,
+the figure the landing page shows), the UKI, both kernels, the root
+filesystem and the base. A change in the landing page's figure is
+reported for the promotion.
+
+### Update downloads asked again
+
+Since v2026.11.09-2 (#603): a small HTTP server on the Controller's
+host serves the pre-release's bundle (GitHub's files, checked against
+their digests), every request logged with its time and status; under
+`/flaky/`, each file answers 504 the first time it is asked, as in
+`qemu-lifecycle-upgrade-url-test`. A fresh Controller machine updated
+with `janusctl lifecycle upgrade -wait-for-health -sha256 …`, each
+streamed line timestamped: from `/flaky` on the previous release (the
+baseline: it stops at the first 504), from GitHub's release URL (a real
+504 noted if one comes), from `/flaky` once on the pre-release (each
+"trying again in 5s (2/5)" line, and the server's 504 then 200 for each
+file, the delay between them), from a path without a bundle (a 404:
+refused at once, one request), and from `/flaky` through the node
+page's "the node downloads it" (what the page receives, what janusd's
+log keeps). Expected: the three files asked again after the retry's
+delay and the update done; the 404 final.
+
+When a release's hardware refusal can't be met on the lab's machines (a
+janusd whose kernel lacks a device's driver never runs with that device
+bound), the refusal is shown with a lab-built bundle instead: the
+pre-release's root filesystem rebuilt with an `image.json` whose
+`kernel.drivers` leaves out a driver the machine uses (`virtio_net`),
+padded to the same size, its hash tree made again (the salt = the new
+file's SHA-256, as the release's) and both UKIs' `.cmdline` given the
+new root hash (`objcopy --update-section`, or the root hash and salt
+replaced in place - same length, `mk-novirtionet` since v2026.11.09-3),
+unsigned and installed with `-insecure-skip-signature-check`: the node
+writes the slot and refuses before switching. Never booted.
+
+Since v2026.11.09-3 (#611) the same server drives the **Update page in
+the browser**: a fresh Controller machine updated through its node page
+in the pinned Chromium, a script reading the page's progress notice and
+toasts every 250 ms (each change stamped) and taking a screenshot every
+2 s - "the node downloads it" from `/flaky` in light and dark (each
+"trying again in 5s (2/5)" expected on the page within a moment of the
+server's 504, then the writing, the reboot, the node back), "Upload
+files" (also with the browser's upload throttled, to see what shows
+while it sends), "The Controller pushes it", and the lab-built bundle's
+refusal (a clear message on the page, no reboot). Expected: no
+JavaScript or page error; the browser's own "Failed to load resource"
+lines for the node's polls while it reboots are the only ones.
+
+### The releases kept on the Controller's disk
+
+Since v2026.11.09-3 (#610): after the Controller's update, its
+`release-cache.json` read (public data only: `security.json` contents,
+checksums, Controller images; no key, token or address); then the
+Controller restarted (`docker compose restart`) with its outgoing HTTPS
+captured on its host (the connections opened, by server name) and its
+update status asked every 0.2 s with an API token (sessions don't
+survive a restart) until it names the newest release - with the file,
+the file removed, and the same two with GitHub made slower by `netem`
+on the host's packets to GitHub's addresses only (`slowgh`), plus the
+file without the pre-release's own entries (as right after a
+publication) with "Prepare the pre-release" sent at once. The previous
+release restarted the same way first, as the baseline. Expected: with
+the file, the newest release at the first answer and no `security.json`
+read again; without it, eight read together and the same file written
+back.
+
+### The CPUfreq warning
+
+Since v2026.11.09-2 (#607): every kind of machine's kernel log, on the
+release then on the pre-release - node 02's serial console over its six
+boot-stage boots, the cluster update's boots of both nodes, a machine
+made by hand with Proxmox's default devices (made on the release,
+updated through its page), and through the LOGS partition each boot of
+the Controller's longterm, Let's Encrypt and default machines
+(`system dmesg -boot N`, the boot's release from janusd's log of the
+same boot): "Processor Platform Limit", "CPUfreq", any cpufreq,
+governor, scaling or pstate line, and after a CPU hot-add; with
+`/sys/devices/system/cpu/cpufreq`'s content. Expected: the warning
+gone, no new line, the boot stages unchanged.
 
 ## The scripts
 
@@ -1397,3 +1547,69 @@ ran:
   `t028 SRC DST OUT`: a tampered state import; `t019 NODE OUT`,
   `icmpflood.py`: varied ICMP under a probe; `sso-sec OUT`: the SSO table
   and the SSO client secret (v2026.11.05-2).
+- `r32 NAME OUT [host]`: a Controller machine cold-booted with a rescue
+  volume, its console streamed from the Controller by an operator and an
+  admin at once, every code-shaped string counted then masked
+  (`sse-text.py`); `host`: the next boot read on the hypervisor's serial
+  console, `access rescue` with that code, one call. `t031 OLD NEWA NEWB
+  OUT`: the identity export and pull with and without `-kit`, and a pull
+  without `-identity`, the export files removed after. `mdel NAME...`:
+  Controller machines destroyed. `rlab73.sh`: the clients restricted to
+  the fourth machine and one runner (v2026.11.07).
+- `t033 NODE OUT [JANUSCTL]`: certificates a node issues through its API
+  - the identity export, the `rescue:`/`kit:` names, a `janus-controller`
+  client with `-as-user` in `system clients`, `access trust-reset`;
+  `t033r NAME OUT`: the same node's identity with `-kit`, then a rescue
+  certificate's export and reset; `t28probe NODE OUT`: the node page's
+  connectivity test by the admin, a network-only and an HAProxy operator;
+  `t28csp OUT`: CSP reports from two addresses, the log lines counted;
+  `pwatch NAME OUT`: a bare node's pairing codes as they appear (time and
+  hash only); `p2-renew NAME OUT`: the first and newest codes tried with
+  `fleet adopt` in a throwaway fleet (v2026.11.08).
+- `serlog NAME DOMAIN [OFFSET]`, `serlog-size DOMAIN`: a libvirt
+  domain's serial console since OFFSET (every boot) or its last boot,
+  summarized - warnings, unknown parameters, AVC, init's kernel
+  parameters and their keys, the `hardware:` line; `consul75 STEP`: the
+  throwaway Consul server (from 56); `cview [NAME]`: Consul's services,
+  the nodes' tokens and the `janus-*` policies; `cwatch OUT`: the
+  catalog every second, a line per change; `k-write NODE SERVICE
+  register|deregister`: a catalog write with a node's own token;
+  `promgaps NAME FROM TO`: each Prometheus series' samples, gaps and
+  zeros; `awatch NAME SECONDS`: an auto-scaled machine's size, status and
+  CPUs; `manual-vm2` (`NICMODEL=`, `DISKOPT=`, `CTRLOPT=`): a node made
+  by hand with other disk buses and NIC models (v2026.11.08-2).
+- `kwatch OUT NAME...`: each node's release, the Controller's Consul
+  view of it (state, scope, `legacy`) and its token's policies, every
+  second, a line per change; `knodes`: the Controller's Consul nodes and
+  its last pass; `krun`: **Run now**, waiting for the pass; `klog
+  [SINCE]`: the Controller's Consul log lines ("Consul layer …
+  applied" counted); `kmanaged NAME`: a node's layer `scope` and its
+  answer's `scope` through its page; `nlabel NAME JSON`: a node's own
+  labels; `pupgrade NAME VERSION`: a pre-release installed the way the
+  node's page does it (factory, `upgrade-url`); `gapwhere NAME FROM
+  TO`: where each Prometheus series' gaps fall (v2026.11.08-3).
+- `nvme-vm NAME`: a node made by hand booting from an NVMe disk (QEMU's
+  own command line, the domain's AppArmor profile, a boot index);
+  `hwup NAME VERSION`: `pupgrade` with the node's slots, versions and
+  boot time read before and after; `allowup NAME [SECONDS]`: the update
+  forced with `-allow-unsupported-hardware`, the serial console followed
+  from the call (v2026.11.09).
+- `flaky-serve.py PORT DIR`: a bundle served with a 504 for each file's
+  first request under `/flaky/` (`/flaky/reset` forgets them), every
+  request logged; `urlup NAME NODE URL`: `janusctl lifecycle upgrade`
+  from URL, each line timestamped, with the server's log over the same
+  window; `boots PREFIX NODE [DOMAIN]`: `bstage` firmware ×2 and kexec
+  ×4, the serial console since before them (`serlog`), the last boot's
+  kernel log, and the CPUfreq lines (v2026.11.09-2).
+- `crestart NAME [nocache]` (`PREP=` a node's id: "Prepare the
+  pre-release" sent right after the restart): the Controller restarted
+  with its HTTPS captured and its update status polled; `sni.py PCAP
+  T0`: the connections and TLS server names in a capture; `slowgh on
+  MS|off`: GitHub made slower from the Controller's host (`netem`);
+  `fprep VERSION NODE OUT`: "Prepare the pre-release" until ready, each
+  answer timed; `upage NAME NODE MODE THEME [REF] [SHA]` (`upage.mjs`,
+  `UNSIGNED=`, `KEXEC=`, `THROTTLE=` bytes/s): an update through the
+  node page's Update in the browser, its progress stamped and
+  screenshotted; `mk-novirtionet SRC DST`: the lab-built bundle without
+  `virtio_net`; `tapi METHOD PATH`: the Controller's API with the
+  campaign's token (v2026.11.09-3).

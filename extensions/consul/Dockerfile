@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
         binutils-aarch64-linux-gnu \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
-RUN curl -fsSLo consul.zip "https://releases.hashicorp.com/consul/${CONSUL_VERSION}/consul_${CONSUL_VERSION}_linux_${ARCH}.zip" \
+RUN curl --retry 6 --retry-delay 20 -fsSLo consul.zip "https://releases.hashicorp.com/consul/${CONSUL_VERSION}/consul_${CONSUL_VERSION}_linux_${ARCH}.zip" \
     && echo "${CONSUL_SHA256}  consul.zip" | sha256sum -c - \
     && unzip -q consul.zip \
     && case "${ARCH}" in arm64) strip=aarch64-linux-gnu-strip ;; *) strip=strip ;; esac \

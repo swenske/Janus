@@ -11,7 +11,11 @@ machine from the ISO.
 > installed on a physical machine. Until someone can test one, nothing
 > builds or tests the installer ISO, PXE or HTTP Boot, and releases
 > don't publish `janus.iso` - v2026.10.30's is the last; `make
-> iso-image-with-bundle` still builds one. A machine to spare?
+> iso-image-with-bundle` still builds one. The images' kernel is now
+> built for virtual machines, without a physical machine's disk and
+> network drivers: bare metal comes back with a kernel of its own, and
+> an update refuses to install one that can't drive a node's disk or
+> network cards. A machine to spare?
 > [Offer to test it](https://github.com/swenske/Janus/issues/new?template=need-tester-baremetal.yml).
 >
 > Proven under QEMU until the suspension, with UEFI and SELinux enforcing:

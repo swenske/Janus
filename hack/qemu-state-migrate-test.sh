@@ -196,9 +196,23 @@ JANUS_KIT_PASSPHRASE="$(cat "$WORKDIR/passphrase")"
 export JANUS_KIT_PASSPHRASE
 out="$(alice fleet adopt edge-a -endpoint "127.0.0.1:$((BASE + 11))" -ca "$WORKDIR/a-ca.crt" -cert "$WORKDIR/a-admin.crt" -key "$WORKDIR/a-admin.key" 2>&1)" || fail "adopting A into the fleet: $out"
 out="$(alice -n edge-a system state export -identity "$WORKDIR/fleet-id.tar" 2>&1 || true)"
-check "the fleet's 12-hour certificate can't take A's identity" "comes from an issuing CA: add -kit KIT" "$out"
+check "the fleet's 12-hour certificate can't take A's identity" "is neither: add -kit KIT" "$out"
 [ ! -s "$WORKDIR/fleet-id.tar" ] || fail "a refused export of the identity left a file"
 rm -f "$WORKDIR/fleet-id.tar"
+# Nor through a certificate of A's own CA the fleet's admin has A issue
+# through its API (GenerateClientConfiguration): only one issued at the
+# console - a rescue certificate, this test's (hack/fleetca) - counts.
+alice -n edge-a pki generate-client-config -role os:admin -name a-api-admin "$WORKDIR/a-api" >/dev/null 2>&1 || fail "the fleet's admin having A issue an admin certificate"
+api() { "$CTL_BIN" -endpoint "127.0.0.1:$((BASE + 11))" -ca "$WORKDIR/a-ca.crt" -cert "$WORKDIR/a-api/client.crt" -key "$WORKDIR/a-api/client.key" "$@"; }
+api version >/dev/null || fail "the API-issued admin certificate doesn't reach A"
+out="$(api system state export -identity "$WORKDIR/api-id.tar" 2>&1 || true)"
+check "an admin certificate A issued through its API can't take A's identity" "is neither: add -kit KIT" "$out"
+rm -f "$WORKDIR/api-id.tar"
+out="$(api access trust-reset 2>&1 || true)"
+check "nor make A forget its fleet" "issued at its console" "$out"
+out="$(alice -n edge-a pki generate-client-config -role os:admin -name rescue:mallory "$WORKDIR/a-fake" 2>&1 || true)"
+check "nor be named as a rescue certificate" "how the node names its rescue certificates" "$out"
+rm -rf "$WORKDIR/a-api" "$WORKDIR/a-fake"
 alice -n edge-a system state export "$WORKDIR/fleet.tar" 2>/dev/null || fail "the fleet's certificate exporting A's state without the identity"
 alice -n edge-a system state export -identity -kit "$WORKDIR/kit.age" "$WORKDIR/kit-id.tar" 2>/dev/null || fail "the kit's certificate exporting A's identity"
 python3 - "$WORKDIR/fleet.tar" "$WORKDIR/kit-id.tar" <<'PY' || fail "what each export carried"
@@ -213,7 +227,7 @@ m, names = load(sys.argv[2])
 assert m["identity"] and "pki/ca.key" in names, m["identity"]
 PY
 check "A logged the kit's export" "state: exported \(.*identity true\) - by kit:alice \(os:admin, fleet\)" "$(cat "$WORKDIR/a.log")"
-echo "  ok: in a fleet - its issuing CA's certificate exports A's state without the identity, the kit's certificate with it"
+echo "  ok: in a fleet - its issuing CA's certificate, or one A issued through its API, exports A's state without the identity, the kit's certificate with it"
 
 # The replacement: A's state piped into B, A's identity with it.
 out="$(ctl a a system state export -identity - | ctl b b system state import -identity -save-network "$WORKDIR/held-net.json" - 2>&1)" || fail "export | import: $out"

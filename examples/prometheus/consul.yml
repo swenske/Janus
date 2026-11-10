@@ -1,10 +1,13 @@
 # Prometheus finding the Janus nodes and what they serve in Consul
 # (docs/guide/consul-controller.md): every exporter the nodes run - the
 # services tagged prometheus: janus-exporter, node-exporter,
-# haproxy-exporter -, each on its own path and scheme, and every URL the
-# nodes' maps and Host ACLs route (the haproxy-url service) probed by the
-# blackbox exporter. Its token reads the catalog: node_prefix and
-# service_prefix "" read. Checked by promtool (make examples-check).
+# haproxy-<scope>-exporter -, each on its own path and scheme, and every
+# URL the nodes' maps and Host ACLs route (haproxy-<scope>-url, tags
+# haproxy and url) probed by the blackbox exporter. <scope> is a node's
+# cluster, or the node alone: services are picked by their tags, so
+# releases before scoped names (haproxy-url, haproxy-exporter) are found
+# too. Its token reads the catalog: node_prefix and service_prefix ""
+# read. Checked by promtool (make examples-check).
 global:
   scrape_interval: 30s
 
@@ -27,7 +30,14 @@ scrape_configs:
         target_label: __metrics_path__
       - source_labels: [__meta_consul_service_metadata_scheme]
         target_label: __scheme__
+      # One name per exporter kind, whatever the node's scope:
+      # haproxy-<scope>-exporter is haproxy-exporter.
       - source_labels: [__meta_consul_service]
+        regex: haproxy-(.+-)?exporter
+        target_label: exporter
+        replacement: haproxy-exporter
+      - source_labels: [__meta_consul_service]
+        regex: (janus-exporter|node-exporter)
         target_label: exporter
       - source_labels: [__meta_consul_service_metadata_frontend]
         target_label: frontend
@@ -46,13 +56,17 @@ scrape_configs:
       - server: consul.example.net:443
         scheme: https
         datacenter: lgs
-        services: [haproxy-url]
-        # Routed by the Host header only; proto=tcp: by the TLS server
-        # name, passed through to a backend of its own (SNI passthrough).
-        tags: [url, proto=http]
+        # The URLs' instances, by their tags: haproxy-<scope>-url, and
+        # haproxy-url from a release before scoped names. Routed by the
+        # Host header only; proto=tcp: by the TLS server name, passed
+        # through to a backend of its own (SNI passthrough).
+        tags: [haproxy, url, proto=http]
         authorization:
           credentials_file: /etc/prometheus/consul-token
     relabel_configs:
+      - source_labels: [__meta_consul_service]
+        regex: haproxy(-.+)?-url
+        action: keep
       # The URL is what the exporter probes, and the target's name - not
       # the node: the members of a cluster register the same URLs, and
       # Prometheus keeps one target for them.

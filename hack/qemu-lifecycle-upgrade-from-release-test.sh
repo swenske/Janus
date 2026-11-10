@@ -53,7 +53,7 @@ trap cleanup EXIT
 fail() { echo "Upgrade-from-release test FAILED: $*" >&2; exit 1; }
 
 # --- the release's image, as published ---
-curl -fsSL -H "Accept: application/vnd.github+json" ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} \
+curl -fsSL --retry 6 --retry-delay 20 -H "Accept: application/vnd.github+json" ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} \
   "https://api.github.com/repos/$REPO/releases/tags/$RELEASE" > "$WORKDIR/release.json"
 read -r URL DIGEST < <(python3 -c '
 import json, sys
@@ -61,7 +61,7 @@ for a in json.load(open(sys.argv[1]))["assets"]:
     if a["name"] == "janus-kvm.qcow2":
         print(a["browser_download_url"], a["digest"].removeprefix("sha256:"))' "$WORKDIR/release.json")
 [ -n "${DIGEST:-}" ] || fail "$RELEASE has no janus-kvm.qcow2 with a digest"
-curl -fsSL -o "$WORKDIR/janus.qcow2" "$URL"
+curl -fsSL --retry 6 --retry-delay 20 -o "$WORKDIR/janus.qcow2" "$URL"
 echo "$DIGEST  $WORKDIR/janus.qcow2" | sha256sum -c --quiet - || fail "janus-kvm.qcow2 isn't what GitHub says it is"
 DISK="$WORKDIR/disk.img"
 qemu-img convert -O raw "$WORKDIR/janus.qcow2" "$DISK"

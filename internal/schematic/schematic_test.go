@@ -3,6 +3,7 @@ package schematic
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -303,8 +304,8 @@ func TestImageInfo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gotSc.ID() != sc.ID() || string(got.Schematic) != string(sc.Canonical()) || got.HAProxy != (ImageComponent{Variant: "3.4", Version: "3.4.6", Default: true}) ||
-		got.Kernel != (ImageComponent{Variant: "longterm", Version: "6.18.55", Pinned: true}) {
+	if gotSc.ID() != sc.ID() || string(got.Schematic) != string(sc.Canonical()) || !reflect.DeepEqual(got.HAProxy, ImageComponent{Variant: "3.4", Version: "3.4.6", Default: true}) ||
+		!reflect.DeepEqual(got.Kernel, ImageComponent{Variant: "longterm", Version: "6.18.55", Pinned: true}) {
 		t.Errorf("image info: %s", data)
 	}
 	// A schematic that isn't its ID's.

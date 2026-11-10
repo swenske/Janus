@@ -147,7 +147,14 @@ func (c *Clients) tag(ctx context.Context, info *stats.ConnTagInfo) context.Cont
 		if tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo); ok && len(tlsInfo.State.PeerCertificates) > 0 {
 			leaf := tlsInfo.State.PeerCertificates[0]
 			cl.name, cl.roles = leaf.Subject.CommonName, leaf.Subject.Organization
-			cl.controller = slices.Contains(cl.roles, pki.RoleController) || cl.name == ServiceCredentialName
+			// Only a Controller's own certificate (its role, which a fleet's
+			// issuing CA signs) is shown as the Controller, and only its
+			// calls name the user they're for: a certificate named
+			// ServiceCredentialName - any admin can have the node issue one -
+			// is an admin client like another, its janus-as-user metadata
+			// ignored here as the node ignores it for its rights (security
+			// review 2026-11-05 #28).
+			cl.controller = slices.Contains(cl.roles, pki.RoleController)
 			cl.fleet = fleetChain(tlsInfo.State.VerifiedChains)
 		}
 	}

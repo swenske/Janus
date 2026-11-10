@@ -29,10 +29,10 @@ ARG JANSSON_SHA256
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates xz-utils bzip2 netbase \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
-RUN curl -fsSLO "https://www.netfilter.org/pub/libmnl/libmnl-${LIBMNL_VERSION}.tar.bz2" \
-    && curl -fsSLO "https://www.netfilter.org/pub/libnftnl/libnftnl-${LIBNFTNL_VERSION}.tar.xz" \
-    && curl -fsSLO "https://www.netfilter.org/pub/nftables/nftables-${NFTABLES_VERSION}.tar.xz" \
-    && curl -fsSLO "https://github.com/akheron/jansson/releases/download/v${JANSSON_VERSION}/jansson-${JANSSON_VERSION}.tar.gz" \
+RUN curl -fsSLO --retry 6 --retry-delay 20 "https://www.netfilter.org/pub/libmnl/libmnl-${LIBMNL_VERSION}.tar.bz2" \
+    && curl -fsSLO --retry 6 --retry-delay 20 "https://www.netfilter.org/pub/libnftnl/libnftnl-${LIBNFTNL_VERSION}.tar.xz" \
+    && curl -fsSLO --retry 6 --retry-delay 20 "https://www.netfilter.org/pub/nftables/nftables-${NFTABLES_VERSION}.tar.xz" \
+    && curl -fsSLO --retry 6 --retry-delay 20 "https://github.com/akheron/jansson/releases/download/v${JANSSON_VERSION}/jansson-${JANSSON_VERSION}.tar.gz" \
     && printf '%s  %s\n' \
         "${JANSSON_SHA256}" "jansson-${JANSSON_VERSION}.tar.gz" \
         "${LIBMNL_SHA256}" "libmnl-${LIBMNL_VERSION}.tar.bz2" \

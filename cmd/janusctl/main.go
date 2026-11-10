@@ -691,9 +691,10 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 		fleetBundleFile := fs.String("fleet-bundle", "", "with -fleet-root: the bundle the fleet's root signed")
 		logsSizeMB := fs.Int("logs-size-mb", 0, "the LOGS partition's size in MiB - the node's logs kept across reboots; 0: 5 % of the disk, between 512 MiB and 8 GiB, none under 4 GiB; -1: none")
 		insecureSkip := fs.Bool("insecure-skip-signature-check", false, "accept UKIs not signed by a Janus release key - development bundles only: without the check, whoever can alter the bundle on its way to the node controls what it boots")
+		allowHardware := fs.Bool("allow-unsupported-hardware", false, "accept a bundle whose kernel has no driver for the node's boot disk (install: the target disk) or one of its network interfaces - without it, it's refused: the node would never find its disk, or lose that network. Only for a machine whose devices change before it boots the release")
 		_ = fs.Parse(args[1:])
 		if fs.NArg() != 2 {
-			fmt.Fprintln(os.Stderr, "usage: janusctl lifecycle install [-sha256 HEX] [-controller-address HOST:PORT -controller-ca FILE [-controller-fleet-root FILE] [-registration-token TOKEN]] [-network-config FILE] [-fleet-root FILE -fleet-bundle FILE] [-logs-size-mb MIB] [-insecure-skip-signature-check] DISK BUNDLE_DIR")
+			fmt.Fprintln(os.Stderr, "usage: janusctl lifecycle install [-sha256 HEX] [-controller-address HOST:PORT -controller-ca FILE [-controller-fleet-root FILE] [-registration-token TOKEN]] [-network-config FILE] [-fleet-root FILE -fleet-bundle FILE] [-logs-size-mb MIB] [-insecure-skip-signature-check] [-allow-unsupported-hardware] DISK BUNDLE_DIR")
 			os.Exit(2)
 		}
 		disk, bundleDir := fs.Arg(0), fs.Arg(1)
@@ -747,7 +748,7 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 		c, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		defer cancel()
 		stream, err := janusv1alpha1.NewLifecycleServiceClient(conn).Install(c, &janusv1alpha1.InstallRequest{
-			Source:                  &janusv1alpha1.ImageSource{Reference: bundleDir, Sha256: sum, InsecureSkipSignatureCheck: *insecureSkip},
+			Source:                  &janusv1alpha1.ImageSource{Reference: bundleDir, Sha256: sum, InsecureSkipSignatureCheck: *insecureSkip, AllowUnsupportedHardware: *allowHardware},
 			Disk:                    disk,
 			ControllerAddress:       *controllerAddress,
 			ControllerCaCert:        controllerCACert,
@@ -788,10 +789,11 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 		healthTimeout := fs.Uint("health-timeout", 0, "seconds the new slot's janusd has to keep running before it's considered healthy and the upgrade is confirmed; 0 uses the node's own default (60s) - only meaningful with -wait-for-health")
 		insecureSkip := fs.Bool("insecure-skip-signature-check", false, "accept UKIs not signed by a Janus release key - development bundles only: without the check, whoever can alter the bundle on its way to the node controls what it boots")
 		allowSchematic := fs.Bool("allow-schematic-change", false, "accept a bundle built from another image schematic than the node's own - without it, an update that would drop the node's extensions is refused")
+		allowHardware := fs.Bool("allow-unsupported-hardware", false, "accept a bundle whose kernel has no driver for the node's boot disk (install: the target disk) or one of its network interfaces - without it, it's refused: the node would never find its disk, or lose that network. Only for a machine whose devices change before it boots the release")
 		kexecMode := fs.Bool("kexec", false, "reboot into the new slot by jumping into its kernel, without going through the firmware - seconds instead of a server's POST; when the node can't (Secure Boot and an unsigned bundle), it reboots through the firmware and says so")
 		_ = fs.Parse(args[1:])
 		if fs.NArg() != 1 {
-			fmt.Fprintln(os.Stderr, "usage: janusctl lifecycle upgrade [-sha256 HEX] [-wait-for-health] [-health-timeout SECONDS] [-insecure-skip-signature-check] [-allow-schematic-change] [-kexec] BUNDLE_DIR")
+			fmt.Fprintln(os.Stderr, "usage: janusctl lifecycle upgrade [-sha256 HEX] [-wait-for-health] [-health-timeout SECONDS] [-insecure-skip-signature-check] [-allow-schematic-change] [-allow-unsupported-hardware] [-kexec] BUNDLE_DIR")
 			os.Exit(2)
 		}
 		bundleDir := fs.Arg(0)
@@ -811,7 +813,7 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 		c, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 		stream, err := janusv1alpha1.NewLifecycleServiceClient(conn).Upgrade(c, &janusv1alpha1.UpgradeRequest{
-			Source:               &janusv1alpha1.ImageSource{Reference: bundleDir, Sha256: sum, InsecureSkipSignatureCheck: *insecureSkip, AllowSchematicChange: *allowSchematic},
+			Source:               &janusv1alpha1.ImageSource{Reference: bundleDir, Sha256: sum, InsecureSkipSignatureCheck: *insecureSkip, AllowSchematicChange: *allowSchematic, AllowUnsupportedHardware: *allowHardware},
 			WaitForHealth:        *waitForHealth,
 			HealthTimeoutSeconds: uint32(*healthTimeout),
 			RebootMode:           rebootMode(*kexecMode),

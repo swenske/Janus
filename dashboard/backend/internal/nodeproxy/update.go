@@ -119,6 +119,9 @@ type releaseOffer struct {
 	MaintenanceOf string `json:"maintenance_of,omitempty"`
 }
 
+// prepareTimeout bounds POST /api/factory/prerelease.
+const prepareTimeout = 40 * time.Second
+
 func registerUpdateRoutes(mux *http.ServeMux, node *store.Node) {
 	mux.HandleFunc("GET /api/update-check", func(w http.ResponseWriter, r *http.Request) {
 		r = r.WithContext(RefreshAsked(r)) // ?refresh: "Refresh now", a release just published
@@ -192,7 +195,11 @@ func registerUpdateRoutes(mux *http.ServeMux, node *store.Node) {
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		unary(w, r, node, unaryTimeout, func(ctx context.Context, c *grpc.ClientConn) (any, error) {
+		// Its own budget (#553): the newest release, then the image
+		// factory's answer - the first ask after a publication found the
+		// factory busy reading GitHub and came back "unavailable" when the
+		// 10 s every short call has were spent.
+		unary(w, r, node, prepareTimeout, func(ctx context.Context, c *grpc.ClientConn) (any, error) {
 			v, err := janusv1alpha1.NewSystemServiceClient(c).Version(ctx, &emptypb.Empty{})
 			if err != nil {
 				return nil, err
