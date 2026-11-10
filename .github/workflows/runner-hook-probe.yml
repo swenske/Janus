@@ -1,0 +1,17 @@
+# Temporary: proves the self-hosted runners' job-started hook - a push
+# runs, a pull request is refused before its first step. Never merged.
+name: Runner hook probe
+
+on:
+  push:
+    branches: [ci/runner-hook-probe]
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  probe:
+    runs-on: [self-hosted, docker, janus]
+    steps:
+      - run: echo "event=$GITHUB_EVENT_NAME runner=$RUNNER_NAME - this step ran"
