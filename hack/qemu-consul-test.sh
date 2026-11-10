@@ -206,7 +206,7 @@ until [ "$(curl -s -m 3 "http://127.0.0.1:$((BASE + 23))/")" = "Janus: haproxy i
   [ "$SECONDS" -lt "$deadline" ] || fail "B's HAProxy never reached web through Consul: $(ctl b haproxy backends 2>&1)"
   sleep 2
 done
-ctl b haproxy backends | grep -q "192.168.79.1" || fail "the backend's server isn't A: $(ctl b haproxy backends)"
+grep -q "192.168.79.1" <<<"$(ctl b haproxy backends)" || fail "the backend's server isn't A: $(ctl b haproxy backends)"
 echo "  ok: B's HAProxy found web (A:8080) through Consul's DNS and proxies to it"
 
 # B reboots: the same node ID, back in the cluster. Asked before its next

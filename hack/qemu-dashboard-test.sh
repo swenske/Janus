@@ -1419,7 +1419,7 @@ grep -q "Signed with the recovery kit: a certificate the fleet's root signs, kit
   || { echo "Dashboard test FAILED: janusctl with the kit's certificate: $(cat "$WORKDIR/janusctl-kit-restart.txt")" >&2; exit 1; }
 "$WORKDIR/janusctl" -context admin -n test-node system logs janusd >"$WORKDIR/node-janusd-kit.log" 2>&1 || true
 grep -qE 'api: SystemService/ServiceRestart: kit:admin \(os:admin, fleet\)$' "$WORKDIR/node-janusd-kit.log" || { echo "Dashboard test FAILED: the node didn't log the kit's restart: $(grep ServiceRestart "$WORKDIR/node-janusd-kit.log")" >&2; exit 1; }
-"$WORKDIR/janusctl" context list | grep -q "the recovery kit's certificate until" || { echo "Dashboard test FAILED: context list doesn't say the kit's certificate: $("$WORKDIR/janusctl" context list)" >&2; exit 1; }
+grep -q "the recovery kit's certificate until" <<<"$("$WORKDIR/janusctl" context list)" || { echo "Dashboard test FAILED: context list doesn't say the kit's certificate: $("$WORKDIR/janusctl" context list)" >&2; exit 1; }
 bundle_after="$(bundle_version)" || exit 1
 [ -n "$bundle_after" ] && [ "$bundle_before" = "$bundle_after" ] || { echo "Dashboard test FAILED: the node's bundle changed under the kit's certificate: '$bundle_before' -> '$bundle_after'" >&2; exit 1; }
 echo "Controller down OK: janusctl login -kit signed the context an hour's certificate with the fleet's root; the node took it and logged kit:admin; its bundle didn't change"

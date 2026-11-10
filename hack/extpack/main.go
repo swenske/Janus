@@ -588,7 +588,17 @@ func imageInfo(args []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	data, _ := json.MarshalIndent(schematic.NewImageInfo(sc, r, *version, *arch), "", "  ")
+	info := schematic.NewImageInfo(sc, r, *version, *arch)
+	// What the kernel drives: this checkout's (a release's own, for the
+	// image factory), amd64's kernels only.
+	if *arch == "amd64" {
+		set, err := variants.Load(".")
+		if err != nil {
+			log.Fatal(err)
+		}
+		info.Kernel.Flavor, info.Kernel.Drivers = set.KernelFlavor, set.KernelDrivers
+	}
+	data, _ := json.MarshalIndent(info, "", "  ")
 	if err := os.WriteFile(*out, append(data, '\n'), 0o644); err != nil {
 		log.Fatal(err)
 	}

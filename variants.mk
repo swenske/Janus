@@ -30,6 +30,23 @@ HAPROXY_3_0_EOL  := 2029-04-01
 KERNEL_TRACKS        := longterm stable
 KERNEL_DEFAULT_TRACK := stable
 
+# What the amd64 kernels drive (every track's janus_<track>_defconfig),
+# written into each image's image.json (kernel.flavor, kernel.drivers):
+# KERNEL_DRIVERS names - as sysfs does - the drivers a node's boot disk
+# and network interfaces may be bound to. Upgrade and Install refuse an
+# image whose kernel lacks a driver the node's boot disk or one of its
+# network interfaces is bound to now (internal/hwsupport): the kernel
+# would wait for its root filesystem forever, nothing left on the node
+# to roll it back - or the node would lose that network. Both empty:
+# the kernels drive every machine the previous ones did, nothing is
+# checked. arm64's kernel is the Raspberry Pi's (janus_rpi4_defconfig):
+# never checked. "virt": KVM/QEMU virtual machines - Proxmox, libvirt,
+# the Controller's machines - virtio disks and NICs, the emulated
+# e1000/e1000e NICs and AHCI/PIIX disks (go test ./hack/kconfig checks
+# each driver is built by every track).
+KERNEL_FLAVOR  := virt
+KERNEL_DRIVERS := virtio-pci virtio_blk virtio_scsi virtio_net sd ahci ata_piix e1000 e1000e
+
 # Variants a release no longer offers, as component:name:last-release
 # (the newest release with it), e.g. haproxy:2.8:v2027.06.01: an image
 # built with one stays on it, and is told where its updates stopped.

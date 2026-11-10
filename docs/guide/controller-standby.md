@@ -89,7 +89,9 @@ flowchart LR
 
 The active's card then shows the standby, its last copy and how it
 answered the last time it was asked. **Remove the standby** forgets it:
-stop it on its host too.
+at its next pull the standby hears so and deletes its last copy - the
+active's data and master key, sealed - and pairs with no one; stop it on
+its host too.
 
 ## One address for both
 

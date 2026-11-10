@@ -353,3 +353,49 @@ func TestPingLoopback(t *testing.T) {
 		t.Errorf("traceroute: %+v", ev)
 	}
 }
+
+// TestDenyLocal: with DenyLocal, a probe connects to nothing on the node
+// itself nor link-local - whether named by address, by a name that
+// resolves there, or through ConnectTo - and still connects elsewhere;
+// without it, loopback works as before.
+func TestDenyLocal(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			c.Close()
+		}
+	}()
+	_, port, _ := net.SplitHostPort(ln.Addr().String())
+	for _, target := range []string{ln.Addr().String(), "localhost:" + port, "[::1]:" + port} {
+		ev := run(t, Request{Kind: KindTCP, Target: target, Timeout: time.Second, DenyLocal: true})
+		c := stage(ev, "connect")
+		if c == nil || c.OK || !strings.Contains(c.Message, "link-local addresses are for whoever") {
+			t.Errorf("%s: %+v", target, ev)
+		}
+	}
+	ev := run(t, Request{Kind: KindHTTP, Target: "http://example.test/", ConnectTo: ln.Addr().String(), Timeout: time.Second, DenyLocal: true})
+	if c := stage(ev, "connect"); c == nil || c.OK {
+		t.Errorf("http through ConnectTo: %+v", ev)
+	}
+	ev = run(t, Request{Kind: KindTCP, Target: "169.254.169.254:80", Timeout: time.Second, DenyLocal: true})
+	if c := stage(ev, "connect"); c == nil || c.OK || !strings.Contains(c.Message, "link-local") {
+		t.Errorf("metadata address: %+v", ev)
+	}
+	ev = run(t, Request{Kind: KindTCP, Target: ln.Addr().String(), Timeout: time.Second})
+	if c := stage(ev, "connect"); c == nil || !c.OK {
+		t.Errorf("without DenyLocal: %+v", ev)
+	}
+	for a, want := range map[string]bool{"127.0.0.1": true, "::1": true, "::ffff:127.0.0.1": true, "169.254.169.254": true, "fe80::1": true, "0.0.0.0": true, "10.0.0.1": false, "192.0.2.1": false, "2001:db8::1": false} {
+		if got := localDestination(netip.MustParseAddr(a)); got != want {
+			t.Errorf("%s: %v", a, got)
+		}
+	}
+}

@@ -55,6 +55,11 @@ func (s *System) Probe(req *janusv1alpha1.ProbeRequest, stream janusv1alpha1.Sys
 		return status.Error(codes.ResourceExhausted, "4 probes are already running on this node: try again when one is done")
 	}
 
+	// The node's own services (loopback) and link-local addresses - a
+	// cloud's metadata service - are for whoever may change its HAProxy
+	// configuration, which reaches them anyway: not for an operator of
+	// the network domain alone (security review 2026-11-05 #28).
+	r.DenyLocal = checkRole(stream.Context(), janusv1alpha1.HAProxyService_ApplyConfig_FullMethodName) != nil
 	caller, _ := CallerFrom(stream.Context())
 	events.Publish("probe.run", map[string]string{"kind": r.Kind, "target": redactTarget(r.Target), "by": caller.String()})
 	err := probe.Run(stream.Context(), r, func(e probe.Event) error { return stream.Send(probeEvent(e)) })

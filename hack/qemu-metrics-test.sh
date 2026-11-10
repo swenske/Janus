@@ -102,10 +102,10 @@ echo "  ok: the exporter listens on the main interface by default"
 # forwards to the guest's own address) doesn't reach it any more; back
 # on every address, it does, and on the main interface again. A bad
 # address is refused.
-ctl system metrics -address 127.0.0.1 | grep -q 'http://127.0.0.1:10056/metrics' || fail "-address 127.0.0.1 wasn't taken"
+grep -q 'http://127.0.0.1:10056/metrics' <<<"$(ctl system metrics -address 127.0.0.1)" || fail "-address 127.0.0.1 wasn't taken"
 if scrape "$P_METRICS" >/dev/null 2>&1; then fail "the exporter still answers on every address after -address 127.0.0.1"; fi
 if ctl system metrics -address not-an-ip >/dev/null 2>&1; then fail "an address that isn't an IP was accepted"; fi
-ctl system metrics -address '*' | grep -q 'http://<node>:10056/metrics' || fail "-address '*' didn't put it back on every address"
+grep -q 'http://<node>:10056/metrics' <<<"$(ctl system metrics -address '*')" || fail "-address '*' didn't put it back on every address"
 scrape "$P_METRICS" >/dev/null || fail "no metrics on :10056 after -address '*'"
 OUT="$(ctl system metrics -address auto)"
 grep -q 'http://10.0.2.15:10056/metrics (main interface)' <<<"$OUT" || fail "-address auto didn't put it back on the main interface: $OUT"
@@ -168,7 +168,7 @@ grep -q '^janus_time_synchronized [01]$' "$WORKDIR/metrics.txt" || fail "no janu
 echo "  ok: time sync reported"
 
 # Move the exporter through the API; it persists on STATE across a reboot.
-ctl system metrics -port 10099 | grep -q ":10099/metrics" || fail "moving the exporter to 10099"
+grep -q ":10099/metrics" <<<"$(ctl system metrics -port 10099)" || fail "moving the exporter to 10099"
 scrape "$P_METRICS2" >/dev/null || fail "nothing on :10099 after the move"
 if scrape "$P_METRICS" >/dev/null 2>&1; then fail ":10056 still answers after the move"; fi
 echo "  ok: moved to port 10099 through the API"
@@ -180,7 +180,7 @@ until [ "$(grep -ac "J A N U S" "$LOG" || true)" -gt "$boots_before" ] && scrape
   sleep 2
 done
 echo "  ok: after a reboot, still on 10099"
-ctl system metrics -disable | grep -q "disabled" || fail "disabling the exporter"
+grep -q "disabled" <<<"$(ctl system metrics -disable)" || fail "disabling the exporter"
 if scrape "$P_METRICS2" >/dev/null 2>&1; then fail "still answering once disabled"; fi
 echo "  ok: disabled"
 

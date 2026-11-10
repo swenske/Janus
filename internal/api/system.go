@@ -321,6 +321,14 @@ func (s *System) GenerateClientConfiguration(_ context.Context, req *janusv1alph
 	if !clientNamePattern.MatchString(name) {
 		return nil, status.Errorf(codes.InvalidArgument, "name %q: up to 64 letters, digits, spaces and ._@:+-, starting with a letter or digit", name)
 	}
+	// The node names its rescue certificates rescue:<name>, a recovery
+	// kit's are kit:<name>: one it issues here mustn't pass for either in
+	// its logs and audit.
+	for _, reserved := range []string{"rescue:", "kit:"} {
+		if strings.HasPrefix(strings.ToLower(name), reserved) {
+			return nil, status.Errorf(codes.InvalidArgument, "name %q: %s<name> is how the node names %s certificates", name, reserved, map[string]string{"rescue:": "its rescue", "kit:": "a recovery kit's"}[reserved])
+		}
+	}
 	validity := time.Duration(req.GetTtlSeconds()) * time.Second
 	if validity != 0 && (validity < time.Minute || validity > pki.LeafValidity) {
 		return nil, status.Errorf(codes.InvalidArgument, "ttl_seconds %d: between 60 and %d (one year), or 0 for one year", req.GetTtlSeconds(), int(pki.LeafValidity.Seconds()))

@@ -11,15 +11,18 @@ export const KINDS = [
   ['other', 'Other'],
 ]
 
-// kindOf is a service's group: haproxy-url's instances, the exporters
-// (tag prometheus: janus-exporter, node-exporter, haproxy-exporter), the
-// frontends (haproxy-<name>, tag haproxy), anything else - janus, the
+// kindOf is a service's group, by janusd's tags - the names carry the
+// node's scope (haproxy-<cluster>-..., haproxy-url before): the URLs'
+// instances (tags haproxy, url), the exporters (tag prometheus:
+// janus-exporter, node-exporter, haproxy-<scope>-exporter), the frontends
+// (haproxy-<scope>-<name>, tag haproxy), anything else - janus, the
 // operator's own.
 export function kindOf(s) {
   const tags = s.tags || []
-  if (s.name === 'haproxy-url') return 'url'
+  const name = s.name || ''
+  if (tags.includes('haproxy') && tags.includes('url') && name.startsWith('haproxy-')) return 'url'
   if (tags.includes('prometheus')) return 'exporter'
-  if (tags.includes('haproxy') && (s.name || '').startsWith('haproxy-')) return 'frontend'
+  if (tags.includes('haproxy') && name.startsWith('haproxy-')) return 'frontend'
   return 'other'
 }
 

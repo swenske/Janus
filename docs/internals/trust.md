@@ -113,16 +113,19 @@ flowchart TB
 ```
 
 - **The node's own CA** always lets in, with any role - and only a
-  certificate of its own CA can make the node forget its fleet
-  (`TrustReset`).
+  certificate its own CA issued **at its console** (a rescue
+  certificate, marked so: OID 2.999.1.2, which no API call puts in a
+  certificate) can make the node forget its fleet (`TrustReset`).
 - **A certificate the root signs itself** lets in too: the way back when
   every issuing CA is lost (`janusctl fleet ... -kit`).
 - **What an admin carries away**: an `os:admin` calling the node itself
   can export its state (`StateExport`) - the keys of the sites it
   serves among it. Its **identity** - the node CA's key - goes only to
-  a certificate of one of the two roots above: the node's own CA or the
-  fleet's root itself, never an issuing CA's 12 hours (`-kit`,
-  [replacing a node](../guide/replacing-a-node.md#identity-the-same-node-or-a-new-one)).
+  the fleet's root's own certificate (`-kit`) or one the node's CA
+  issued at its console (a rescue certificate) - never an issuing CA's
+  12 hours, nor a certificate of the node's CA an admin had it issue
+  through its API
+  ([replacing a node](../guide/replacing-a-node.md#identity-the-same-node-or-a-new-one)).
 - **An issuing CA the newest bundle no longer lists** lets nobody in: a
   bundle is how an issuing CA leaves the fleet, without touching the
   nodes. A bundle can **limit** an issuing CA to roles - one that may
@@ -184,15 +187,19 @@ can't be read through the API, by anyone.
   and L for 1). Its first 59 bits are the window certificate's SHA-256:
   janusctl and the Controller check the certificate the node presents
   against them, and its CA, before they send anything - another
-  certificate with the same 59 bits takes 2^59 tries. The next 36 are a
+  certificate with the same 59 bits takes 2^59 tries, and a window that
+  stays open gets a new certificate and code every hour (the console
+  shows the new code; the previous one no longer opens it), so that
+  work never has longer. The next 36 are a
   secret, the proof the caller read the console; the last 5, a check
   that catches a mistyped code before it costs a try.
 - **Closes** when it pairs - the node trusts the fleet it was given,
   the port closes 30 seconds later, time enough for an answer lost on
-  the way -, when the node is given a fleet otherwise (TrustSet, its
-  Controller), or after 5 wrong secrets, until the node restarts. A new
-  code at each boot, kept in memory only, good once: it's not a key,
-  there's nothing to keep.
+  the way -, or when the node is given a fleet otherwise (TrustSet, its
+  Controller). Five wrong secrets from one address pause that address;
+  the window stays open for the others. A new code at each boot and
+  every hour, kept in memory only, good once: it's not a key, there's
+  nothing to keep.
 - **Every call is audited** (`janusctl system audit`): `pairing code`,
   the caller's address, how it ended.
 - **A rescue volume** (`JANUSRESCUE`, `janusctl image rescue-volume`)

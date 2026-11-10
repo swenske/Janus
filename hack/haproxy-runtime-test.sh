@@ -143,9 +143,9 @@ done
 
 [ "$(ctl haproxy map-list)" = "$WORKDIR/maps/hosts.map" ] || fail "map-list doesn't show the file-backed map"
 ctl haproxy map-set "$WORKDIR/maps/hosts.map" www.new.com backendX
-ctl haproxy map-get "$WORKDIR/maps/hosts.map" | grep -q "^www.new.com backendX$" || fail "map-set didn't add the entry"
+grep -q "^www.new.com backendX$" <<<"$(ctl haproxy map-get "$WORKDIR/maps/hosts.map")" || fail "map-set didn't add the entry"
 ctl haproxy map-delete "$WORKDIR/maps/hosts.map" www.new.com
-if ctl haproxy map-get "$WORKDIR/maps/hosts.map" | grep -q www.new.com; then
+if grep -q www.new.com <<<"$(ctl haproxy map-get "$WORKDIR/maps/hosts.map")"; then
     fail "map-delete left the entry"
 fi
 
@@ -155,7 +155,7 @@ ctl haproxy acl-delete "$WORKDIR/acls/blocked.acl" 5.6.7.8
 selfsigned rt.example.com "$WORKDIR/rt.key" "$WORKDIR/rt.crt"
 cat "$WORKDIR/rt.crt" "$WORKDIR/rt.key" > "$WORKDIR/rt-bundle.pem"
 ctl haproxy cert-upload "$WORKDIR/uploaded.pem" "$WORKDIR/rt-bundle.pem"
-ctl haproxy cert-list | grep -q "^$WORKDIR/uploaded.pem.*status=Unused" || fail "an unbound uploaded cert isn't listed Unused"
+grep -q "^$WORKDIR/uploaded.pem.*status=Unused" <<<"$(ctl haproxy cert-list)" || fail "an unbound uploaded cert isn't listed Unused"
 ctl haproxy cert-delete "$WORKDIR/uploaded.pem"
 
 # The crt-list binding: upload+bind with an SNI filter - a name the
@@ -169,7 +169,7 @@ for _ in 1 2; do
     ctl haproxy cert-upload -crt-list "$WORKDIR/certs/crt-list.txt" -sni uploaded.example \
         "$WORKDIR/certs/uploaded.pem" "$WORKDIR/certs/uploaded.pem"
 done
-ctl haproxy cert-list | grep -q "^$WORKDIR/certs/uploaded.pem.*status=Used" || fail "the bound cert isn't listed Used"
+grep -q "^$WORKDIR/certs/uploaded.pem.*status=Used" <<<"$(ctl haproxy cert-list)" || fail "the bound cert isn't listed Used"
 entries="$(python3 -c 'import socket, sys
 s = socket.socket(socket.AF_UNIX)
 s.connect("/run/janus/haproxy-admin.sock")
@@ -188,18 +188,18 @@ got="$(subject)"
 # A reload starts a new HAProxy from the configuration: janusd puts the
 # uploaded certificate and its crt-list binding back.
 ctl haproxy apply-config "$WORKDIR/haproxy.cfg"
-ctl haproxy cert-list | grep -q "^$WORKDIR/certs/uploaded.pem.*status=Used" || fail "the bound cert is gone after a reload"
+grep -q "^$WORKDIR/certs/uploaded.pem.*status=Used" <<<"$(ctl haproxy cert-list)" || fail "the bound cert is gone after a reload"
 got="$(subject -servername uploaded.example)"
 [ "$got" = "subject=CN=uploaded.local" ] || fail "expected the SNI-bound cert after a reload, got: $got"
 
 ctl haproxy cert-delete -crt-list "$WORKDIR/certs/crt-list.txt" "$WORKDIR/certs/uploaded.pem"
-if ctl haproxy cert-list | grep -q "^$WORKDIR/certs/uploaded.pem"; then
+if grep -q "^$WORKDIR/certs/uploaded.pem" <<<"$(ctl haproxy cert-list)"; then
     fail "the cert is still listed after delete"
 fi
 
 # The configuration: whole for an admin, its secrets masked for a reader
 # (JANUS-2026-006) - which HAProxy itself still accepts as written.
-ctl haproxy get-config | grep -q "insecure-password s3cret-rt" || fail "an admin doesn't get the configuration whole"
+grep -q "insecure-password s3cret-rt" <<<"$(ctl haproxy get-config)" || fail "an admin doesn't get the configuration whole"
 ctl pki generate-client-config -role os:reader -name rt-reader -ttl 1h "$WORKDIR/reader" > /dev/null || fail "generate-client-config failed"
 reader() { "$CTL_BIN" -endpoint "127.0.0.1:$P_GRPC" -ca "$WORKDIR/reader/ca.crt" -cert "$WORKDIR/reader/client.crt" -key "$WORKDIR/reader/client.key" "$@"; }
 masked="$(reader haproxy get-config 2> "$WORKDIR/reader.err")" || fail "a reader can't read the configuration"
@@ -213,7 +213,7 @@ printf '%s\n' "$masked" > "$WORKDIR/masked.cfg"
 
 # --- runtime diagnostics ---
 # Lookups: HAProxy's own matching - the map is read as str, the ACL as ip.
-ctl haproxy map-lookup "$WORKDIR/maps/hosts.map" www.example.com | grep -q "^value    backend1$" || fail "map-lookup didn't find www.example.com"
+grep -q "^value    backend1$" <<<"$(ctl haproxy map-lookup "$WORKDIR/maps/hosts.map" www.example.com)" || fail "map-lookup didn't find www.example.com"
 if ctl haproxy map-lookup "$WORKDIR/maps/hosts.map" nothing.test > /dev/null; then fail "map-lookup found a key the map hasn't"; fi
 out="$(ctl haproxy acl-lookup "$WORKDIR/acls/blocked.acl" 1.2.3.4 2>&1)" || true
 grep -q "^method   ip$" <<<"$out" || fail "acl-lookup didn't match 1.2.3.4 as an address: $out"
@@ -228,17 +228,17 @@ curl -s -o /dev/null --max-time 60 "http://127.0.0.1:$P_DIAG/held" &
 CURL_PID=$!
 sleep 1
 
-ctl haproxy tables | grep -qE "^diag[[:space:]]+ip[[:space:]]+1[[:space:]]+1024$" || fail "tables doesn't list diag with its entry: $(ctl haproxy tables)"
-ctl haproxy table diag | grep -qE "^127\.0\.0\.1[[:space:]]" || fail "table diag lacks the client"
-ctl haproxy table -filter http_req_rate:gt:2 diag | grep -q "^127\.0\.0\.1" || fail "a filter on the request rate missed the client"
-if ctl haproxy table -filter http_req_rate:gt:1000 diag | grep -q "^127\.0\.0\.1"; then fail "a filter let a client through it shouldn't"; fi
+grep -qE "^diag[[:space:]]+ip[[:space:]]+1[[:space:]]+1024$" <<<"$(ctl haproxy tables)" || fail "tables doesn't list diag with its entry: $(ctl haproxy tables)"
+grep -qE "^127\.0\.0\.1[[:space:]]" <<<"$(ctl haproxy table diag)" || fail "table diag lacks the client"
+grep -q "^127\.0\.0\.1" <<<"$(ctl haproxy table -filter http_req_rate:gt:2 diag)" || fail "a filter on the request rate missed the client"
+if grep -q "^127\.0\.0\.1" <<<"$(ctl haproxy table -filter http_req_rate:gt:1000 diag)"; then fail "a filter let a client through it shouldn't"; fi
 if ctl haproxy table nosuch 2> "$WORKDIR/err"; then fail "table nosuch didn't fail"; fi
 grep -q "NotFound" "$WORKDIR/err" || fail "table nosuch: $(cat "$WORKDIR/err")"
 
 held="$(ctl haproxy sessions -frontend diag)"
 id="$(awk '$5 == "never" {print $1; exit}' <<<"$held")"
 [ -n "$id" ] || fail "sessions doesn't show the held request: $held"
-if ctl haproxy sessions | grep -q GLOBAL; then fail "sessions lists the runtime API's own stream"; fi
+if grep -q GLOBAL <<<"$(ctl haproxy sessions)"; then fail "sessions lists the runtime API's own stream"; fi
 ctl haproxy session-kill "$id"
 for _ in $(seq 1 20); do kill -0 "$CURL_PID" 2>/dev/null || break; sleep 0.2; done
 if kill -0 "$CURL_PID" 2>/dev/null; then fail "the held request is still running after session-kill"; fi
@@ -250,7 +250,7 @@ if ctl haproxy session-kill 0x1 2> "$WORKDIR/err"; then fail "session-kill shut 
 grep -q "NotFound" "$WORKDIR/err" || fail "session-kill 0x1: $(cat "$WORKDIR/err")"
 
 ctl haproxy table-clear diag -key 127.0.0.1
-if ctl haproxy table diag | grep -q "^127\.0\.0\.1"; then fail "table-clear left the entry"; fi
+if grep -q "^127\.0\.0\.1" <<<"$(ctl haproxy table diag)"; then fail "table-clear left the entry"; fi
 if ctl haproxy table-clear diag 2>/dev/null; then fail "table-clear with neither key, filter nor -all cleared"; fi
 
 # An invalid request (a space in a header name) carrying credentials.
@@ -272,7 +272,7 @@ if reader haproxy table-clear diag -all 2>/dev/null; then fail "a reader cleared
 
 # What the Controller and the exporter read: show info and show stat
 # parse on this branch.
-ctl haproxy show-info | grep -q "$("$HAPROXY" -v | head -1 | awk '{print $3}')" || fail "show-info doesn't report this HAProxy's version"
+grep -q "$("$HAPROXY" -v | head -1 | awk '{print $3}')" <<<"$(ctl haproxy show-info)" || fail "show-info doesn't report this HAProxy's version"
 ctl haproxy backends > /dev/null || fail "show stat doesn't parse"
 
 # A server out of the traffic and back (ServerSetState, janusctl haproxy
@@ -282,15 +282,15 @@ ctl haproxy backends > /dev/null || fail "show stat doesn't parse"
 # HAProxy's status, lowercased - "no check", "drain", "maint"...
 srv_state() { ctl haproxy backends | awk '$1 == "silent" && $2 == "never" {$1 = $2 = $3 = ""; sub(/^ +/, ""); print}'; }
 configured="$(srv_state)"
-ctl haproxy server-state silent never drain | grep -q '^silent/never: drain - ' || fail "server-state drain didn't answer drain: $(srv_state)"
+grep -q '^silent/never: drain - ' <<<"$(ctl haproxy server-state silent never drain)" || fail "server-state drain didn't answer drain: $(srv_state)"
 ctl haproxy server-state silent never ready > /dev/null || fail "server-state ready was refused"
 [ "$(srv_state)" = "$configured" ] || fail "ready, the server reads $(srv_state), not $configured"
 if reader haproxy server-state silent never maint 2>/dev/null; then fail "a reader set a server's state"; fi
 if ctl haproxy server-state silent nobody maint 2>/dev/null; then fail "a server that doesn't exist took a state"; fi
 if ctl haproxy server-state silent never up 2>/dev/null; then fail "server-state took a state that isn't one"; fi
-ctl haproxy server-state silent never maint | grep -q '^silent/never: maint - ' || fail "server-state maint didn't answer maint: $(srv_state)"
+grep -q '^silent/never: maint - ' <<<"$(ctl haproxy server-state silent never maint)" || fail "server-state maint didn't answer maint: $(srv_state)"
 if reader haproxy reload 2>/dev/null; then fail "a reader reloaded HAProxy"; fi
-ctl haproxy reload | grep -q '^HAProxy reloaded' || fail "haproxy reload didn't say it reloaded"
+grep -q '^HAProxy reloaded' <<<"$(ctl haproxy reload)" || fail "haproxy reload didn't say it reloaded"
 [ "$(srv_state)" = "$configured" ] || fail "after haproxy reload, the server in maint reads $(srv_state), not haproxy.cfg's $configured"
 
 # --- the configuration's history ---
@@ -302,10 +302,10 @@ hist() { ctl haproxy config-history | awk 'NR > 1 && $1 ~ /^[0-9]+$/'; }
 [ "$(hist | wc -l)" = 1 ] || fail "after one apply, the history isn't one version: $(ctl haproxy config-history)"
 sed 's/^global$/global\n    # a change for the history/' "$WORKDIR/first.cfg" > "$WORKDIR/changed.cfg"
 ctl haproxy apply-config "$WORKDIR/changed.cfg" > /dev/null || fail "the changed configuration was refused"
-hist | head -1 | grep -qE '^2 .* \+1 -0 .*running' || fail "version 2 isn't the newest, +1 -0, running: $(ctl haproxy config-history)"
+grep -qE '^2 .* \+1 -0 .*running' <<<"$(hist | sed -n 1p)" || fail "version 2 isn't the newest, +1 -0, running: $(ctl haproxy config-history)"
 ctl haproxy get-config -version 1 | cmp -s - "$WORKDIR/first.cfg" || fail "get-config -version 1 isn't the first configuration"
 ctl haproxy config-revert 1 > /dev/null || fail "config-revert 1 failed"
-hist | head -1 | grep -qE '^3 .*running, back to 1' || fail "going back isn't version 3, back to 1: $(ctl haproxy config-history)"
+grep -qE '^3 .*running, back to 1' <<<"$(hist | sed -n 1p)" || fail "going back isn't version 3, back to 1: $(ctl haproxy config-history)"
 ctl haproxy get-config | cmp -s - "$WORKDIR/first.cfg" || fail "config-revert didn't put the first configuration back"
 ctl haproxy apply-config "$WORKDIR/first.cfg" > /dev/null || fail "applying the same file again failed"
 [ "$(hist | wc -l)" = 3 ] || fail "the same file applied again made a version: $(ctl haproxy config-history)"

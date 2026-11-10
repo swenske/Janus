@@ -361,6 +361,20 @@ func bootDisk() string {
 	return ""
 }
 
+// survive runs one of init's optional steps that parses what a volume
+// attached to the machine holds (a NoCloud or rescue volume, through
+// go-diskfs): a panic there - a malformed filesystem - mustn't take PID 1
+// and the kernel with it (security review 2026-11-05 #28). The step is
+// skipped, the boot goes on.
+func survive(what string, step func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("init: %s: %v - skipped, the boot goes on\n", what, r)
+		}
+	}()
+	step()
+}
+
 // findRescue looks for a rescue volume (nocloud.RescueLabel, janusctl
 // image rescue-volume) at every boot, provisioned or not, and leaves
 // what it says for janusd (nocloud.RescueRunFile, on /run's tmpfs: this
@@ -692,8 +706,8 @@ func main() {
 	mountState()
 	tuneSysctls()
 	mountReleaseBundle()
-	seedFromNoCloud()
-	findRescue()
+	survive("nocloud", seedFromNoCloud)
+	survive("rescue", findRescue)
 	pendingMarker := checkBootCommit()
 
 	release, err := os.ReadFile("/proc/sys/kernel/osrelease")

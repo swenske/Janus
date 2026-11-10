@@ -55,6 +55,10 @@ type Managed struct {
 	CAPEM         string            `json:"ca_pem,omitempty"`
 	NodeMeta      map[string]string `json:"node_meta,omitempty"`
 	Services      Toggles           `json:"services"`
+	// Scope is what the node's HAProxy services are named after
+	// (ServicePrefix): its cluster's name, or its own - "" lets janusd
+	// pick (ScopeOf).
+	Scope string `json:"scope,omitempty"`
 }
 
 // Toggles say which of its services the node registers.
@@ -109,6 +113,9 @@ func (m Managed) Validate() []string {
 	}
 	if !nodeNamePattern.MatchString(m.NodeName) {
 		errs = append(errs, fmt.Sprintf("node_name %q: letters, digits, '.', '-', '_', at most 63", m.NodeName))
+	}
+	if m.Scope != "" && (!nodeNamePattern.MatchString(m.Scope) || ScopeLabel(m.Scope) == "") {
+		errs = append(errs, fmt.Sprintf("scope %q: letters, digits, '.', '-', '_', at most 63", m.Scope))
 	}
 	if len(m.RetryJoin) == 0 {
 		errs = append(errs, "retry_join: no server to join")

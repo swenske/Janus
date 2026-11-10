@@ -275,6 +275,9 @@ func TestRescue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !pki.IsConsole(cert) {
+		t.Error("the rescue certificate lacks the console mark: it couldn't make the node forget its fleet")
+	}
 	if cert.Subject.CommonName != "rescue:bob" || !slices.Equal(cert.Subject.Organization, []string{pki.RoleAdmin}) || cert.CheckSignatureFrom(ca.Cert) != nil {
 		t.Errorf("the certificate: %s %v", cert.Subject.CommonName, cert.Subject.Organization)
 	}

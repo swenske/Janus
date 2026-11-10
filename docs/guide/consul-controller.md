@@ -95,8 +95,8 @@ it has in the catalog.
 ## What each node gets
 
 **A token of its own**: its node identity (`node "<name>" write`,
-`service_prefix "" read`) and the policy `janus-nodes`, which the
-Controller makes and keeps:
+`service_prefix "" read`), the policy `janus-nodes` and its scope's,
+which the Controller makes and keeps. `janus-nodes`, for every node:
 
 ```hcl
 agent_prefix "" {
@@ -114,10 +114,25 @@ service "janus-exporter" {
 service "node-exporter" {
   policy = "write"
 }
-service_prefix "haproxy-" {
+```
+
+**Its scope**: what its HAProxy services are named after - the name of
+the Controller's cluster it is a member of, else its own node name - and
+`janus-scope-<scope>`, the only policy that lets a token write them:
+
+```hcl
+service_prefix "haproxy-web-" {
   policy = "write"
 }
 ```
+
+A node can't register another cluster's services, nor a node alone
+another's: a cluster's members share their scope's services, one
+instance each. A node joining or leaving a cluster gets its token's
+scope changed; a scope no node has any more loses its policy. A node of
+a release before scoped names keeps the right to any `haproxy-...`
+(`janus-nodes-legacy`) until its layer carries its scope back - its
+next update.
 
 Its description says whose it is: `janus node edge-1 (<node ID>) -
 Controller <ID>`. A token deleted in Consul is made again; a node renamed
@@ -171,15 +186,22 @@ starting `janus:`: your own `services {}` are never touched.
 | `janus` | janusd's API, `:9505`, a TCP check |
 | `janus-exporter` | the [Janus exporter](../metrics.md) while it's on, where it listens: its main address (`auto`), the address it's set to, else the node's; an HTTP check on its metrics |
 | `node-exporter` | the [node exporter](../metrics.md#the-node-exporter) while its service runs, where it listens, the same way |
-| `haproxy-exporter` | each frontend or listen section that has HAProxy's own exporter answer (`http-request use-service prometheus-exporter`): its first bind's address and port, `metrics_path` from the rule's condition (`path /metrics`, `path_beg /prom`) - else `/metrics` -, `scheme` `https` when that bind has `ssl`; its frontend's check (below) |
-| `haproxy-<name>` | each frontend and listen section: the port of its first bind, the bind's address when it names one (an anycast address) - else the node's -, tags `haproxy`, its mode, `tls`, `proto=<its mode>`, `scheme=https` with a bind with `ssl` (else `scheme=http` in HTTP mode, none in TCP); a TTL check janusd feeds with HAProxy's state of the frontend (below); meta `frontend`, `maps` |
-| `haproxy-url` | one instance per URL the configuration routes, ID `janus:url:<frontend>:<host>`, no check; tags `haproxy`, `url`, its scheme, `scheme=<https\|http>`, `proto=<http\|tcp>`; meta `url`, `host`, `scheme`, `proto`, `frontend`, `backend`, `source` - and `via` for a frontend behind a socket (below) |
+| `haproxy-<scope>-exporter` | each frontend or listen section that has HAProxy's own exporter answer (`http-request use-service prometheus-exporter`): its first bind's address and port, `metrics_path` from the rule's condition (`path /metrics`, `path_beg /prom`) - else `/metrics` -, `scheme` `https` when that bind has `ssl`; its frontend's check (below) |
+| `haproxy-<scope>-<name>` | each frontend and listen section: the port of its first bind, the bind's address when it names one (an anycast address) - else the node's -, tags `haproxy`, its mode, `tls`, `proto=<its mode>`, `scheme=https` with a bind with `ssl` (else `scheme=http` in HTTP mode, none in TCP); a TTL check janusd feeds with HAProxy's state of the frontend (below); meta `frontend`, `maps` |
+| `haproxy-<scope>-url` | one instance per URL the configuration routes, ID `janus:url:<frontend>:<host>`, no check; tags `haproxy`, `url`, its scheme, `scheme=<https\|http>`, `proto=<http\|tcp>`; meta `url`, `host`, `scheme`, `proto`, `frontend`, `backend`, `source` - and `via` for a frontend behind a socket (below) |
+
+`<scope>` is the node's cluster, or the node alone (above), as a DNS
+label: `haproxy-web-fe-https` for frontend `fe_https` of cluster `web`.
+A cluster's members register the same names. Releases before scoped
+names registered `haproxy-<name>`, `haproxy-url` and `haproxy-exporter`:
+pick services by their tags, not their names, and both kinds are found
+while nodes update.
 
 Every exporter's instance has the tags `prometheus` and `scheme=<its
 scheme>`, and meta `metrics_path` and `scheme`: one Prometheus job finds
 them all (below).
 
-A frontend's check (`haproxy-<name>`, `haproxy-exporter`) never
+A frontend's check (`haproxy-<scope>-<name>`, `haproxy-<scope>-exporter`) never
 connects: a frontend that refuses some sources (`tcp-request connection
 reject`, an `src` ACL) would refuse the agent's - which dials from the
 node, from the frontend's own address - and every connection would count
@@ -196,10 +218,10 @@ pick by: `proto` is how HAProxy routes a URL's host - `http` by the Host
 header in an HTTP frontend (behind a socket too), `tcp` by the TLS
 server name in a TCP frontend that passes TLS through to a backend of
 its own (HAProxy never sees the request) -, `scheme` what a client
-speaks. A `haproxy-url`'s meta holds the same, and its `host` is the
+speaks. A URL instance's meta holds the same, and its `host` is the
 name alone, without a port. In Prometheus, pick URLs with `tags:
-[url, proto=http]`: its `filter` (`ServiceMeta.proto == "http"`) picks
-services from the catalog, not their instances - every `haproxy-url`
+[haproxy, url, proto=http]`: its `filter` (`ServiceMeta.proto == "http"`) picks
+services from the catalog, not their instances - every URL instance
 stays. To pick by meta, keep the targets whose
 `__meta_consul_service_metadata_proto` matches (`action: keep`).
 Turned off, stopped, moved: the node registers it again, or takes it off,
@@ -229,11 +251,12 @@ abns@lb-https send-proxy-v2`), say. Its URLs are registered at the bind
 of the frontend relaying to it, chains of a few hops followed -
 `https://` when either one has `ssl` -, with meta `via` naming that
 frontend; the relay's own URL for the same host (by its server name)
-isn't registered twice. It has no `haproxy-<name>` service of its own -
+isn't registered twice. It has no `haproxy-<scope>-<name>` service of its own -
 nothing a TCP check reaches -: the relaying frontend's is, at that
 address and port.
 
-With this frontend and `hosts.map` holding `www.example.com be_www`,
+With this frontend on `edge-1`, a member of the cluster `web`, and
+`hosts.map` holding `www.example.com be_www`,
 
 ```haproxy
 frontend fe_https
@@ -243,9 +266,9 @@ frontend fe_https
     use_backend %[req.hdr(host),lower,map(/etc/haproxy/files/hosts.map,be_default)]
 ```
 
-the node registers `haproxy-fe-https` on `192.0.2.151:443` (tags
+the node registers `haproxy-web-fe-https` on `192.0.2.151:443` (tags
 `haproxy`, `http`, `tls`, `proto=http`, `scheme=https`), and two
-`haproxy-url` instances (tags `haproxy`, `url`, `https`, `scheme=https`,
+`haproxy-web-url` instances (tags `haproxy`, `url`, `https`, `scheme=https`,
 `proto=http`):
 `https://status.example.com` (backend `be_status`, source `acl`) and
 `https://www.example.com` (`be_www`, `map:/etc/haproxy/files/hosts.map`).
@@ -257,13 +280,13 @@ services it no longer has. `janusctl network consul services` lists the
 agent's services, its own and yours, with their checks:
 
 ```text
-NAME              ID                                  ADDRESS           TAGS                                       META                              HEALTH   BY
-haproxy-exporter  janus:haproxy-exporter:fe_stats     192.0.2.11:8405   haproxy,prometheus,scheme=http             http /metrics, frontend fe_stats  passing  Janus
-haproxy-fe-https  janus:haproxy:fe_https              192.0.2.151:443   haproxy,http,tls,proto=http,scheme=https   frontend fe_https                 passing  Janus
-janus             janus:janus                         192.0.2.11:9505   janus,grpc                                 -                                 passing  Janus
-janus-exporter    janus:janus-exporter                192.0.2.11:10056  janus,prometheus,scheme=http               http /metrics                     passing  Janus
-haproxy-url       janus:url:fe_https:www.example.com  192.0.2.151:443   haproxy,url,https,scheme=https,proto=http  https://www.example.com           -        Janus
-web               web                                 192.0.2.11:8080   -                                          -                                 passing  configuration
+NAME                  ID                                  ADDRESS           TAGS                                       META                              HEALTH   BY
+haproxy-web-exporter  janus:haproxy-exporter:fe_stats     192.0.2.11:8405   haproxy,prometheus,scheme=http             http /metrics, frontend fe_stats  passing  Janus
+haproxy-web-fe-https  janus:haproxy:fe_https              192.0.2.151:443   haproxy,http,tls,proto=http,scheme=https   frontend fe_https                 passing  Janus
+janus                 janus:janus                         192.0.2.11:9505   janus,grpc                                 -                                 passing  Janus
+janus-exporter        janus:janus-exporter                192.0.2.11:10056  janus,prometheus,scheme=http               http /metrics                     passing  Janus
+haproxy-web-url       janus:url:fe_https:www.example.com  192.0.2.151:443   haproxy,url,https,scheme=https,proto=http  https://www.example.com           -        Janus
+web                   web                                 192.0.2.11:8080   -                                          -                                 passing  configuration
 ```
 
 ## Drained, stopped, going down
@@ -287,7 +310,7 @@ same on every node.
 Prometheus's
 [Consul service discovery](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#consul_sd_config)
 finds the exporters by their tag `prometheus` - each scraped on its own
-path and scheme -, and hands each `haproxy-url` instance to the
+path and scheme -, and hands each URL instance (`haproxy-<scope>-url`) to the
 [blackbox exporter](https://github.com/prometheus/blackbox_exporter) -
 its URL in the instance's metadata, the node's labels in the node's:
 
@@ -295,10 +318,13 @@ its URL in the instance's metadata, the node's labels in the node's:
 # Prometheus finding the Janus nodes and what they serve in Consul
 # (docs/guide/consul-controller.md): every exporter the nodes run - the
 # services tagged prometheus: janus-exporter, node-exporter,
-# haproxy-exporter -, each on its own path and scheme, and every URL the
-# nodes' maps and Host ACLs route (the haproxy-url service) probed by the
-# blackbox exporter. Its token reads the catalog: node_prefix and
-# service_prefix "" read. Checked by promtool (make examples-check).
+# haproxy-<scope>-exporter -, each on its own path and scheme, and every
+# URL the nodes' maps and Host ACLs route (haproxy-<scope>-url, tags
+# haproxy and url) probed by the blackbox exporter. <scope> is a node's
+# cluster, or the node alone: services are picked by their tags, so
+# releases before scoped names (haproxy-url, haproxy-exporter) are found
+# too. Its token reads the catalog: node_prefix and service_prefix ""
+# read. Checked by promtool (make examples-check).
 global:
   scrape_interval: 30s
 
@@ -321,7 +347,14 @@ scrape_configs:
         target_label: __metrics_path__
       - source_labels: [__meta_consul_service_metadata_scheme]
         target_label: __scheme__
+      # One name per exporter kind, whatever the node's scope:
+      # haproxy-<scope>-exporter is haproxy-exporter.
       - source_labels: [__meta_consul_service]
+        regex: haproxy-(.+-)?exporter
+        target_label: exporter
+        replacement: haproxy-exporter
+      - source_labels: [__meta_consul_service]
+        regex: (janus-exporter|node-exporter)
         target_label: exporter
       - source_labels: [__meta_consul_service_metadata_frontend]
         target_label: frontend
@@ -340,13 +373,17 @@ scrape_configs:
       - server: consul.example.net:443
         scheme: https
         datacenter: lgs
-        services: [haproxy-url]
-        # Routed by the Host header only; proto=tcp: by the TLS server
-        # name, passed through to a backend of its own (SNI passthrough).
-        tags: [url, proto=http]
+        # The URLs' instances, by their tags: haproxy-<scope>-url, and
+        # haproxy-url from a release before scoped names. Routed by the
+        # Host header only; proto=tcp: by the TLS server name, passed
+        # through to a backend of its own (SNI passthrough).
+        tags: [haproxy, url, proto=http]
         authorization:
           credentials_file: /etc/prometheus/consul-token
     relabel_configs:
+      - source_labels: [__meta_consul_service]
+        regex: haproxy(-.+)?-url
+        action: keep
       # The URL is what the exporter probes, and the target's name - not
       # the node: the members of a cluster register the same URLs, and
       # Prometheus keeps one target for them.

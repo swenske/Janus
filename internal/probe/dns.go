@@ -16,14 +16,14 @@ var recordTypes = map[string]bool{"A": true, "AAAA": true, "CNAME": true, "SRV":
 // resolver asks the node's resolv.conf servers, or Server, from Source.
 func (p *prober) resolver() *net.Resolver {
 	if p.r.Server == "" && !p.r.Source.IsValid() {
-		return &net.Resolver{PreferGo: true}
+		return &net.Resolver{PreferGo: true} // the node's own servers: not the caller's choice
 	}
 	return &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 		if p.r.Server != "" {
 			host, port, _ := hostPort(p.r.Server, 53)
 			address = net.JoinHostPort(host, strconv.Itoa(port))
 		}
-		d := net.Dialer{Timeout: p.r.Timeout}
+		d := p.dialer()
 		if p.r.Source.IsValid() {
 			if strings.HasPrefix(network, "tcp") {
 				d.LocalAddr = &net.TCPAddr{IP: p.r.Source.AsSlice()}

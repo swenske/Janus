@@ -110,7 +110,9 @@ boot_and_check() {
     echo "--- console output ---" >&2; cat "$log" >&2
     exit 1
   fi
-  if ! grep -aq "usb [0-9-]*: USB disconnect" "$log"; then
+  # A kernel without USB (a virtual machine's, variants.mk's
+  # KERNEL_FLAVOR virt) never sees the tablet nor the keyboard.
+  if grep -aq "usbcore: registered new" "$log" && ! grep -aq "usb [0-9-]*: USB disconnect" "$log"; then
     echo "SELinux test FAILED ($label): the USB keyboard plugged in and taken out never showed - nothing proved about devtmpfs's device nodes" >&2
     exit 1
   fi

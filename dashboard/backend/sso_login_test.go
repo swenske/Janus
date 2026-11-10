@@ -417,6 +417,24 @@ func TestSSOSecondFactor(t *testing.T) {
 	if st := b.status(); !slices.Equal(st.User.Needs, []string{"mfa_enroll"}) {
 		t.Fatalf("acr 1: needs %v", st.User.Needs)
 	}
+	// Trusted as is (no ACR, no AMR): the provider's sign-in stands for
+	// the second factor of an account with none here (bob) - not of one
+	// with a factor of its own (alice's authenticator app), which keeps
+	// it (security review 2026-11-05 #28).
+	p.ACR = nil
+	if _, err := a.sso.store.Put(p, nil); err != nil {
+		t.Fatal(err)
+	}
+	b = newBrowser(t, a)
+	b.signIn(idp, "bob")
+	if st := b.status(); len(st.User.Needs) != 0 {
+		t.Fatalf("trusted as is, an account without a factor of its own: needs %v", st.User.Needs)
+	}
+	b = newBrowser(t, a)
+	b.signIn(idp, "alice")
+	if st := b.status(); !slices.Equal(st.User.Needs, []string{"mfa"}) {
+		t.Fatalf("trusted as is, an account with its own factor: needs %v", st.User.Needs)
+	}
 }
 
 func TestSSOLink(t *testing.T) {

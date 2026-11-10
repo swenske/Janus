@@ -149,6 +149,12 @@ func runConsul(conn *grpc.ClientConn, args []string) {
 			}
 		}
 		fmt.Println("Registers: ", or(strings.Join(on, ", "), "nothing"))
+		// What the HAProxy services are named after (haproxy-<scope>-...):
+		// the node's word, else the layer's (a node before v2026.11.08-3).
+		scope := or(resp.GetScope(), m.GetScope())
+		if scope != "" {
+			fmt.Println("Scope:     ", scope, "- its HAProxy services are haproxy-<scope>-...")
+		}
 		synced := "never"
 		if resp.GetSyncedUnix() > 0 {
 			synced = time.Unix(resp.GetSyncedUnix(), 0).Local().Format(time.DateTime)

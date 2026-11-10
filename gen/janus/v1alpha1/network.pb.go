@@ -2658,8 +2658,15 @@ type ConsulManaged struct {
 	// them, and gets its own certificate from them (auto_encrypt).
 	CaPem string `protobuf:"bytes,10,opt,name=ca_pem,json=caPem,proto3" json:"ca_pem,omitempty"`
 	// The node's metadata in the catalog.
-	NodeMeta      map[string]string      `protobuf:"bytes,11,rep,name=node_meta,json=nodeMeta,proto3" json:"node_meta,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Services      *ConsulManagedServices `protobuf:"bytes,12,opt,name=services,proto3" json:"services,omitempty"`
+	NodeMeta map[string]string      `protobuf:"bytes,11,rep,name=node_meta,json=nodeMeta,proto3" json:"node_meta,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Services *ConsulManagedServices `protobuf:"bytes,12,opt,name=services,proto3" json:"services,omitempty"`
+	// What the node's HAProxy services are named after: its cluster's name,
+	// or its own for a node alone - haproxy-<scope>-<frontend>,
+	// haproxy-<scope>-url, haproxy-<scope>-exporter. The agent token may
+	// register those only (a policy of the scope's), so a node can't
+	// register another cluster's services. Empty: the node's cluster's
+	// name, else node_name.
+	Scope         string `protobuf:"bytes,13,opt,name=scope,proto3" json:"scope,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2778,6 +2785,13 @@ func (x *ConsulManaged) GetServices() *ConsulManagedServices {
 	return nil
 }
 
+func (x *ConsulManaged) GetScope() string {
+	if x != nil {
+		return x.Scope
+	}
+	return ""
+}
+
 // ConsulManagedServices: which of its services the node registers.
 type ConsulManagedServices struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2785,9 +2799,9 @@ type ConsulManagedServices struct {
 	Janus bool `protobuf:"varint,1,opt,name=janus,proto3" json:"janus,omitempty"`
 	// janus-exporter and, when that extension runs, node-exporter.
 	Exporters bool `protobuf:"varint,2,opt,name=exporters,proto3" json:"exporters,omitempty"`
-	// haproxy-<name>: one per frontend and listen section.
+	// haproxy-<scope>-<name>: one per frontend and listen section.
 	Frontends bool `protobuf:"varint,3,opt,name=frontends,proto3" json:"frontends,omitempty"`
-	// haproxy-url: one instance per URL the configuration routes - the
+	// haproxy-<scope>-url: one instance per URL the configuration routes - the
 	// hosts in the maps a use_backend reads by the Host header (or the
 	// TLS server name), and in host ACLs.
 	Urls          bool `protobuf:"varint,4,opt,name=urls,proto3" json:"urls,omitempty"`
@@ -2862,10 +2876,15 @@ type ConsulManagedGetResponse struct {
 	// through, why not since, how many janusd keeps registered, and
 	// whether they're in maintenance (the node is drained, or going
 	// down).
-	SyncedUnix    int64  `protobuf:"varint,3,opt,name=synced_unix,json=syncedUnix,proto3" json:"synced_unix,omitempty"`
-	SyncError     string `protobuf:"bytes,4,opt,name=sync_error,json=syncError,proto3" json:"sync_error,omitempty"`
-	Registered    int32  `protobuf:"varint,5,opt,name=registered,proto3" json:"registered,omitempty"`
-	Maintenance   bool   `protobuf:"varint,6,opt,name=maintenance,proto3" json:"maintenance,omitempty"`
+	SyncedUnix  int64  `protobuf:"varint,3,opt,name=synced_unix,json=syncedUnix,proto3" json:"synced_unix,omitempty"`
+	SyncError   string `protobuf:"bytes,4,opt,name=sync_error,json=syncError,proto3" json:"sync_error,omitempty"`
+	Registered  int32  `protobuf:"varint,5,opt,name=registered,proto3" json:"registered,omitempty"`
+	Maintenance bool   `protobuf:"varint,6,opt,name=maintenance,proto3" json:"maintenance,omitempty"`
+	// What the node's HAProxy services are named after now
+	// (haproxy-<scope>-...): the layer's scope, else its cluster's name,
+	// else its node name in Consul. Empty: no layer, or a release before
+	// scoped names - one that drops the layer's scope.
+	Scope         string `protobuf:"bytes,7,opt,name=scope,proto3" json:"scope,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2940,6 +2959,13 @@ func (x *ConsulManagedGetResponse) GetMaintenance() bool {
 		return x.Maintenance
 	}
 	return false
+}
+
+func (x *ConsulManagedGetResponse) GetScope() string {
+	if x != nil {
+		return x.Scope
+	}
+	return ""
 }
 
 type ConsulManagedSetResponse struct {
@@ -4187,7 +4213,7 @@ const file_janus_v1alpha1_network_proto_rawDesc = "" +
 	"\x04role\x18\x04 \x01(\tR\x04role\x12\x1e\n" +
 	"\n" +
 	"datacenter\x18\x05 \x01(\tR\n" +
-	"datacenter\"\x96\x04\n" +
+	"datacenter\"\xac\x04\n" +
 	"\rConsulManaged\x12\x1d\n" +
 	"\n" +
 	"managed_by\x18\x01 \x01(\tR\tmanagedBy\x12\x1e\n" +
@@ -4207,7 +4233,8 @@ const file_janus_v1alpha1_network_proto_rawDesc = "" +
 	"\x06ca_pem\x18\n" +
 	" \x01(\tR\x05caPem\x12H\n" +
 	"\tnode_meta\x18\v \x03(\v2+.janus.v1alpha1.ConsulManaged.NodeMetaEntryR\bnodeMeta\x12A\n" +
-	"\bservices\x18\f \x01(\v2%.janus.v1alpha1.ConsulManagedServicesR\bservices\x1a;\n" +
+	"\bservices\x18\f \x01(\v2%.janus.v1alpha1.ConsulManagedServicesR\bservices\x12\x14\n" +
+	"\x05scope\x18\r \x01(\tR\x05scope\x1a;\n" +
 	"\rNodeMetaEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"}\n" +
@@ -4215,7 +4242,7 @@ const file_janus_v1alpha1_network_proto_rawDesc = "" +
 	"\x05janus\x18\x01 \x01(\bR\x05janus\x12\x1c\n" +
 	"\texporters\x18\x02 \x01(\bR\texporters\x12\x1c\n" +
 	"\tfrontends\x18\x03 \x01(\bR\tfrontends\x12\x12\n" +
-	"\x04urls\x18\x04 \x01(\bR\x04urls\"\x88\x02\n" +
+	"\x04urls\x18\x04 \x01(\bR\x04urls\"\x9e\x02\n" +
 	"\x18ConsulManagedGetResponse\x121\n" +
 	"\x05state\x18\x01 \x01(\x0e2\x1b.janus.v1alpha1.ModuleStateR\x05state\x127\n" +
 	"\amanaged\x18\x02 \x01(\v2\x1d.janus.v1alpha1.ConsulManagedR\amanaged\x12\x1f\n" +
@@ -4226,7 +4253,8 @@ const file_janus_v1alpha1_network_proto_rawDesc = "" +
 	"\n" +
 	"registered\x18\x05 \x01(\x05R\n" +
 	"registered\x12 \n" +
-	"\vmaintenance\x18\x06 \x01(\bR\vmaintenance\"l\n" +
+	"\vmaintenance\x18\x06 \x01(\bR\vmaintenance\x12\x14\n" +
+	"\x05scope\x18\a \x01(\tR\x05scope\"l\n" +
 	"\x18ConsulManagedSetResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x16\n" +
 	"\x06errors\x18\x02 \x03(\tR\x06errors\x12\x1c\n" +

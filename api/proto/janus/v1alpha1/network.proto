@@ -518,6 +518,13 @@ message ConsulManaged {
   // The node's metadata in the catalog.
   map<string, string> node_meta = 11;
   ConsulManagedServices services = 12;
+  // What the node's HAProxy services are named after: its cluster's name,
+  // or its own for a node alone - haproxy-<scope>-<frontend>,
+  // haproxy-<scope>-url, haproxy-<scope>-exporter. The agent token may
+  // register those only (a policy of the scope's), so a node can't
+  // register another cluster's services. Empty: the node's cluster's
+  // name, else node_name.
+  string scope = 13;
 }
 
 // ConsulManagedServices: which of its services the node registers.
@@ -526,9 +533,9 @@ message ConsulManagedServices {
   bool janus = 1;
   // janus-exporter and, when that extension runs, node-exporter.
   bool exporters = 2;
-  // haproxy-<name>: one per frontend and listen section.
+  // haproxy-<scope>-<name>: one per frontend and listen section.
   bool frontends = 3;
-  // haproxy-url: one instance per URL the configuration routes - the
+  // haproxy-<scope>-url: one instance per URL the configuration routes - the
   // hosts in the maps a use_backend reads by the Host header (or the
   // TLS server name), and in host ACLs.
   bool urls = 4;
@@ -546,6 +553,11 @@ message ConsulManagedGetResponse {
   string sync_error = 4;
   int32 registered = 5;
   bool maintenance = 6;
+  // What the node's HAProxy services are named after now
+  // (haproxy-<scope>-...): the layer's scope, else its cluster's name,
+  // else its node name in Consul. Empty: no layer, or a release before
+  // scoped names - one that drops the layer's scope.
+  string scope = 7;
 }
 
 message ConsulManagedSetResponse {

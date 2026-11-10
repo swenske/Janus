@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -33,6 +34,7 @@ type Server struct {
 	mu           sync.Mutex
 	Policies     map[string]string // name -> rules
 	PolicyIDs    map[string]string // name -> ID
+	PolicyDescs  map[string]string // name -> description
 	Tokens       map[string]*Token // by accessor
 	Deregistered []string          // node names
 	Members      map[string]int    // name -> status (1 alive, 4 failed)
@@ -44,7 +46,7 @@ type Server struct {
 func New(t *testing.T, token string) *Server {
 	t.Helper()
 	s := &Server{Token: token, Datacenter: "lgs", Peers: []string{"10.1.0.10:8300"}, GossipKey: "pUqJrVyVRj5jsiYEkM/tFQYfWyJIv4s3XkvDwy7Cu5s=",
-		Policies: map[string]string{}, PolicyIDs: map[string]string{}, Tokens: map[string]*Token{}, Members: map[string]int{}, Services: map[string][]string{}}
+		Policies: map[string]string{}, PolicyIDs: map[string]string{}, PolicyDescs: map[string]string{}, Tokens: map[string]*Token{}, Members: map[string]int{}, Services: map[string][]string{}}
 	s.Server = httptest.NewTLSServer(s)
 	t.Cleanup(s.Close)
 	return s
@@ -127,7 +129,23 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "ACL not found", http.StatusForbidden)
 			return
 		}
-		js(map[string]any{"ID": s.PolicyIDs[name], "Name": name, "Rules": rules, "Description": "Janus nodes: made and kept by the Janus Controller"})
+		js(map[string]any{"ID": s.PolicyIDs[name], "Name": name, "Rules": rules, "Description": s.PolicyDescs[name]})
+	case r.Method == "GET" && p == "/v1/acl/policies":
+		var list []map[string]string
+		for name, id := range s.PolicyIDs {
+			list = append(list, map[string]string{"ID": id, "Name": name})
+		}
+		js(list)
+	case r.Method == "DELETE" && strings.HasPrefix(p, "/v1/acl/policy/"):
+		id := strings.TrimPrefix(p, "/v1/acl/policy/")
+		for name, pid := range s.PolicyIDs {
+			if pid == id {
+				delete(s.PolicyIDs, name)
+				delete(s.Policies, name)
+				delete(s.PolicyDescs, name)
+			}
+		}
+		js(true)
 	case r.Method == "PUT" && (p == "/v1/acl/policy" || strings.HasPrefix(p, "/v1/acl/policy/")):
 		var in struct{ ID, Name, Rules, Description string }
 		_ = json.NewDecoder(r.Body).Decode(&in)
@@ -135,7 +153,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if id == "" {
 			id = uuid()
 		}
-		s.Policies[in.Name], s.PolicyIDs[in.Name] = in.Rules, id
+		s.Policies[in.Name], s.PolicyIDs[in.Name], s.PolicyDescs[in.Name] = in.Rules, id, in.Description
 		js(map[string]any{"ID": id, "Name": in.Name})
 	case r.Method == "GET" && p == "/v1/acl/token/self":
 		js(map[string]any{"Description": "janus-controller", "Policies": []map[string]string{{"Name": "janus-controller"}}})
@@ -186,7 +204,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		var list []map[string]any
 		for i, name := range svcs {
-			list = append(list, map[string]any{"ID": fmt.Sprintf("janus:%d", i), "Service": name})
+			id := fmt.Sprintf("janus:%d", i)
+			if strings.HasPrefix(name, "haproxy-") && strings.HasSuffix(name, "-url") {
+				id = fmt.Sprintf("janus:url:fe:%d.example.com", i) // as janusd names a URL's instance
+			}
+			list = append(list, map[string]any{"ID": id, "Service": name})
 		}
 		js(map[string]any{"Node": map[string]string{"Node": node}, "Services": list})
 	default:
@@ -199,6 +221,18 @@ func (s *Server) SetGossipKey(k string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.GossipKey = k
+}
+
+// PolicyNames are the policies it has, sorted.
+func (s *Server) PolicyNames() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var names []string
+	for n := range s.Policies {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // Policy is the rules of the policy named name.
