@@ -1295,6 +1295,11 @@ while it sends), "The Controller pushes it", and the lab-built bundle's
 refusal (a clear message on the page, no reboot). Expected: no
 JavaScript or page error; the browser's own "Failed to load resource"
 lines for the node's polls while it reboots are the only ones.
+Since v2026.11.10 (#615) the script also reads the "This node" card's
+slots every 250 ms: after a refusal, the other slot's line is expected
+to say it holds a release the machine's kernel can't drive, without a
+reload - in light and dark, the dark refusal from the pre-release after
+a real update.
 
 ### The releases kept on the Controller's disk
 
@@ -1313,6 +1318,45 @@ release restarted the same way first, as the baseline. Expected: with
 the file, the newest release at the first answer and no `security.json`
 read again; without it, eight read together and the same file written
 back.
+
+Since v2026.11.10 (#615), **the cold start**: the same restarts without
+the file, GitHub 1 s then 4 s further away, the release restarted at
+1 s first. A Controller running the pre-release offers no pre-release
+in its own update status, so the newest release and the pre-release
+are read on an older node's update check instead
+(`/nodes/<id>/api/update-check`, `UPOLL=`), "Prepare the pre-release"
+sent from another node's page 2 s after the restart; and every 5 s the
+file's content counted (`secwatch`: how many releases' `security.json`
+it holds) while a node's update check is asked every 5 s, as an open
+page would (`upoll`) - the Controller reads the releases again only
+when something asks. Then the file there, GitHub as it is, 1 s and 4 s
+away. Expected: the newest release and the pre-release at the first
+answer, "Prepare" ready at once, the `security.json` later; the time
+until the pre-release is known noted when it isn't.
+
+### HAProxy's compression
+
+Since v2026.11.10 (zlib 1.4): both backends serve a 64 KiB JSON file
+made from a seed, without their own gzip; node 01 gets a test frontend
+on another port in front of them (`compression algo gzip deflate`,
+`compression type application/json text/plain`). Checked: each
+`Accept-Encoding` (identity, gzip, deflate, both orders) - the encoding
+chosen, `Vary`, the bytes received, and the body decompressed against
+the file's SHA-256. Then under load from a runner, `wrk -t2 -c16` 30 s
+per encoding on that port, node 01's CPU time by mode (its exporter)
+and its front interface's sent bytes around each run: CPU per request
+and bytes per response, the release and the pre-release alternated by
+rollbacks with the throughput's runs (`abrun80`). HAProxy's own `-vv`
+isn't in the API: the node's binary is copied through the file API and
+compared with the release's `haproxy-<branch>-<arch>.tar`, then run with
+`-vv` on the build box. The frontend is taken away afterwards.
+
+### The image factory's site
+
+Since v2026.11.10 (frontend libraries): the public landing page, the
+builder (a platform, the pre-release chosen, the extensions ticked) and
+the tour played 20 s, light and dark, in the pinned Chromium - console
+errors, page errors and failed requests.
 
 ### The CPUfreq warning
 
@@ -1613,3 +1657,15 @@ ran:
   screenshotted; `mk-novirtionet SRC DST`: the lab-built bundle without
   `virtio_net`; `tapi METHOD PATH`: the Controller's API with the
   campaign's token (v2026.11.09-3).
+- `comp-cfg on|off`: node 01's configuration with or without the
+  compression frontend; `comp-check NAME`: each `Accept-Encoding`, the
+  encoding, `Vary`, the bytes and the decompressed body's SHA-256;
+  `comp-load NAME`: `wrk` per encoding with node 01's CPU per request and
+  bytes sent per response; `abrun80 N`: `cpuab` and `comp-load`,
+  alternating versions on node 01 by rollbacks; `absum80.py`: their
+  means; `crestart` with `UPOLL=` a node's id (its update check instead
+  of the Controller's status); `secwatch NAME SECONDS`: the release
+  cache's content over time; `upoll NODE SECONDS`: a node's update check
+  asked every 5 s; `sitecheck.mjs`: the factory's public site in both
+  themes; `serlog` with `SERFILE=`: a console log put together by hand
+  when the host's log daemon rotated it (v2026.11.10).
