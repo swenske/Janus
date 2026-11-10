@@ -24,7 +24,7 @@ const FILES = [
 ]
 
 export default function Update({ route = '' }) {
-  const { check, overview } = useNodeStatus()
+  const { check, overview, reload: reloadStatus } = useNodeStatus()
   // How the bundle reaches the node, remembered per browser: "url" (the
   // node downloads it), "relay" (the Controller downloads it and pushes
   // it to the node), "upload" (files from this computer).
@@ -236,6 +236,11 @@ export default function Update({ route = '' }) {
       return streamUpgrade('/api/lifecycle/upgrade-upload', { body: form }, setRelay)
     })
     setRelay(null)
+    // A refusal can leave the other slot holding part of the release
+    // (slot A now holds it, and Rollback won't switch to it): read it
+    // again rather than show the slot as it was (v2026.11.09-3's lab
+    // campaign).
+    if (!result) reloadStatus()
     if (result) {
       // The node's last word says how it reboots: through kexec, or
       // through the firmware and why it couldn't kexec.
