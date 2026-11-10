@@ -495,10 +495,6 @@ func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 	// Newest version first, not GitHub's order (ReleasesURL): the first
 	// release is the latest, the first pre-release the newest.
 	calver.SortNewestFirst(releases, func(r ghRelease) string { return r.TagName })
-	// Every release's security.json not read yet, at once (#553): one
-	// after the other, ~60 of them took minutes when GitHub answered in
-	// 8-10 s. The list below takes them from securityByTag.
-	fetchSecurities(ctx, releases)
 	defer saveReleaseCache()
 
 	var info *ReleaseInfo
@@ -517,7 +513,6 @@ func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 		}
 		if info != nil {
 			info.tags = append(info.tags, rel.TagName)
-			info.readSecurity(rel)
 			if m := maintenanceName.FindStringSubmatch(rel.Name); m != nil {
 				mi, err := releaseInfo(ctx, rel)
 				if err != nil {
@@ -535,7 +530,6 @@ func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 		}
 		info.tags = []string{rel.TagName}
 		info.security = map[string][]releaseFix{}
-		info.readSecurity(rel)
 	}
 	if info == nil {
 		return nil, fmt.Errorf("no published releases found")
@@ -545,6 +539,17 @@ func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 		if info.Prerelease, err = releaseInfo(ctx, *pre); err != nil {
 			log.Printf("releases: pre-release %s: %v - read again in %s", pre.TagName, err, partialRetry)
 			info.Prerelease, info.partial = nil, true
+		}
+	}
+	// The security.json not read yet, last and newest first, with what
+	// the fetch has left (#553; v2026.11.09-3's lab campaign: a first
+	// start without release-cache.json, GitHub 4 s a request, spent the
+	// whole fetch on ~60 of them and knew no release for 5 minutes). One
+	// that doesn't come leaves the list partial - read again soon.
+	fetchSecurities(ctx, releases)
+	for _, rel := range releases {
+		if !rel.Draft && !rel.Prerelease && slices.Contains(info.tags, rel.TagName) {
+			info.readSecurity(rel)
 		}
 	}
 	return info, nil
@@ -629,10 +634,17 @@ func fetchSecurities(ctx context.Context, releases []ghRelease) {
 		if ok {
 			continue
 		}
+		// The slot taken here, in the list's order: the newest
+		// releases' first, when the time runs out.
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Wait()
+			return
+		}
 		wg.Add(1)
 		go func(tag, u string) {
 			defer wg.Done()
-			sem <- struct{}{}
 			defer func() { <-sem }()
 			fctx, cancel := context.WithTimeout(ctx, securityFetchTimeout)
 			defer cancel()
