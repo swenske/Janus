@@ -48,8 +48,8 @@ MUSL_CROSS_MAKE_REF := 227df8b99103f9c59f6570babf892978e293082f
 # source, not Alpine's package). sha256 pinned after checking its
 # signature by Mark Adler (5ED46A6721D365587791E2AA783FCD8E58BCAFBA);
 # it also matches Alpine's pinned sha512 for the same version.
-ZLIB_VERSION := 1.3.2
-ZLIB_SHA256  := bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16
+ZLIB_VERSION := 1.4
+ZLIB_SHA256  := 02dd159783677a749c04adbdd02b55b8a2bcc7e054f51b76b549199a916ad584
 
 # AWS-LC, HAProxy's TLS library on both architectures (pkgs/haproxy, built
 # from source and linked statically). AWS-LC publishes no signed release
