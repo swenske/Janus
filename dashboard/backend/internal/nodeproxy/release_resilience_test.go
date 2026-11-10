@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -264,5 +266,64 @@ func TestSecuritiesReadAtOnce(t *testing.T) {
 	}
 	if took := time.Since(start); took > 1500*time.Millisecond {
 		t.Fatalf("12 security.json took %s", took)
+	}
+}
+
+// TestColdStartSlowGitHub: no release-cache.json, GitHub slow - the
+// newest release and the pre-release come first, the security.json with
+// what's left, newest first; out of time, the list is partial, not an
+// error (v2026.11.09-3's lab campaign: the newest release unknown for 5
+// minutes, the pre-release for 3).
+func TestColdStartSlowGitHub(t *testing.T) {
+	keepReleaseCache(t)
+	var gh *httptest.Server
+	var list strings.Builder
+	gh = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/releases":
+			_, _ = io.WriteString(w, list.String())
+		case r.URL.Path == "/latest.sha256":
+			_, _ = io.WriteString(w, "abc\n")
+		case strings.HasSuffix(r.URL.Path, ".json"):
+			select {
+			case <-time.After(300 * time.Millisecond):
+			case <-r.Context().Done():
+				return
+			}
+			_, _ = io.WriteString(w, `{"updates":[{"name":"linux","target":"node","fixes":[{"id":"`+strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/"), ".json")+`","severity":"high"}]}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(gh.Close)
+	rel := func(tag string, pre bool) string {
+		return fmt.Sprintf(`{"tag_name":%q,"prerelease":%v,"html_url":"https://github.invalid/r/releases/tag/%s","assets":[{"name":"security.json","browser_download_url":"%s/%s.json"}]}`, tag, pre, tag, gh.URL, tag)
+	}
+	// The newest release has its checksum to read too: read after the
+	// security.json, it failed once the time had run out.
+	list.WriteString("[" + rel("v2026.11.20", true) + `,{"tag_name":"v2026.11.19","html_url":"https://github.invalid/r/releases/tag/v2026.11.19","assets":[` +
+		`{"name":"rootfs.squashfs.sha256","browser_download_url":"` + gh.URL + `/latest.sha256"},{"name":"security.json","browser_download_url":"` + gh.URL + `/v2026.11.19.json"}]}`)
+	for i := 18; i >= 1; i-- {
+		list.WriteString("," + rel(fmt.Sprintf("v2026.11.%02d", i), false))
+	}
+	list.WriteString("]")
+	ReleasesURL = gh.URL + "/releases"
+
+	// Time for one round of eight security.json, not three.
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	info, err := fetchLatestRelease(ctx)
+	if err != nil {
+		t.Fatalf("out of time on the security.json: %v - want the list, partial", err)
+	}
+	if info.TagName != "v2026.11.19" || info.SHA256 != "abc" || info.Prerelease == nil || info.Prerelease.TagName != "v2026.11.20" || !info.partial {
+		t.Fatalf("latest %q, pre-release %+v, partial %v", info.TagName, info.Prerelease, info.partial)
+	}
+	// The newest ones read first: the latest's own fixes are in.
+	if _, ok := info.security["v2026.11.19"]; !ok {
+		t.Fatalf("the newest release's security.json not read first: %v", slices.Collect(maps.Keys(info.security)))
+	}
+	if _, ok := info.security["v2026.11.01"]; ok {
+		t.Fatal("the oldest read in that time - the order isn't newest first")
 	}
 }
