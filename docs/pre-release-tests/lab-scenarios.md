@@ -1278,9 +1278,41 @@ pre-release's root filesystem rebuilt with an `image.json` whose
 `kernel.drivers` leaves out a driver the machine uses (`virtio_net`),
 padded to the same size, its hash tree made again (the salt = the new
 file's SHA-256, as the release's) and both UKIs' `.cmdline` given the
-new root hash (`objcopy --update-section`, same length), unsigned and
-installed with `-insecure-skip-signature-check`: the node writes the
-slot and refuses before switching. Never booted.
+new root hash (`objcopy --update-section`, or the root hash and salt
+replaced in place - same length, `mk-novirtionet` since v2026.11.09-3),
+unsigned and installed with `-insecure-skip-signature-check`: the node
+writes the slot and refuses before switching. Never booted.
+
+Since v2026.11.09-3 (#611) the same server drives the **Update page in
+the browser**: a fresh Controller machine updated through its node page
+in the pinned Chromium, a script reading the page's progress notice and
+toasts every 250 ms (each change stamped) and taking a screenshot every
+2 s - "the node downloads it" from `/flaky` in light and dark (each
+"trying again in 5s (2/5)" expected on the page within a moment of the
+server's 504, then the writing, the reboot, the node back), "Upload
+files" (also with the browser's upload throttled, to see what shows
+while it sends), "The Controller pushes it", and the lab-built bundle's
+refusal (a clear message on the page, no reboot). Expected: no
+JavaScript or page error; the browser's own "Failed to load resource"
+lines for the node's polls while it reboots are the only ones.
+
+### The releases kept on the Controller's disk
+
+Since v2026.11.09-3 (#610): after the Controller's update, its
+`release-cache.json` read (public data only: `security.json` contents,
+checksums, Controller images; no key, token or address); then the
+Controller restarted (`docker compose restart`) with its outgoing HTTPS
+captured on its host (the connections opened, by server name) and its
+update status asked every 0.2 s with an API token (sessions don't
+survive a restart) until it names the newest release - with the file,
+the file removed, and the same two with GitHub made slower by `netem`
+on the host's packets to GitHub's addresses only (`slowgh`), plus the
+file without the pre-release's own entries (as right after a
+publication) with "Prepare the pre-release" sent at once. The previous
+release restarted the same way first, as the baseline. Expected: with
+the file, the newest release at the first answer and no `security.json`
+read again; without it, eight read together and the same file written
+back.
 
 ### The CPUfreq warning
 
@@ -1569,3 +1601,15 @@ ran:
   window; `boots PREFIX NODE [DOMAIN]`: `bstage` firmware ×2 and kexec
   ×4, the serial console since before them (`serlog`), the last boot's
   kernel log, and the CPUfreq lines (v2026.11.09-2).
+- `crestart NAME [nocache]` (`PREP=` a node's id: "Prepare the
+  pre-release" sent right after the restart): the Controller restarted
+  with its HTTPS captured and its update status polled; `sni.py PCAP
+  T0`: the connections and TLS server names in a capture; `slowgh on
+  MS|off`: GitHub made slower from the Controller's host (`netem`);
+  `fprep VERSION NODE OUT`: "Prepare the pre-release" until ready, each
+  answer timed; `upage NAME NODE MODE THEME [REF] [SHA]` (`upage.mjs`,
+  `UNSIGNED=`, `KEXEC=`, `THROTTLE=` bytes/s): an update through the
+  node page's Update in the browser, its progress stamped and
+  screenshotted; `mk-novirtionet SRC DST`: the lab-built bundle without
+  `virtio_net`; `tapi METHOD PATH`: the Controller's API with the
+  campaign's token (v2026.11.09-3).
