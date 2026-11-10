@@ -38,12 +38,18 @@ user guide, how it works inside, and how to contribute or integrate it
 into a private cloud. The same pages are the Markdown files of this
 repository ([`docs/README.md`](docs/README.md) is their index).
 
-Optional network features, chosen per image and configured through the
-API and the Controller: [BGP](docs/bgp.md) via [BIRD](https://bird.nic.cz/),
+Optional features, chosen per image and configured through the API and
+the Controller: [BGP](docs/bgp.md) via [BIRD](https://bird.nic.cz/),
 [VRRP](docs/vrrp.md) via [keepalived](https://www.keepalived.org/), a
-[firewall](docs/firewall.md) via nftables - keepalived and BIRD follow
-HAProxy's health. Every node also serves its own
-[Prometheus metrics](docs/metrics.md).
+[firewall](docs/firewall.md) via nftables, a [Consul](docs/consul.md)
+agent, [Let's Encrypt](docs/letsencrypt.md) certificates - even for a
+node with no way out to the internet; keepalived and BIRD follow
+HAProxy's health. Nodes can form
+[clusters](docs/guide/clusters.md) - one configuration, stick tables
+replicated, certificates carried from member to member - with or
+without the Controller, and the Controller creates nodes on libvirt and
+Proxmox VE itself, [Terraform](docs/terraform.md) included. Every node
+also serves its own [Prometheus metrics](docs/metrics.md).
 
 > **Janus** is the Roman god of beginnings and endings, of choices, of
 > passage, and of doors - traditionally shown with two faces looking in
@@ -58,8 +64,10 @@ HAProxy's health. Every node also serves its own
 
 **Status: early alpha.** Real bootable images exist (kernel hardening,
 dm-verity, A/B updates, Secure Boot, SELinux enforcing by default), built
-and boot-tested on every image workflow run: an unsigned qcow2 for
-Proxmox/generic KVM-libvirt, and the signed update bundle.
+and boot-tested on every image workflow run: the qcow2 images for
+Proxmox VE and KVM/libvirt and the update bundle, every UKI signed with
+the release key ([Secure Boot](docs/guide/secure-boot.md) is turned on
+node by node).
 
 **Supported: amd64 virtual machines on KVM/libvirt and Proxmox VE**,
 with or without the Controller - what releases are tested for, and what
@@ -68,13 +76,17 @@ the beta will cover
 Everything else is experimental: arm64 nodes get no updates, and three
 targets are **suspended since 2026-10-30, waiting for testers**: none
 was ever verified on real hardware, so nothing builds, tests or
-publishes them for now - their code and docs stay, and one line in
-`variants.mk` brings each back
+publishes them for now - v2026.10.30's images are the last. Their code
+and docs stay: one line in `variants.mk` brings the Raspberry Pi back,
+while VMware and bare metal also need a kernel of their own - since
+v2026.11.09 the kernel is built for KVM/QEMU virtual machines, without
+their disks' and network cards' drivers
 ([suspended targets](docs/internals/image-build.md#suspended-targets)).
 Have the hardware? Offer to test from the
 [image builder](https://janus.sw-servers.net/builder).
 
-- **VMware/ESXi**: a VMDK, proven under QEMU with VMware's devices.
+- **VMware/ESXi**: a VMDK, proven under QEMU with VMware's devices
+  (vmxnet3, pvscsi) until the kernel left them out.
 - **Bare metal**: a hybrid ISO/GPT installer/maintenance-mode medium
   (bootable via USB) with a real release bundle embedded, so
   `LifecycleService.Install` can provision a target disk using nothing
@@ -131,6 +143,14 @@ what you ask the safe way, nothing critical without your word
   to build and run it locally.
 - `claude-code/` - the Claude Code plugin (the janusctl skill), offered by
   `.claude-plugin/marketplace.json`.
+- `extensions/` - the optional extensions an image can carry (BIRD,
+  keepalived, nftables, Consul, Let's Encrypt, node_exporter,
+  qemu-guest-agent); `selinux/` - the policy every node enforces.
+- `site/` - [janus.sw-servers.net](https://janus.sw-servers.net/): the
+  landing page, the image builder and the docs site built from `docs/`.
+- `terraform-provider-janus/` - the Terraform provider for the
+  Controller's nodes and hypervisors ([docs/terraform.md](docs/terraform.md)).
+- `examples/` - the runnable examples the docs show, each one tested.
 - `hack/` - local dev tooling (QEMU test harness).
 
 ## Building the control plane
