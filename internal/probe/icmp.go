@@ -85,6 +85,17 @@ func openICMP(dst, source netip.Addr, df bool) (*icmpSock, error) {
 			} else {
 				mode := map[bool]int{true: unix.IP_PMTUDISC_DO, false: unix.IP_PMTUDISC_DONT}[df]
 				serr = unix.SetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_MTU_DISCOVER, mode)
+				// Only the ICMP our probe reads: echo reply (0), destination
+				// unreachable (3) and time exceeded (11) - so a crafted ICMP
+				// of another type can't reach the parser at all (security
+				// review 2026-11-05 #15, JANUS-2026-019). The IPv6 side
+				// filters above. IPPROTO_ICMP and ICMP_FILTER are both 1;
+				// the filter's u32 data is a bitmask of the types to block.
+				if serr == nil {
+					const protoICMP, icmpFilter = 1, 1
+					accept := uint32(1<<0 | 1<<3 | 1<<11)
+					serr = unix.SetsockoptInt(int(fd), protoICMP, icmpFilter, int(int32(^accept)))
+				}
 			}
 		})
 		if err == nil {
@@ -150,10 +161,14 @@ func (s *icmpSock) read(deadline time.Time) (answer, error) {
 		}
 		at := time.Now()
 		msg := buf[:n]
-		// A raw IPv4 socket may hand the IP header over too: no ICMP
-		// type we read starts with 0x4_.
+		// A raw IPv4 socket may hand the IP header over too (x/net strips
+		// it for us, so this rarely fires); bound the header length to the
+		// message so a crafted byte can't slice out of range (security
+		// review 2026-11-05 #15).
 		if !s.v6 && len(msg) >= 20 && msg[0]>>4 == 4 {
-			msg = msg[int(msg[0]&0x0f)*4:]
+			if ihl := int(msg[0]&0x0f) * 4; ihl >= 20 && ihl <= len(msg) {
+				msg = msg[ihl:]
+			}
 		}
 		if a, ok := s.parse(msg); ok {
 			a.ttl, a.at = ttl, at

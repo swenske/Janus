@@ -1,0 +1,12 @@
+{
+  "id": "JANUS-2026-017",
+  "title": "A cluster member removed from the cluster kept its member access",
+  "severity": "medium",
+  "cvss": "CVSS:3.1/AV:N/AC:H/PR:H/UI:N/S:U/C:H/I:L/A:N",
+  "cwe": [
+    "CWE-862",
+    "CWE-613"
+  ],
+  "target": "node",
+  "description": "A node authorizes a cluster peer's privileged calls (ClusterExport, which returns every cluster TLS key, the ACME credentials and the ticket ring; ClusterFlows; the peers listener) by `AcceptMember`, which checked that the presented certificate is signed by the cluster's CA and names this cluster - but not that the name is still a member. Removing a member renews the ticket ring but neither revokes its certificate (valid 30 days) nor rotates the CA, so a member removed from the cluster - especially one removed with force because it was unreachable, stolen or compromised - could go on calling ClusterExport on the remaining members and read every cluster key, defeating the renewal docs/cluster.md promises.\n\n**Affected**: a cluster from which a member was removed, within that member's certificate lifetime.\n\n**Fix**: `AcceptMember` now refuses a name that isn't in the node's current membership. A removal updates the remaining members' composition (the engine's RemoveMember), so a departed name is no longer accepted. Pinning each member's public key and issuing a CRL or rotating the cluster CA on a forced removal remain as deeper hardening.\n\n**Besides updating**: nothing on nodes; a cluster whose member was removed before updating should be re-applied so the composition is current everywhere."
+}

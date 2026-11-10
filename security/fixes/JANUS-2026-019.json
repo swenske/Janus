@@ -1,0 +1,12 @@
+{
+  "id": "JANUS-2026-019",
+  "title": "A crafted ICMP packet could crash janusd while an operator ran a ping or traceroute probe",
+  "severity": "low",
+  "cvss": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:N/I:N/A:L",
+  "cwe": [
+    "CWE-248",
+    "CWE-20"
+  ],
+  "target": "node",
+  "description": "The connectivity probe's IPv4 raw ICMP socket had no ICMP type filter (the IPv6 side did), so it received every ICMP packet the host got while a `ping` or `traceroute` probe ran. A heuristic that strips a possible IP header then sliced the message by the header length it read; an ICMP message of an unassigned type (0x40-0x4F) 20 to 59 bytes long gave an out-of-range slice, which panicked in the gRPC handler goroutine. janusd has no recovery interceptor, so it exited: init restarts it, and keepalived, BIRD and Consul get SIGTERM through Pdeathsig, so the VRRP VIP moves and the BGP routes are withdrawn until they restart. Any host that could send ICMP to one of the node's addresses could do this whenever someone probed.\n\n**Affected**: a node with a public or reachable address, while an operator runs a `ping`/`traceroute` probe.\n\n**Fix**: the IPv4 socket now sets `ICMP_FILTER` to accept only the types the probe reads (echo reply, destination unreachable, time exceeded), the header-stripping heuristic is bounds-checked, and janusd gains unary and stream recovery interceptors so a panic in any handler becomes an Internal error instead of taking the daemon down.\n\n**Besides updating**: nothing."
+}

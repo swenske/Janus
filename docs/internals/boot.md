@@ -18,7 +18,7 @@ One GPT disk, the same for every node of a release:
 | 7 | `LOGS` (raw) | What the services and the kernel printed, boot after boot, until newer logs take the room (`internal/logvol`): a ring of 1 MiB segments, one boot each, every record with its CRC. Nothing to mount - janusd writes it, `system logs -boot -1` reads it. 512 MiB in the images, 5 % of the disk (512 MiB to 8 GiB) on an installed one; none on a disk installed before it existed, or on the Raspberry Pi images |
 
 Partitions are found by their GPT label, never their device name: the
-same image boots from virtio, SATA, NVMe or USB. The installer ISO is
+same image boots from virtio-blk, virtio-scsi or SATA. The installer ISO is
 laid out differently - the release bundle on an ISO 9660 partition, its
 own ESP, and `JANUS-ISO-DATA`/`-HASH` named so an installer never mounts
 the slots of a disk it just installed.

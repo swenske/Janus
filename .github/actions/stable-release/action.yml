@@ -3,7 +3,10 @@
 # its security advisories. image-build.yml runs it when it cuts a release,
 # release-promote.yml when it promotes a pre-release. Expects the
 # repository checked out (main), Go, build/deb/janusctl_*.deb and
-# build/security/security.json - the release's own.
+# build/security/security.json - the release's own. A maintenance release
+# (a fix of the previous release, never the latest) gets none of the
+# three: apt and /docs/ follow the newest release, and the advisories of
+# its fixes are the newest line's - it says which to complete.
 name: Janus release - stable only
 description: apt stable, the docs' latest channel and the security advisories of a release.
 inputs:
@@ -20,6 +23,10 @@ inputs:
     description: UPSTREAM_BOT_TOKEN (repository security advisories write) - without it, the advisories are printed to create by hand.
     required: false
     default: ''
+  maintenance:
+    description: "'true' for a maintenance release: no apt, no docs, no advisory created."
+    required: false
+    default: 'false'
 runs:
   using: composite
   steps:
@@ -36,6 +43,7 @@ runs:
     # reproducible). The server's host key is pinned like site-deploy's
     # SITE_HOST_KEY: never a first contact from a runner.
     - name: Publish janusctl on apt.sw-servers.net (stable)
+      if: ${{ inputs.maintenance != 'true' }}
       shell: bash
       env:
         APT_HOST_KEY: ${{ inputs.apt-host-key }}
@@ -58,6 +66,7 @@ runs:
     # back). A workflow GITHUB_TOKEN creates starts no workflow - but a
     # workflow_dispatch it sends does.
     - name: Deploy this release's docs
+      if: ${{ inputs.maintenance != 'true' }}
       shell: bash
       env:
         TOKEN: ${{ inputs.token }}
@@ -78,6 +87,7 @@ runs:
     # UPSTREAM_BOT_TOKEN with "Repository security advisories" write;
     # without it, the requests are printed to create them by hand.
     - name: Publish the security advisories
+      if: ${{ inputs.maintenance != 'true' }}
       shell: bash
       env:
         VERSION: ${{ inputs.version }}
@@ -110,3 +120,29 @@ runs:
             || { echo "::error::publishing advisory $ghsa failed: $(cat "$resp")"; exit 1; }
           python3 -c 'import json, sys; print("Published", json.load(open(sys.argv[1]))["html_url"])' "$resp"
         done
+
+    # A maintenance release carries fixes the newest line's release
+    # carries too, whose advisories it published (docs/contributing/
+    # releasing.md: that release first): one advisory per vulnerability,
+    # its patched versions completed by hand with this one - an advisory
+    # GitHub reads as "< vX" would call the newest line patched.
+    - name: The security advisories to complete
+      if: ${{ inputs.maintenance == 'true' }}
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        python3 - build/security/security.json "$VERSION" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+        import json, sys
+        doc, version = json.load(open(sys.argv[1])), sys.argv[2]
+        ids = [f["id"] for u in doc.get("updates", []) for f in u.get("fixes", []) if f.get("id")]
+        if not ids:
+            print(f"No security fix in {version}: no advisory to complete.")
+            sys.exit(0)
+        print(f"### Advisories to complete with {version}\n")
+        print(f"A maintenance release creates no advisory. On the Security tab, add `{version}` to the patched versions of the advisories of:\n")
+        for i in ids:
+            print(f"- {i}")
+        PY
+        echo "::notice::$VERSION is a maintenance release: no advisory created - the run's summary lists the ones to complete"

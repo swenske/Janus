@@ -41,7 +41,11 @@ type publishOpts struct {
 	Name       string
 	Notes      string // the notes' file
 	Prerelease bool
-	Patterns   []string // the assets, as globs
+	// Latest makes it GitHub's "Latest" release: not a pre-release, nor a
+	// maintenance release (older than the newest: check-release
+	// -maintenance).
+	Latest   bool
+	Patterns []string // the assets, as globs
 }
 
 // localFile is an asset to publish.
@@ -66,6 +70,7 @@ func runPublish(args []string, out io.Writer) error {
 	fs.StringVar(&o.Name, "name", "", "the release's name")
 	fs.StringVar(&o.Notes, "notes", "", "the file with the release's notes")
 	fs.BoolVar(&o.Prerelease, "prerelease", false, "a pre-release: never the latest")
+	fs.BoolVar(&o.Latest, "latest", true, "make it the latest release (false: a maintenance release; a pre-release never is)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -143,7 +148,7 @@ func publish(ctx context.Context, c *client, o publishOpts, out io.Writer) error
 		return err
 	}
 	latest := "true"
-	if o.Prerelease {
+	if o.Prerelease || !o.Latest {
 		latest = "false"
 	}
 	if err := c.send(ctx, http.MethodPatch, fmt.Sprintf("/releases/%d", r.ID), map[string]any{"draft": false, "make_latest": latest}, &r); err != nil {

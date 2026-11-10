@@ -13,13 +13,15 @@ configuration given at boot or through its API afterwards
 |---|---|---|
 | `janus.qcow2` | Proxmox VE | Imported with `qm importdisk`, or by the Controller |
 | `janus-kvm.qcow2` | libvirt/KVM, any QEMU host | What the Controller uses on a libvirt host; `virt-install --import` |
-| `janus.vmdk` | VMware vSphere/ESXi, Workstation, Fusion | **Suspended** since 2026-10-30, waiting for testers - v2026.10.30's is the last. `streamOptimized`; no OVA yet ([VMware](platforms/vmware.md)) |
-| `janus.iso` | Bare metal; a VM installed from a medium | **Suspended** since 2026-10-30, waiting for testers - v2026.10.30's is the last. An installer, with the release's signed bundle inside: written to a USB stick, presented as a disk by a BMC, or attached to a VM as a disk - never as a CD/DVD ([bare metal](platforms/bare-metal.md)) |
-| `pi4-disk.img`, `pi5-disk.img` | Raspberry Pi 4 and 5 | **Suspended** since 2026-10-30, waiting for testers - v2026.10.30's are the last. For testing only ([hardware tests](../raspberry-pi-testing.md)) |
+| `janus.vmdk` | VMware vSphere/ESXi, Workstation, Fusion | **Experimental**, suspended since 2026-10-30, waiting for testers - v2026.10.30's is the last. `streamOptimized`; no OVA yet ([VMware](platforms/vmware.md)) |
+| `janus.iso` | Bare metal; a VM installed from a medium | **Experimental**, suspended since 2026-10-30, waiting for testers - v2026.10.30's is the last. An installer, with the release's signed bundle inside: written to a USB stick, presented as a disk by a BMC, or attached to a VM as a disk - never as a CD/DVD ([bare metal](platforms/bare-metal.md)) |
+| `pi4-disk.img`, `pi5-disk.img` | Raspberry Pi 4 and 5 | **Experimental**, suspended since 2026-10-30, waiting for testers - v2026.10.30's are the last. For testing only ([hardware tests](../raspberry-pi-testing.md)) |
 | `rootfs.squashfs`, `rootfs.squashfs.sha256`, `rootfs.verity`, `uki-a.efi`, `uki-b.efi` | Updates and installs | The update bundle: its UKIs are signed with the release key, which pins the root filesystem's dm-verity hash |
 
-The suspended targets were never verified on real hardware; a release
-publishes them again once someone has tested them - the
+Janus supports the two qcow2 images, on KVM/libvirt and Proxmox VE
+([what Janus supports](README.md#what-janus-supports)). The suspended
+targets were never verified on real hardware; a release publishes them
+again once someone has tested them - the
 [image builder](https://janus.sw-servers.net/builder) links the forms
 to offer it.
 
@@ -80,7 +82,7 @@ how the factory builds an image.
   certificate is enrolled in the firmware
   ([Secure Boot](../guide/secure-boot.md)); every update a node installs
   is signed and checked either way.
-- **One disk** (virtio, SCSI, SATA, NVMe): the image's own layout - an
+- **One disk** (virtio-blk, virtio-scsi, SATA, IDE): the image's own layout - an
   EFI partition, two system slots for A/B updates, and STATE, a small
   partition keeping the node's identity and configuration. The images
   are a few hundred megabytes and need no more: there's nothing to
@@ -95,6 +97,6 @@ how the factory builds an image.
   fingerprint, its pairing code, its registration's errors - is on both the screen
   and the serial port, and the serial one is easier to read and copy
   from.
-- **Network interfaces**: virtio, VMware's vmxnet3, Intel's and
-  Broadcom's common ones, Mellanox ConnectX-4 and later - none needing
-  a firmware file ([physical hardware](../provisioning-a-node.md#physical-hardware)).
+- **Network interfaces**: virtio, or the Intel e1000/e1000e QEMU and
+  Proxmox emulate - the kernel is built for KVM/QEMU virtual machines
+  ([physical hardware](../provisioning-a-node.md#physical-hardware)).

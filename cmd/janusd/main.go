@@ -82,6 +82,15 @@ var version = "dev"
 const serviceLogLines = 5000
 
 func main() {
+	// Before anything else: the hidden re-exec that runs HAProxy in a
+	// mount namespace with STATE's secrets detached (haproxyjail.go, set
+	// as the Manager's Spawn under -manage-host). It exec's haproxy or
+	// exits - it never returns here.
+	if len(os.Args) > 1 && os.Args[1] == haproxyJailArg {
+		runHAProxyJail(os.Args[2:])
+		return
+	}
+
 	showVersion := flag.Bool("version", false, "print the daemon version and exit")
 	addr := flag.String("addr", ":9505", "gRPC listen address")
 	rescueFile := flag.String("rescue-file", "auto", "what init found on this boot's rescue volume (internal/nocloud.Rescue): a rescue window opens, whatever the node trusts - \"auto\": "+nocloud.RescueRunFile+" with -manage-host, none without")
@@ -354,6 +363,17 @@ func main() {
 		// nothing (internal/haproxy.GlobalPolicy). On a host, in CI, the
 		// configuration is whatever the test needs.
 		haproxyMgr.Policy = haproxy.NodePolicy(*haproxyChrootDir, *haproxySock)
+		// And HAProxy - the real process and every `haproxy -c` - runs in
+		// a mount namespace where STATE's secrets are absent, so a
+		// configuration an operator applies cannot have HAProxy open and
+		// serve them (security review 2026-11-05 #1). On a host or in CI
+		// (no -manage-host) HAProxy is exec'd directly: nothing there to
+		// protect, and the mount dance needs CAP_SYS_ADMIN.
+		if self, err := os.Executable(); err != nil {
+			log.Fatalf("locate the janusd binary for the HAProxy jail: %v", err)
+		} else {
+			haproxyMgr.Spawn = haproxyJailSpawn(self)
+		}
 		// And HAProxy runs with the peers section generated from the
 		// membership - the node alone when it is in none, so a reload keeps
 		// the stick tables - and this node's name as its local peer. Only on
@@ -744,11 +764,11 @@ func main() {
 	srv := grpc.NewServer(append(connectionOptions(keepaliveTime, keepaliveTimeout),
 		grpc.Creds(credentials.NewTLS(tlsConfig)),
 		grpc.StatsHandler(api.ConnStats{Clients: clients}),
-		grpc.ChainUnaryInterceptor(api.UnaryMetricsInterceptor, api.UnaryAuthInterceptor),
-		grpc.ChainStreamInterceptor(api.StreamMetricsInterceptor, api.StreamAuthInterceptor),
+		grpc.ChainUnaryInterceptor(api.UnaryRecoveryInterceptor, api.UnaryMetricsInterceptor, api.UnaryAuthInterceptor),
+		grpc.ChainStreamInterceptor(api.StreamRecoveryInterceptor, api.StreamMetricsInterceptor, api.StreamAuthInterceptor),
 	)...)
 	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, LocalCA: local.CA, Cluster: clusterStore, ServiceLogs: serviceLogs, LogVolume: logVol, LogDevice: logDev, LogShip: ship, LogShipDir: logshipDir, Clients: clients, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp, Main: netMgr.MainAddresses, Sysctl: sysctlMgr, Console: console, StateRoot: stateRoot})
-	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{HAProxy: haproxyMgr, Version: version})
+	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{HAProxy: haproxyMgr, Version: version, CheckHardware: *manageHost})
 	// Every accepted configuration, next to haproxy.cfg - on STATE on a
 	// node, like the configuration itself.
 	haproxyHistory := &haproxy.History{Dir: filepath.Join(filepath.Dir(*haproxyCfg), "history")}
@@ -775,21 +795,35 @@ func main() {
 			log.Printf("rescue: a rescue volume, but no pairing address (-pairing-addr) - no rescue window")
 		}
 	case rescue != nil:
-		pw = openPairing(a, local, access, fleet, hostname, rescueUntil, func() { markRescued(rescuePathV) })
+		// When the rescue window closes, put the saved firewall ruleset
+		// back if this boot skipped it (firewall: skip) - it must not
+		// outlive the window (security review 2026-11-05 #18).
+		onClose := func(string) {
+			if *manageHost && rescue.Firewall == "skip" {
+				if err := fwMgr.Boot(); err != nil {
+					log.Printf("firewall: applying the saved ruleset after the rescue window closed: %v - the node runs without it", err)
+				} else {
+					log.Printf("firewall: the rescue window closed - the saved ruleset is applied now")
+				}
+			}
+		}
+		pw = openPairing(a, local, access, fleet, hostname, rescueUntil, func() { markRescued(rescuePathV) }, onClose)
 	case pairingWanted(fleet, fleetErr, *pkiDir):
-		pw = openPairing(a, local, access, fleet, hostname, time.Time{}, nil)
+		pw = openPairing(a, local, access, fleet, hostname, time.Time{}, nil, nil)
 	}
 
 	log.Printf("janusd %s listening on %s (mTLS required)", version, *addr)
 	if *manageHost {
 		metrics.boot = measureBoot(haproxyServingAt)
+		logHardware()
 	}
 	kernelTrack, haproxyVersion := logImage(haproxyMgr)
 	pairingCode := ""
 	var rescueShown time.Time
 	if pw != nil {
 		pw.sayCode()
-		pairingCode, rescueShown = pw.code.String(), pw.rescueUntil
+		_, code := pw.current()
+		pairingCode, rescueShown = code.String(), pw.rescueUntil
 	}
 	printMOTD(motdInfo{
 		Version:        version,

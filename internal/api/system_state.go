@@ -49,11 +49,31 @@ func (s *System) transferAllowed(c Caller, identity bool) error {
 	return nil
 }
 
+// identityAllowed refuses the node's identity - its CA's key, valid for
+// years - to a certificate an issuing CA signed, for twelve hours (a
+// Controller sign-in, janusctl fleet), and to one the node's own CA
+// issued through the API: only the fleet's root's own certificates (a
+// recovery kit's) and a certificate the node issued at its console (a
+// rescue certificate) carry it away (Caller.RootSigned), and a state
+// transfer certificate whose grant includes it (transferExport checks
+// the grant; the grant took such a certificate).
+func identityAllowed(c Caller) error {
+	if c.RootSigned || c.Transfer != "" {
+		return nil
+	}
+	return status.Errorf(codes.PermissionDenied, "the node's identity - its CA's key - goes only to a certificate the fleet's root itself signs or one the node issued at its console, and %s's is neither: add -kit KIT (the fleet's recovery kit) or use a rescue certificate (janusctl access rescue) - docs/guide/replacing-a-node.md", c.Name)
+}
+
 // StateExport streams the node's state.
 func (s *System) StateExport(req *janusv1alpha1.StateExportRequest, stream janusv1alpha1.SystemService_StateExportServer) error {
 	caller, _ := CallerFrom(stream.Context())
 	if err := s.stateTransferAllowed(caller); err != nil {
 		return err
+	}
+	if req.GetIncludeIdentity() {
+		if err := identityAllowed(caller); err != nil {
+			return err
+		}
 	}
 	if err := transferExport(caller, req.GetIncludeIdentity()); err != nil {
 		return err
@@ -128,8 +148,17 @@ func (s *System) StateImport(stream janusv1alpha1.SystemService_StateImportServe
 
 // stageState stages the state r streams (StateImport, StateImportFrom -
 // from: how it came, for the log).
+// haproxyPolicyCheck is the node's global haproxy.cfg policy, or nil off
+// a managed node (native janusd) - used to check an imported config.
+func (s *System) haproxyPolicyCheck() func([]byte) error {
+	if s.HAProxy != nil && s.HAProxy.Policy != nil {
+		return s.HAProxy.Policy.Check
+	}
+	return nil
+}
+
 func (s *System) stageState(caller Caller, opts *janusv1alpha1.StateImportOptions, r io.Reader, from string) (*janusv1alpha1.StateImportResponse, error) {
-	st, err := statexfer.Stage(s.StateRoot, statexfer.ImportOptions{Identity: opts.GetReuseIdentity(), ApplyNetwork: opts.GetApplyNetwork()}, r)
+	st, err := statexfer.Stage(s.StateRoot, statexfer.ImportOptions{Identity: opts.GetReuseIdentity(), ApplyNetwork: opts.GetApplyNetwork(), ValidateConfig: s.haproxyPolicyCheck()}, r)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "the state: %v", err)
 	}

@@ -27,7 +27,11 @@ nodes' disks can differ.
 
 The export holds private keys. It never goes through the Controller - the
 node refuses a call the Controller relays: call it yourself, with the
-node's own credentials or a fleet certificate.
+node's own credentials or a fleet certificate. An admin calling the node
+itself can export it: an admin certificate is worth the keys of the
+sites the node serves - keep it like them, and prefer short-lived ones
+(a sign-in's 12 hours). The node's identity goes only to a stronger
+certificate (below).
 
 ## Identity: the same node, or a new one
 
@@ -46,6 +50,21 @@ With the identity, **the old node must be off before the new one takes
 its place**: two nodes with one CA and one address answer for each
 other.
 
+**The identity leaves only with a root's certificate.** The node CA's
+key is good for years and makes admin certificates of the node: the
+node gives it away - exported, or granted to another node - only to a
+certificate its own CA issued at its console (a [rescue
+certificate](recovery.md#neither)) or one the fleet's root itself
+signed. A Controller sign-in's or a janusctl fleet's certificate comes
+from an issuing CA, for 12 hours; a certificate of the node's own CA an
+admin had it issue through its API (`janusctl pki
+generate-client-config`, the Controller's node page) or an older node's
+first-boot admin credential says nothing about its console either: add
+`-kit KIT`, the fleet's recovery kit. janusctl opens it on your machine
+(its passphrase asked, or `JANUS_KIT_PASSPHRASE`), signs a certificate
+of an hour for that call alone, and keeps neither the root's key nor
+the certificate.
+
 ## Doing it
 
 The new node must be unused - a fresh install, or one reset with
@@ -53,7 +72,7 @@ The new node must be unused - a fresh install, or one reset with
 credentials:
 
 ```sh
-janusctl -n old system state export -identity - \
+janusctl -n old system state export -identity -kit fleet-kit.age - \
   | janusctl -n new system state import -identity -save-network old-net.json -
 ```
 
@@ -61,7 +80,7 @@ The pipe keeps the state off your disk. To go through a file instead -
 written `0600`, never over an existing one:
 
 ```sh
-janusctl -n old system state export -identity old-state.tar
+janusctl -n old system state export -identity -kit fleet-kit.age old-state.tar
 janusctl -n new system state import -identity -save-network old-net.json old-state.tar
 rm old-state.tar
 ```
@@ -77,18 +96,19 @@ Or the new node pulls the state from the old one itself, and it never
 passes through your machine at all:
 
 ```sh
-janusctl -n new system state import -from old -identity -save-network old-net.json
+janusctl -n new system state import -from old -identity -kit fleet-kit.age -save-network old-net.json
 ```
 
 janusctl asks the new node for a key made for the purpose - kept in
 its memory, used once - and has the old node sign its request: a
 certificate of ten minutes, from the old node's own CA, that opens
 **one** export of its state - with its identity only when you ask for
-`-identity` - and nothing else. The new node then reaches the old one
-with it, checks it by its CA, and takes the state as above. Only a
-signing request and a certificate go through janusctl; the old node's
-console logs the grant (`state: <new node> may pull this node's state
-once`), and a janusd restart there ends a grant not used yet.
+`-identity` (with `-kit`, as above) - and nothing else. The new node
+then reaches the old one with it, checks it by its CA, and takes the
+state as above. Only a signing request and a certificate go through
+janusctl; the old node's console logs the grant (`state: <new node> may
+pull this node's state once`), and a janusd restart there ends a grant
+not used yet.
 
 `-from` names a node of your context. With the nodes' own credentials
 instead, give the old node's address and its credentials:

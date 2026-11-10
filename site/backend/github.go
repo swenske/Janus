@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/swenske/Janus/internal/calver"
 	"github.com/swenske/Janus/internal/schematic"
 )
 
@@ -32,6 +33,7 @@ type gitHub struct {
 	fetched  time.Time
 	catalogs map[string]*schematic.Catalog // by version; nil entry: the release has none
 	older    map[string]*release           // releases older than Releases' list, by version
+	notFound map[string]time.Time          // versions GitHub answered 404, by version (security review #27)
 }
 
 type release struct {
@@ -51,6 +53,36 @@ type release struct {
 }
 
 const releasesTTL = 10 * time.Minute
+
+// notFoundTTL is how long a 404 for a version is remembered; maxNotFound
+// bounds the negative cache (security review 2026-11-05 #27).
+const (
+	notFoundTTL = 10 * time.Minute
+	maxNotFound = 1024
+)
+
+// rememberNotFound records that GitHub has no release for version, so a
+// repeated poll of it is answered without another request.
+func (g *gitHub) rememberNotFound(version string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.notFound == nil {
+		g.notFound = map[string]time.Time{}
+	}
+	if len(g.notFound) >= maxNotFound {
+		// Over the cap: drop the oldest so a flood of distinct versions
+		// can't grow the map without bound.
+		var oldK string
+		var oldT time.Time
+		for k, t := range g.notFound {
+			if oldK == "" || t.Before(oldT) {
+				oldK, oldT = k, t
+			}
+		}
+		delete(g.notFound, oldK)
+	}
+	g.notFound[version] = time.Now()
+}
 
 func newGitHub(api, repo, token, workflow string) *gitHub {
 	return &gitHub{api: strings.TrimRight(api, "/"), repo: repo, token: token, workflow: workflow,
@@ -107,6 +139,11 @@ func (g *gitHub) Releases(ctx context.Context) ([]release, error) {
 		}
 		out = append(out, *r.release())
 	}
+	// Newest version first: GitHub lists them by the date of each tag's
+	// commit, and a maintenance release (a fix of the previous release,
+	// tagged on its own branch after the newest - docs/contributing/
+	// releasing.md) would come first, taken for the latest.
+	calver.SortNewestFirst(out, func(r release) string { return r.Version })
 	g.mu.Lock()
 	g.releases, g.fetched = out, time.Now()
 	g.mu.Unlock()
@@ -165,9 +202,16 @@ func (g *gitHub) Release(ctx context.Context, version string) (*release, error) 
 	}
 	g.mu.Lock()
 	rel, ok := g.older[version]
+	nf, isNF := g.notFound[version]
 	g.mu.Unlock()
 	if ok {
 		return rel, nil
+	}
+	// A version GitHub already answered 404 isn't asked again for a
+	// while: a loop polling an unknown version mustn't spend the token's
+	// quota on each poll (security review 2026-11-05 #27).
+	if isNF && time.Since(nf) < notFoundTTL {
+		return nil, errNotFound
 	}
 	resp, err := g.do(ctx, http.MethodGet, g.api+"/repos/"+g.repo+"/releases/tags/"+url.PathEscape(version), nil, true)
 	if err != nil {
@@ -175,6 +219,7 @@ func (g *gitHub) Release(ctx context.Context, version string) (*release, error) 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
+		g.rememberNotFound(version)
 		return nil, errNotFound
 	}
 	if resp.StatusCode != http.StatusOK {
@@ -185,6 +230,7 @@ func (g *gitHub) Release(ctx context.Context, version string) (*release, error) 
 		return nil, fmt.Errorf("GitHub release %s: %w", version, err)
 	}
 	if r.Draft {
+		g.rememberNotFound(version)
 		return nil, errNotFound
 	}
 	rel = r.release()

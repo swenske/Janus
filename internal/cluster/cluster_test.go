@@ -209,6 +209,12 @@ func TestJoinRenewLeave(t *testing.T) {
 	if _, err := s.AcceptMember([]*x509.Certificate{stranger, ca.Cert}); err == nil {
 		t.Error("another cluster's member accepted")
 	}
+	// A name that isn't in the membership - a removed member keeping its
+	// certificate - is refused (security review 2026-11-05 #6).
+	gone := parseLeaf(t, signMember(t, ca, peerCSR, testID, "lb-9"))
+	if _, err := s.AcceptMember([]*x509.Certificate{gone, ca.Cert}); err == nil {
+		t.Error("a name not in the membership was accepted")
+	}
 	// Reopened: the same.
 	re, err := Open(s.Dir, s.Hostname)
 	if err != nil || !re.IsMember() || re.LocalPeer() != "lb-1" || string(re.PeersConfig()) != cfg {

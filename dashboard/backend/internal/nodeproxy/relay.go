@@ -39,8 +39,20 @@ type relayProgress struct {
 	Percent uint32 `json:"percent,omitempty"`
 }
 
-// relayHTTPClient fetches bundles; a var for tests.
-var relayHTTPClient = http.DefaultClient
+// relayHTTPClient fetches bundles; a var for tests. It follows a
+// redirect only to the same host, so a server can't bounce the fetch to
+// an internal address (security review 2026-11-05 #11).
+var relayHTTPClient = &http.Client{
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return fmt.Errorf("stopped after 10 redirects")
+		}
+		if req.URL.Host != via[0].URL.Host {
+			return fmt.Errorf("refusing a redirect to another host (%s)", req.URL.Host)
+		}
+		return nil
+	},
+}
 
 // relayRequest is POST /api/lifecycle/upgrade-relay's body - the same as
 // upgrade-url's.
@@ -64,6 +76,17 @@ func handleUpgradeRelay(w http.ResponseWriter, r *http.Request, node *store.Node
 	base, err := url.Parse(strings.TrimRight(req.Reference, "/"))
 	if err != nil || (base.Scheme != "http" && base.Scheme != "https") || base.Host == "" {
 		http.Error(w, "reference must be the bundle's http(s):// base URL", http.StatusBadRequest)
+		return
+	}
+	// The Controller downloads the reference before pushing it to the
+	// node (UploadReleaseFile) and installing it (Upgrade), both
+	// admin-only on the node. Refuse a caller who may not do that, before
+	// any fetch: otherwise an operator of this node could use the
+	// download as a blind request from the Controller's network position
+	// (an SSRF oracle) - security review 2026-11-05 #11, JANUS-2026-014.
+	u := userOf(r.Context())
+	if !u.allows(janusv1alpha1.LifecycleService_Upgrade_FullMethodName) || !u.allows(janusv1alpha1.LifecycleService_UploadReleaseFile_FullMethodName) {
+		http.Error(w, "you may not upgrade this node", http.StatusForbidden)
 		return
 	}
 	if req.mode, err = rebootMode(req.RebootMode); err != nil {

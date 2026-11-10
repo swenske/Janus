@@ -10,8 +10,11 @@ healthy. How it works: [lifecycle](../private-cloud/lifecycle.md).
 The Controller checks for new releases and shows, on each node's card,
 whether an update is available - with a 🔒 when it fixes a
 vulnerability on that node (an extension's fix only for the nodes that
-have it). Only the latest release is supported: install security updates
-promptly ([security policy](../../SECURITY.md)).
+have it). The latest release is supported, and the previous one for 14
+days after the next one ships - the time to try the new release first;
+a vulnerability fixed in those days gets a
+[maintenance release](#maintenance-releases) of it. Install security
+updates promptly ([security policy](../../SECURITY.md)).
 
 ## From the Controller
 
@@ -76,6 +79,11 @@ janusctl -n lb1 version           # the release now running, and its slot
   [image factory](../image-factory.md#getting-an-image-janussw-serversnet)
   gives for it - and refuses another schematic's unless
   `-allow-schematic-change`.
+- A server that fails to answer - no answer, a timeout, 408, 429 or a
+  5xx gateway error, as GitHub's downloads did for hours some days - is
+  asked again 5, 15, 30 and 60 seconds later (its `Retry-After`, up to
+  a minute, if it gives one), each new try shown as the update goes
+  (`… 504 Gateway Timeout - trying again in 5s (2/5)`); a 404 is final.
 - A node that can't reach the URL: `janusctl lifecycle upload-release
   DIR` streams a bundle from where `janusctl` runs, then `upgrade` takes
   the directory it prints. The root filesystem goes straight into the
@@ -88,6 +96,19 @@ janusctl -n lb1 version           # the release now running, and its slot
   files of one release again. Refused once part of it was written, the
   node keeps running, but its other slot holds neither release: update
   it again with a sound bundle - `lifecycle rollback` refuses that slot.
+- A release whose kernel has no driver for the node's boot disk or for
+  one of its network interfaces is refused (`this release's kernel
+  (virt) has no driver for nvme (boot disk nvme0n1)`): a kernel that
+  can't see its disk waits for it forever, before anything on the node
+  could roll it back. Each image's `image.json` names what its kernel
+  drives; the node compares it with the drivers its boot disk and
+  network interfaces are bound to now - janusd logs them at every boot
+  (`hardware: boot disk vda: virtio_blk, virtio-pci; eth0: virtio_net,
+  virtio-pci`). `-allow-unsupported-hardware` installs it all the same,
+  only for a machine whose devices change before it boots the release
+  (`lifecycle install` checks the target disk the same way). The other
+  slot then holds the refused release: update again rather than roll
+  back.
 - `-kexec` reboots into the new release without going through the
   firmware: the running kernel jumps straight into the new one, in
   seconds, where a server's POST takes a minute. The same flag on
@@ -169,6 +190,37 @@ tests is never promoted, and the next release replaces it.
 
 Pre-releases are on the [releases page](https://github.com/swenske/Janus/releases),
 marked; GitHub's **Watch → Custom → Releases** notifies them too.
+
+## Maintenance releases
+
+While the previous release is supported - 14 days after the next one
+ships - a vulnerability fixed in the latest release is fixed in it too,
+by a maintenance release: the previous release with that fix and
+nothing else. Its version is one of the previous release's day
+(`v2026.11.04-2` for `v2026.11.04`), and its name on the
+[releases page](https://github.com/swenske/Janus/releases) says
+"maintenance of" that release.
+
+- **It isn't the latest release.** A node on the newest release is never
+  offered it; the update the Controller offers stays the newest
+  release, and the 🔒 badge of a node on the maintenance release leaves
+  out the fixes it carries.
+- **The Controller offers it** to the nodes on the release it fixes: on
+  a node's **System › Update** page, under the update, **Maintenance
+  release vX of vY** - **Use this maintenance release** fills the usual
+  A/B installation in; for a node with extensions the image factory
+  builds it first, and the page follows the build.
+- **Or by its version**: `janusctl lifecycle upgrade` with its download
+  URL ([With janusctl](#with-janusctl)) - for a node with extensions, the
+  URL the image factory gives for its schematic and that version -, a
+  Terraform `janus_node`'s `version`, or a machine's `version` (`PATCH
+  /api/machines/{id}`).
+- **The Controller itself**: its update card offers the newest release;
+  to run the maintenance release's Controller instead, set
+  `JANUS_CONTROLLER_IMAGE` in its Compose `.env` to the image the release
+  names (`controller-image.txt`) and run `docker compose up -d`
+  ([the Controller's install](../../dashboard/README.md)).
+- From there, the next update offered is the newest release, as before.
 
 ## Going back
 

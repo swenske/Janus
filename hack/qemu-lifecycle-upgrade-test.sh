@@ -26,6 +26,10 @@
 #      it mounted read-write would just corrupt it (this is exactly why
 #      the injection happens before the first boot, not concurrently
 #      with a running one).
+#   3b. a second bundle of the same release whose image.json says its
+#      kernel has no driver for the boot disk (no virtio_blk): refused
+#      once read, the ESP untouched, no reboot (internal/hwsupport) -
+#      and the v2 bundle's own list (virtio) is checked and accepted.
 #   4. call `janusctl lifecycle upgrade` over real mTLS, pointing
 #      at the bundle's path *as the guest itself sees it*
 #      (/etc/.state/upgrade, since rootfs/init/main.go's mountState
@@ -138,16 +142,32 @@ mkdir -p "$V2_ROOTFS"
 # disk-image` slot doesn't): Upgrade must say it before writing it, and
 # the other slot must read it off its partition once v2 is there.
 V2_VERSION="v2099.01.01"
-cat > "$WORKDIR/image-v2.json" <<EOF
+# Its kernel says what it drives (kernel.drivers, internal/hwsupport):
+# this VM's virtio disk and NIC - Upgrade checks them against the node's.
+image_v2() { # drivers (JSON array) > image.json
+  cat <<EOF
 {"schematic": {"customization": {}}, "schematic_id": "a055fbb697e2d0abb0c5911e7702b07040f49eb71befeaf9b90495a905327f47",
- "version": "$V2_VERSION", "arch": "amd64", "haproxy": {"variant": "3.4", "version": "3.4.99", "default": true}}
+ "version": "$V2_VERSION", "arch": "amd64", "haproxy": {"variant": "3.4", "version": "3.4.99", "default": true},
+ "kernel": {"variant": "stable", "version": "7.3.99", "default": true, "flavor": "virt", "drivers": $1}}
 EOF
+}
+image_v2 '["virtio-pci", "virtio_blk", "virtio_net"]' > "$WORKDIR/image-v2.json"
 JANUS_IMAGE_INFO="$WORKDIR/image-v2.json" "$SELF_DIR/../rootfs/assemble.sh" "$V2_ROOTFS" "$BUILD_DIR/init" "$BUILD_DIR/janusd" \
   "$BUILD_DIR/haproxy" "$WORKDIR/haproxy-v2.cfg" "$BUILD_DIR/selinux/janus.policy" \
   "$BUILD_DIR/ca-certificates/ca-certificates.crt"
 
 V2_BUNDLE="$WORKDIR/bundle-v2"
 "$SELF_DIR/../image/release/assemble.sh" "$V2_BUNDLE" "$KERNEL" "$V2_ROOTFS"
+
+# The same release, but its kernel says it has no driver for the boot
+# disk (no virtio_blk): Upgrade must refuse it - such a kernel waits for
+# its root filesystem forever, nothing on the node left to roll it back.
+image_v2 '["virtio-pci", "virtio_net"]' > "$WORKDIR/image-v2-nodisk.json"
+mkdir -p "$WORKDIR/rootfs-v2-nodisk"
+JANUS_IMAGE_INFO="$WORKDIR/image-v2-nodisk.json" "$SELF_DIR/../rootfs/assemble.sh" "$WORKDIR/rootfs-v2-nodisk" "$BUILD_DIR/init" "$BUILD_DIR/janusd" \
+  "$BUILD_DIR/haproxy" "$WORKDIR/haproxy-v2.cfg" "$BUILD_DIR/selinux/janus.policy" \
+  "$BUILD_DIR/ca-certificates/ca-certificates.crt"
+"$SELF_DIR/../image/release/assemble.sh" "$WORKDIR/bundle-v2-nodisk" "$KERNEL" "$WORKDIR/rootfs-v2-nodisk"
 
 # --- inject the v2 bundle into disk.img's STATE partition, before the
 # first boot (see this script's own header comment for why it has to
@@ -157,8 +177,10 @@ STATE_SIZE_SECTORS="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^Partition size/ {print
 STATE_IMG="$WORKDIR/state.img"
 dd if="$DISK" of="$STATE_IMG" bs=512 skip="$STATE_START_SECTOR" count="$STATE_SIZE_SECTORS" status=none
 debugfs -w -R "mkdir upgrade" "$STATE_IMG" >/dev/null 2>&1
+debugfs -w -R "mkdir upgrade-nodisk" "$STATE_IMG" >/dev/null 2>&1
 for f in rootfs.squashfs rootfs.verity "uki-b.efi"; do
   debugfs -w -R "write $V2_BUNDLE/$f upgrade/$f" "$STATE_IMG" >/dev/null 2>&1
+  debugfs -w -R "write $WORKDIR/bundle-v2-nodisk/$f upgrade-nodisk/$f" "$STATE_IMG" >/dev/null 2>&1
 done
 dd if="$STATE_IMG" of="$DISK" bs=512 seek="$STATE_START_SECTOR" conv=notrunc status=none
 GUEST_BUNDLE_PATH="/etc/.state/upgrade"
@@ -318,10 +340,43 @@ if [ "$(grep -c "$MARKER" "$A_LOG")" -ne 1 ]; then
 fi
 echo "Unsigned bundle refused without the opt-out, nothing written, no reboot"
 
+# --- what this node's devices are bound to, said once a boot ---
+if ! grep -aq "hardware: boot disk vda: virtio_blk, virtio-pci; eth0: virtio_net, virtio-pci" "$A_LOG"; then
+  echo "Upgrade test FAILED: janusd didn't say which drivers the boot disk and eth0 are bound to" >&2
+  grep -a "hardware:" "$A_LOG" >&2 || true
+  exit 1
+fi
+
+# --- a release whose kernel has no driver for the boot disk: refused
+# once its image.json is read, the ESP untouched, no reboot ---
+set +e
+NODISK_OUT="$("$CTL" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" lifecycle upgrade -insecure-skip-signature-check "/etc/.state/upgrade-nodisk" 2>&1)"
+NODISK_RC=$?
+set -e
+echo "$NODISK_OUT"
+if [ "$NODISK_RC" -eq 0 ] || ! grep -q "has no driver for virtio_blk (boot disk vda)" <<<"$NODISK_OUT" || ! grep -q "never find its disk" <<<"$NODISK_OUT"; then
+  echo "Upgrade test FAILED: a release whose kernel can't drive the boot disk wasn't refused (exit $NODISK_RC)" >&2
+  exit 1
+fi
+if grep -qi "switching-slot\|rebooting" <<<"$NODISK_OUT"; then
+  echo "Upgrade test FAILED: the refused upgrade got as far as switching the slot or rebooting" >&2
+  exit 1
+fi
+sleep 5 # longer than Upgrade's own delayed reboot (replyGrace)
+if [ "$(grep -c "$MARKER" "$A_LOG")" -ne 1 ]; then
+  echo "Upgrade test FAILED: the node rebooted after refusing a kernel without the boot disk's driver" >&2
+  exit 1
+fi
+echo "A kernel without the boot disk's driver refused, the ESP untouched, no reboot"
+
 UPGRADE_OUT="$("$CTL" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" lifecycle upgrade -insecure-skip-signature-check -sha256 "$V2_SHA256" $KEXEC_FLAG "$GUEST_BUNDLE_PATH")"
 echo "$UPGRADE_OUT"
 if ! grep -qi "rebooting" <<<"$UPGRADE_OUT"; then
   echo "Upgrade test FAILED: janusctl lifecycle upgrade never reached the 'rebooting' stage" >&2
+  exit 1
+fi
+if ! grep -q "its kernel (virt) drives this machine's disk and network interfaces" <<<"$UPGRADE_OUT"; then
+  echo "Upgrade test FAILED: Upgrade didn't check the release's kernel drives this machine" >&2
   exit 1
 fi
 if [ -n "$KEXEC_FLAG" ] && ! grep -q "through kexec, without the firmware" <<<"$UPGRADE_OUT"; then

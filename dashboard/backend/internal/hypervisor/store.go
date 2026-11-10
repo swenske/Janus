@@ -218,19 +218,30 @@ func (h *Hypervisor) clone() *Hypervisor {
 // Store keeps the configured hypervisors under <data-dir>/hypervisors,
 // one directory each: meta.json, ssh.key and - for Proxmox - token
 // (0600).
+// Sealer seals and opens a secret with the master key.
+type Sealer interface {
+	Seal(plaintext []byte, purpose string) ([]byte, error)
+	Open(sealed []byte, purpose string) ([]byte, error)
+}
+
 type Store struct {
-	dir string
+	dir    string
+	sealer Sealer // nil in tests: the secrets are written in clear
 
 	mu  sync.Mutex
 	hvs map[string]*Hypervisor
 }
 
-func Open(dataDir string) (*Store, error) {
+// Open loads the hypervisors. sealer, if set, seals the SSH key and the
+// Proxmox token on disk (a plaintext one from before is read and re-sealed
+// in place) so a copy of the data directory holds nothing usable - the
+// master key is kept apart (security review 2026-11-05 #24).
+func Open(dataDir string, sealer Sealer) (*Store, error) {
 	dir := filepath.Join(dataDir, "hypervisors")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	s := &Store{dir: dir, hvs: map[string]*Hypervisor{}}
+	s := &Store{dir: dir, sealer: sealer, hvs: map[string]*Hypervisor{}}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -239,7 +250,7 @@ func Open(dataDir string) (*Store, error) {
 		if !e.IsDir() {
 			continue
 		}
-		h, err := load(filepath.Join(dir, e.Name()))
+		h, err := load(filepath.Join(dir, e.Name()), sealer)
 		if err != nil {
 			return nil, fmt.Errorf("load hypervisor %s: %w", e.Name(), err)
 		}
@@ -248,7 +259,37 @@ func Open(dataDir string) (*Store, error) {
 	return s, nil
 }
 
-func load(dir string) (*Hypervisor, error) {
+// readSecret reads dir/name, unsealing it with sealer. A file not sealed
+// yet (from before #24) is read as plaintext and re-sealed in place.
+func readSecret(dir, name string, sealer Sealer, purpose string) ([]byte, error) {
+	raw, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil || sealer == nil {
+		return raw, err
+	}
+	if plain, err := sealer.Open(raw, purpose); err == nil {
+		return plain, nil
+	}
+	if sealed, err := sealer.Seal(raw, purpose); err == nil {
+		_ = writeFileAtomic(filepath.Join(dir, name), sealed)
+	}
+	return raw, nil
+}
+
+// writeSecret seals data with the store's sealer (if any) and writes it
+// to dir/name.
+func (s *Store) writeSecret(dir, name string, data []byte, purpose string) error {
+	if s.sealer != nil {
+		sealed, err := s.sealer.Seal(data, purpose)
+		if err != nil {
+			return err
+		}
+		data = sealed
+	}
+	return writeFileAtomic(filepath.Join(dir, name), data)
+}
+
+func load(dir string, sealer Sealer) (*Hypervisor, error) {
+	id := filepath.Base(dir)
 	raw, err := os.ReadFile(filepath.Join(dir, "meta.json"))
 	if err != nil {
 		return nil, err
@@ -257,7 +298,7 @@ func load(dir string) (*Hypervisor, error) {
 	if err := json.Unmarshal(raw, &h); err != nil {
 		return nil, fmt.Errorf("parse meta.json: %w", err)
 	}
-	keyPEM, err := os.ReadFile(filepath.Join(dir, "ssh.key"))
+	keyPEM, err := readSecret(dir, "ssh.key", sealer, "hypervisor/"+id+"/ssh")
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +311,7 @@ func load(dir string) (*Hypervisor, error) {
 		return nil, fmt.Errorf("ssh.key is a %T, want ed25519", key)
 	}
 	h.SSHKey = *edKey
-	if secret, err := os.ReadFile(filepath.Join(dir, "token")); err == nil {
+	if secret, err := readSecret(dir, "token", sealer, "hypervisor/"+id+"/token"); err == nil {
 		h.TokenSecret = strings.TrimSpace(string(secret))
 	} else if !os.IsNotExist(err) {
 		return nil, err
@@ -327,12 +368,12 @@ func (s *Store) Add(h *Hypervisor) error {
 	if err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(dir, "ssh.key"), pem.EncodeToMemory(block)); err != nil {
+	if err := s.writeSecret(dir, "ssh.key", pem.EncodeToMemory(block), "hypervisor/"+id+"/ssh"); err != nil {
 		return err
 	}
 	if h.TokenSecret != "" {
 		h.TokenSecret = strings.TrimSpace(h.TokenSecret)
-		if err := writeFileAtomic(filepath.Join(dir, "token"), []byte(h.TokenSecret+"\n")); err != nil {
+		if err := s.writeSecret(dir, "token", []byte(h.TokenSecret+"\n"), "hypervisor/"+id+"/token"); err != nil {
 			return err
 		}
 	}
@@ -363,7 +404,7 @@ func (s *Store) Update(h *Hypervisor) error {
 	if next.TokenSecret = strings.TrimSpace(next.TokenSecret); next.TokenSecret == "" {
 		next.TokenSecret = cur.TokenSecret
 	} else if next.TokenSecret != cur.TokenSecret {
-		if err := writeFileAtomic(filepath.Join(s.dir, h.ID, "token"), []byte(next.TokenSecret+"\n")); err != nil {
+		if err := s.writeSecret(filepath.Join(s.dir, h.ID), "token", []byte(next.TokenSecret+"\n"), "hypervisor/"+h.ID+"/token"); err != nil {
 			return err
 		}
 	}

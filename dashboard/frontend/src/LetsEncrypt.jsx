@@ -280,6 +280,7 @@ function Ordering() {
             <p className="small muted">None yet - only HTTP-01 certificates can be ordered.</p>
           )}
         </div>
+        <OrderingPolicy set={set} save={save} busy={busy} />
       </Card>
       {editing?.index !== undefined && (
         <ProviderForm
@@ -346,6 +347,89 @@ function Ordering() {
         )}
       </Card>
     </>
+  )
+}
+
+// OrderingPolicy: which CA directories and which names the Controller may
+// be asked to order (security review 2026-11-05 #2). Empty name rules:
+// nothing is ordered.
+function parseSelector(text) {
+  const out = {}
+  for (const part of text.split(',')) {
+    const [k, ...rest] = part.split('=')
+    const key = k.trim()
+    if (key) out[key] = rest.join('=').trim()
+  }
+  return out
+}
+function selectorText(sel) {
+  return Object.entries(sel || {})
+    .map(([k, v]) => `${k}=${v}`)
+    .join(', ')
+}
+
+function OrderingPolicy({ set, save, busy }) {
+  const [dirs, setDirs] = useState((set.directories || []).join('\n'))
+  const [rules, setRules] = useState(
+    (set.name_policy || []).map((r) => ({ selector: selectorText(r.selector), suffixes: (r.suffixes || []).join(', ') })),
+  )
+  const onSave = () => {
+    const directories = dirs
+      .split('\n')
+      .map((d) => d.trim())
+      .filter(Boolean)
+    const name_policy = rules
+      .map((r) => ({ selector: parseSelector(r.selector), suffixes: r.suffixes.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean) }))
+      .filter((r) => r.suffixes.length)
+    save({ ...set, directories: directories.length ? directories : undefined, name_policy: name_policy.length ? name_policy : undefined })
+  }
+  return (
+    <div className="ordering-policy">
+      <div className="spread">
+        <strong className="small">Policy - which names, and from which CA</strong>
+        <button className="small primary" disabled={busy} onClick={onSave}>
+          Save the policy
+        </button>
+      </div>
+      {!(set.name_policy || []).length && (
+        <div className="notice warn">No name rule yet: nothing is ordered until you allow at least one name suffix.</div>
+      )}
+      <label className="field">
+        <span className="small">Allowed CA directories - one per line, empty for Let’s Encrypt (production and staging)</span>
+        <textarea
+          className="mono"
+          rows={2}
+          value={dirs}
+          placeholder={'letsencrypt\nletsencrypt-staging'}
+          onChange={(e) => setDirs(e.target.value)}
+        />
+      </label>
+      <div className="small">Name rules - a node may be ordered a name only if a rule whose labels match it covers the name’s suffix (“example.com” allows example.com, www.example.com and *.example.com):</div>
+      <ul className="small name-rules">
+        {rules.map((r, i) => (
+          <li key={i} className="row">
+            <input
+              aria-label={`Rule ${i + 1} node labels`}
+              placeholder="node labels, e.g. team=web (empty: every node)"
+              value={r.selector}
+              onChange={(e) => setRules(rules.map((x, j) => (j === i ? { ...x, selector: e.target.value } : x)))}
+            />
+            <input
+              aria-label={`Rule ${i + 1} name suffixes`}
+              placeholder="name suffixes, e.g. web.example.com"
+              value={r.suffixes}
+              onChange={(e) => setRules(rules.map((x, j) => (j === i ? { ...x, suffixes: e.target.value } : x)))}
+            />
+            <button className="small ghost" aria-label={`Remove rule ${i + 1}`} onClick={() => setRules(rules.filter((_, j) => j !== i))}>
+              <Trash2 size={12} />
+            </button>
+          </li>
+        ))}
+      </ul>
+      <button className="small" onClick={() => setRules([...rules, { selector: '', suffixes: '' }])}>
+        <Plus size={13} /> Add a name rule
+      </button>
+    </div>
   )
 }
 

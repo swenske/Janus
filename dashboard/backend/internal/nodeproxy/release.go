@@ -24,19 +24,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"maps"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/swenske/Janus/dashboard/updater/updaterapi"
+	"github.com/swenske/Janus/internal/calver"
 )
 
-// ReleasesURL lists this project's releases, newest first -
-// GitHub's documented ordering for this endpoint. Not /latest: the
+// ReleasesURL lists this project's releases - by the date of the commit
+// each one's tag names, which fetchLatestRelease sorts by version: a
+// maintenance release (a fix of the previous release, tagged on its own
+// branch after the newest - docs/contributing/releasing.md) comes first
+// in GitHub's list, though it is older. Not /latest: the
 // pre-releases are needed too (ReleaseInfo.Prerelease), and every release
 // up to v2026.09.30-2 was one. dashboardd's -releases-url replaces it (a
 // mirror, or a test's fake).
@@ -64,6 +70,22 @@ const releaseRefreshMin = 30 * time.Second
 // minutes.)
 var errorCacheTTL = 15 * time.Second
 
+// GitHub's release downloads answered 504 now and then for hours
+// (2026-11-08 and 09) while its API answered: every fetch read a few
+// assets again, and one 504 among them dropped the whole list - the
+// Controller offered no update the morning a release was promoted.
+// So: a release's small assets are read once (assetTexts, securityByTag
+// - a published release's files don't change); a release whose
+// security.json doesn't come is offered all the same, the list fetched
+// again partialRetry later to read it; and a failed fetch keeps the last
+// list for staleTTL, tried again every staleRetry (GitHub's anonymous
+// API allows 60 calls an hour).
+var (
+	partialRetry = 3 * time.Minute
+	staleTTL     = 6 * time.Hour
+	staleRetry   = 2 * time.Minute
+)
+
 // ReleaseInfo is the newest release - never a pre-release: those are for
 // testing (docs/contributing/releasing.md), never offered as an update.
 type ReleaseInfo struct {
@@ -83,12 +105,45 @@ type ReleaseInfo struct {
 	// pre-release changes its image to (PrereleaseTrack). Nil otherwise.
 	Prerelease *ReleaseInfo `json:"prerelease,omitempty"`
 
+	// MaintenanceOf is the release a maintenance release fixes, as its
+	// name says ("… - maintenance of vX", image-build.yml): a release
+	// older than the newest, on that release's day (docs/contributing/
+	// releasing.md). Empty for any other release.
+	MaintenanceOf string `json:"maintenance_of,omitempty"`
+
 	// tags are every published release, newest first; security what the
 	// ones with a security.json asset fix (SecurityUpdate) - pre-releases
 	// are in neither, only in prereleases.
 	tags        []string
 	security    map[string][]releaseFix
 	prereleases map[string]bool
+	// maintenance are the maintenance releases, newest first
+	// (MaintenanceFor).
+	maintenance []*ReleaseInfo
+	// partial: a release's security.json couldn't be read (partialRetry).
+	partial bool
+}
+
+// maintenanceName is how a maintenance release's name says which release
+// it fixes (image-build.yml's RELEASE_NAME).
+var maintenanceName = regexp.MustCompile(` - maintenance of (v\d{4}\.\d{2}\.\d{2}(?:-\d+)?)\b`)
+
+// MaintenanceFor is the maintenance release a node or Controller running
+// version may install: the newest one of version's day, newer than it -
+// a fix of that release, or of a maintenance release of it. Offered
+// apart from the latest release, which stays the update (a node on the
+// newest release is never offered one). Nil for a version that isn't a
+// release (a development build) or has none.
+func (r *ReleaseInfo) MaintenanceFor(version string) *ReleaseInfo {
+	if !updaterapi.IsRelease(version) {
+		return nil
+	}
+	for _, m := range r.maintenance {
+		if newer, _ := updaterapi.Newer(m.TagName, version); newer && calver.SameDay(m.TagName, version) {
+			return m
+		}
+	}
+	return nil
 }
 
 // IsPrerelease reports whether version is a published pre-release - one
@@ -128,6 +183,9 @@ func (r *ReleaseInfo) PrereleaseTrack(version string) *ReleaseInfo {
 // component, variant and audience, when only nodes on a HAProxy branch or
 // kernel track), how severe.
 type releaseFix struct {
+	// id names the fix ("JANUS-2026-007", "CVE-…"): the same in every
+	// release's security.json that lists it.
+	id                          string
 	target, extension, severity string
 	component, variant          string
 	audience                    []string
@@ -175,10 +233,18 @@ func (f releaseFix) reaches(img NodeImage) bool {
 // fixes reach the releases with the promotion. For a node on a pre-release,
 // the releases newer than it - each security.json says what it fixes since
 // the release before it, some of which the pre-release may already have.
+// A fix the node's own release lists isn't missing: a maintenance release
+// (a fix of an older release) carries a fix a newer release lists again.
 func (r *ReleaseInfo) SecurityUpdate(version, target string, img NodeImage) (severity, release string) {
 	released := slices.Contains(r.tags, version)
 	if !released && !r.prereleases[version] {
 		return "", ""
+	}
+	has := map[string]bool{}
+	for _, f := range r.security[version] {
+		if f.id != "" {
+			has[f.id] = true
+		}
 	}
 	for _, tag := range r.tags {
 		if tag == version {
@@ -188,7 +254,7 @@ func (r *ReleaseInfo) SecurityUpdate(version, target string, img NodeImage) (sev
 			break
 		}
 		for _, f := range r.security[tag] {
-			if f.target != target || !f.reaches(img) {
+			if f.target != target || !f.reaches(img) || has[f.id] {
 				continue
 			}
 			if release == "" {
@@ -215,6 +281,7 @@ type securityDoc struct {
 		Variant   string   `json:"variant"`
 		Audience  []string `json:"audience"`
 		Fixes     []struct {
+			ID       string `json:"id"`
 			Severity string `json:"severity"`
 		} `json:"fixes"`
 	} `json:"updates"`
@@ -246,13 +313,14 @@ func releaseSecurity(ctx context.Context, tag, url string) ([]releaseFix, error)
 	fixes = []releaseFix{}
 	for _, u := range doc.Updates {
 		for _, f := range u.Fixes {
-			fixes = append(fixes, releaseFix{target: u.Target, extension: u.Extension, severity: cmp.Or(f.Severity, "unknown"),
+			fixes = append(fixes, releaseFix{id: f.ID, target: u.Target, extension: u.Extension, severity: cmp.Or(f.Severity, "unknown"),
 				component: u.Component, variant: u.Variant, audience: u.Audience})
 		}
 	}
 	securityByTag.Lock()
 	securityByTag.m[tag] = fixes
 	securityByTag.Unlock()
+	releaseCacheDirty.Store(true)
 	return fixes, nil
 }
 
@@ -301,6 +369,7 @@ var releaseCache struct {
 	err       error
 	fetchedAt time.Time // data's or err's
 	triedAt   time.Time // the last fetch, its answer kept or not
+	failed    bool      // the last fetch failed, data kept (staleTTL)
 }
 
 func registerReleaseRoutes(mux *http.ServeMux) {
@@ -330,7 +399,11 @@ func getLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 		maxAge = releaseRefreshMin
 	}
 	same := releaseCache.url == ReleasesURL
-	if same && releaseCache.data != nil && (time.Since(releaseCache.fetchedAt) < maxAge || time.Since(releaseCache.triedAt) < releaseRefreshMin) {
+	retry := releaseRefreshMin
+	if releaseCache.failed {
+		retry = staleRetry
+	}
+	if same && releaseCache.data != nil && (time.Since(releaseCache.fetchedAt) < maxAge || time.Since(releaseCache.triedAt) < retry) {
 		return releaseCache.data, nil
 	}
 	if same && releaseCache.err != nil && time.Since(releaseCache.fetchedAt) < errorCacheTTL {
@@ -343,17 +416,25 @@ func getLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 	now := time.Now()
 	releaseCache.triedAt = now
 	if err != nil {
-		if same && releaseCache.data != nil && now.Sub(releaseCache.fetchedAt) < releaseCacheTTL {
+		if same && releaseCache.data != nil && now.Sub(releaseCache.fetchedAt) < staleTTL {
+			if !releaseCache.failed {
+				log.Printf("releases: %v - the list read %s ago kept, tried again in %s", err, now.Sub(releaseCache.fetchedAt).Round(time.Second), staleRetry)
+			}
+			releaseCache.failed = true
 			return releaseCache.data, nil
 		}
 		releaseCache.url, releaseCache.fetchedAt = ReleasesURL, now
-		releaseCache.err = err
+		releaseCache.err, releaseCache.failed = err, false
 		releaseCache.data = nil
 		return nil, err
 	}
 	releaseCache.url, releaseCache.fetchedAt = ReleasesURL, now
+	if info.partial {
+		// Fetched again partialRetry from now, for what's missing.
+		releaseCache.fetchedAt = now.Add(partialRetry - releaseCacheTTL)
+	}
 	releaseCache.data = info
-	releaseCache.err = nil
+	releaseCache.err, releaseCache.failed = nil, false
 	return info, nil
 }
 
@@ -367,6 +448,7 @@ func sharedFetchContext(ctx context.Context) (context.Context, context.CancelFun
 
 type ghRelease struct {
 	TagName     string `json:"tag_name"`
+	Name        string `json:"name"`
 	HTMLURL     string `json:"html_url"`
 	PublishedAt string `json:"published_at"`
 	Prerelease  bool   `json:"prerelease"`
@@ -410,6 +492,10 @@ func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
 		return nil, fmt.Errorf("decode GitHub API response: %w", err)
 	}
+	// Newest version first, not GitHub's order (ReleasesURL): the first
+	// release is the latest, the first pre-release the newest.
+	calver.SortNewestFirst(releases, func(r ghRelease) string { return r.TagName })
+	defer saveReleaseCache()
 
 	var info *ReleaseInfo
 	var pre *ghRelease // the newest pre-release
@@ -427,8 +513,15 @@ func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 		}
 		if info != nil {
 			info.tags = append(info.tags, rel.TagName)
-			if err := info.readSecurity(ctx, rel); err != nil {
-				return nil, err
+			if m := maintenanceName.FindStringSubmatch(rel.Name); m != nil {
+				mi, err := releaseInfo(ctx, rel)
+				if err != nil {
+					log.Printf("releases: maintenance release %s: %v - read again in %s", rel.TagName, err, partialRetry)
+					info.partial = true
+					continue
+				}
+				mi.MaintenanceOf = m[1]
+				info.maintenance = append(info.maintenance, mi)
 			}
 			continue
 		}
@@ -437,9 +530,6 @@ func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 		}
 		info.tags = []string{rel.TagName}
 		info.security = map[string][]releaseFix{}
-		if err := info.readSecurity(ctx, rel); err != nil {
-			return nil, err
-		}
 	}
 	if info == nil {
 		return nil, fmt.Errorf("no published releases found")
@@ -447,7 +537,19 @@ func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 	info.prereleases = prereleases
 	if pre != nil && updateAvailable(pre.TagName, info.TagName) {
 		if info.Prerelease, err = releaseInfo(ctx, *pre); err != nil {
-			return nil, err
+			log.Printf("releases: pre-release %s: %v - read again in %s", pre.TagName, err, partialRetry)
+			info.Prerelease, info.partial = nil, true
+		}
+	}
+	// The security.json not read yet, last and newest first, with what
+	// the fetch has left (#553; v2026.11.09-3's lab campaign: a first
+	// start without release-cache.json, GitHub 4 s a request, spent the
+	// whole fetch on ~60 of them and knew no release for 5 minutes). One
+	// that doesn't come leaves the list partial - read again soon.
+	fetchSecurities(ctx, releases)
+	for _, rel := range releases {
+		if !rel.Draft && !rel.Prerelease && slices.Contains(info.tags, rel.TagName) {
+			info.readSecurity(rel)
 		}
 	}
 	return info, nil
@@ -470,9 +572,9 @@ func releaseInfo(ctx context.Context, rel ghRelease) (*ReleaseInfo, error) {
 		var err error
 		switch asset.Name {
 		case "rootfs.squashfs.sha256":
-			info.SHA256, err = fetchAssetText(ctx, asset.BrowserDownloadURL)
+			info.SHA256, err = cachedAssetText(ctx, asset.BrowserDownloadURL)
 		case "controller-image.txt":
-			info.ControllerImage, err = fetchAssetText(ctx, asset.BrowserDownloadURL)
+			info.ControllerImage, err = cachedAssetText(ctx, asset.BrowserDownloadURL)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("fetch %s: %w", asset.Name, err)
@@ -481,18 +583,103 @@ func releaseInfo(ctx context.Context, rel ghRelease) (*ReleaseInfo, error) {
 	return info, nil
 }
 
-// readSecurity reads a release's security.json, when it has one.
-func (r *ReleaseInfo) readSecurity(ctx context.Context, rel ghRelease) error {
+// readSecurity takes a release's security.json from securityByTag
+// (fetchSecurities read it) - one that didn't come leaves the release's
+// fixes out of this list (partial), the release offered all the same.
+func (r *ReleaseInfo) readSecurity(rel ghRelease) {
+	if securityURL(rel) == "" {
+		return
+	}
+	securityByTag.Lock()
+	fixes, ok := securityByTag.m[rel.TagName]
+	securityByTag.Unlock()
+	if !ok {
+		r.partial = true
+		return
+	}
+	r.security[rel.TagName] = fixes
+}
+
+// securityURL is a release's security.json, "" when it has none.
+func securityURL(rel ghRelease) string {
 	for _, asset := range rel.Assets {
 		if asset.Name == "security.json" {
-			fixes, err := releaseSecurity(ctx, rel.TagName, asset.BrowserDownloadURL)
-			if err != nil {
-				return fmt.Errorf("fetch %s's security.json: %w", rel.TagName, err)
-			}
-			r.security[rel.TagName] = fixes
+			return asset.BrowserDownloadURL
 		}
 	}
-	return nil
+	return ""
+}
+
+// securityFetches bounds how many security.json are read at once, and
+// securityFetchTimeout each one.
+const (
+	securityFetches      = 8
+	securityFetchTimeout = 20 * time.Second
+)
+
+// fetchSecurities reads the security.json of every published release
+// that has one and isn't in securityByTag yet, securityFetches at a time;
+// one that doesn't come is said in the log and read again next time.
+func fetchSecurities(ctx context.Context, releases []ghRelease) {
+	sem := make(chan struct{}, securityFetches)
+	var wg sync.WaitGroup
+	for _, rel := range releases {
+		u := securityURL(rel)
+		if rel.Draft || rel.Prerelease || u == "" {
+			continue
+		}
+		securityByTag.Lock()
+		_, ok := securityByTag.m[rel.TagName]
+		securityByTag.Unlock()
+		if ok {
+			continue
+		}
+		// The slot taken here, in the list's order: the newest
+		// releases' first, when the time runs out.
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Wait()
+			return
+		}
+		wg.Add(1)
+		go func(tag, u string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			fctx, cancel := context.WithTimeout(ctx, securityFetchTimeout)
+			defer cancel()
+			if _, err := releaseSecurity(fctx, tag, u); err != nil {
+				log.Printf("releases: %s's security.json: %v - read again in %s", tag, err, partialRetry)
+			}
+		}(rel.TagName, u)
+	}
+	wg.Wait()
+}
+
+// assetTexts are the small text assets read off releases, by URL: read
+// once, a published release's files don't change.
+var assetTexts = struct {
+	sync.Mutex
+	m map[string]string
+}{m: map[string]string{}}
+
+// cachedAssetText is fetchAssetText, read once per URL.
+func cachedAssetText(ctx context.Context, url string) (string, error) {
+	assetTexts.Lock()
+	text, ok := assetTexts.m[url]
+	assetTexts.Unlock()
+	if ok {
+		return text, nil
+	}
+	text, err := fetchAssetText(ctx, url)
+	if err != nil {
+		return "", err
+	}
+	assetTexts.Lock()
+	assetTexts.m[url] = text
+	assetTexts.Unlock()
+	releaseCacheDirty.Store(true)
+	return text, nil
 }
 
 // fetchAssetText downloads a small text asset (the sha256 checksum

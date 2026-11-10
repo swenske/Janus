@@ -291,10 +291,18 @@ check() {
   }
   rm -rf "$DIR/check"
   mkdir -p "$DIR/check"
+  since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   docker run --rm --network "$P" --ip "$NET.103" --user "$(id -u):$(id -g)" -e HOME=/tmp -e NODE_TLS_REJECT_UNAUTHORIZED=0 \
     -v "$ROOT/hack/ui-preview/check.mjs:/browser/check.mjs:ro" -v "$DIR/check:/out" \
     -e CONTROLLER="https://$NET.5:8080" -e PASSWORD="$PASSWORD" -e OUT=/out ${PALETTES:+-e PALETTES="$PALETTES"} \
     "$BROWSER_IMAGE" node --no-warnings check.mjs
+  # What the Content Security Policy blocked, as the Controller logged
+  # the browsers' reports (security_headers.go) - whatever the console
+  # said.
+  if docker logs --since "$since" "$P-controller" 2>&1 | grep 'csp: '; then
+    echo "ui-preview check: the Content Security Policy blocked something (above)" >&2
+    exit 1
+  fi
 }
 
 case "$CMD" in

@@ -9,6 +9,8 @@
 #      - a copy of v2 with one byte changed past its first MiB, over
 #        http, is refused part way: the node keeps running, its other
 #        slot holds neither release, and Rollback refuses that slot;
+#      - the same damaged copy uploaded (into the slot) is refused, saying
+#        the slot holds that upload;
 #      - v2 uploaded (upload-release: the root filesystem goes straight
 #        into the slot, never held whole in memory) and installed: the
 #        node reboots into it;
@@ -160,14 +162,29 @@ boot_disk "$DISK" "$LOG"
 wait_boot "$LOG" 1 "$HTTP_TIMEOUT_SECS" || { cat "$LOG" >&2; fail "the 128 MiB node never came up"; }
 state_pki "$DISK" "$WORKDIR/pki-128" || fail "couldn't read the 128 MiB node's PKI"
 CTL_ARGS=(-endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/pki-128/ca.crt" -cert "$WORKDIR/pki-128/admin.crt" -key "$WORKDIR/pki-128/admin.key")
-"$CTL" "${CTL_ARGS[@]}" version | grep -q "^Slot size: 128 MiB$" || fail "version doesn't say 128 MiB slots"
+grep -q "^Slot size: 128 MiB$" <<<"$("$CTL" "${CTL_ARGS[@]}" version)" || fail "version doesn't say 128 MiB slots"
 echo "128 MiB node up ($MEMORY of memory), version says so"
 
 CMD=(lifecycle upgrade -insecure-skip-signature-check "$BUNDLE_URL/bad")
 refused "$LOG" "v2 with a byte changed 2 MiB in" "rootfs.squashfs: " "block 512 " "no longer holds its previous release" "Rollback won't switch to it"
-"$CTL" "${CTL_ARGS[@]}" version | grep -q "^Other slot: B - .*refused" || fail "version doesn't say slot B holds a refused update: $("$CTL" "${CTL_ARGS[@]}" version | grep '^Other slot')"
+# The inactive slot's state settles a moment after the refused upload's
+# RPC returns; poll rather than read it once (a CI flake, 2026-11-05).
+for _ in $(seq 1 20); do
+  grep -q "^Other slot: B - .*refused" <<<"$("$CTL" "${CTL_ARGS[@]}" version)" && break
+  sleep 0.5
+done
+grep -q "^Other slot: B - .*refused" <<<"$("$CTL" "${CTL_ARGS[@]}" version)" || fail "version doesn't say slot B holds a refused update: $("$CTL" "${CTL_ARGS[@]}" version | grep '^Other slot')"
 CMD=(lifecycle rollback)
 refused "$LOG" "Rollback to the half-written slot B" "slot B doesn't hold what its kernel image boots" "update it again"
+
+# The same damaged bundle uploaded: the root filesystem goes into slot B
+# first, so the refusal says the slot holds that upload - not that
+# nothing was written (#512's finding 2).
+BAD_STAGING="$("$CTL" "${CTL_ARGS[@]}" lifecycle upload-release "$WORKDIR/srv/bad" | grep -o 'staged at [^ ]*' | awk '{print $3}' | head -1)"
+[ -n "$BAD_STAGING" ] || fail "upload-release of the damaged bundle didn't say where it staged"
+CMD=(lifecycle upgrade -insecure-skip-signature-check "$BAD_STAGING")
+refused "$LOG" "the damaged bundle uploaded into slot B" "block 512 " "Slot B holds that upload" "Rollback won't switch to it"
+if grep -q "nothing was written" <<<"$("$CTL" "${CTL_ARGS[@]}" "${CMD[@]}" 2>&1)"; then fail "the uploaded bundle's refusal says nothing was written"; fi
 
 UPLOAD_OUT="$("$CTL" "${CTL_ARGS[@]}" lifecycle upload-release "$V2_BUNDLE")"
 STAGING_DIR="$(grep -o 'staged at [^ ]*' <<<"$UPLOAD_OUT" | awk '{print $3}' | head -1)"
@@ -196,7 +213,7 @@ boot_disk "$DISK" "$LOG"
 wait_boot "$LOG" 1 "$HTTP_TIMEOUT_SECS" || { cat "$LOG" >&2; fail "the 64 MiB node never came up"; }
 state_pki "$DISK" "$WORKDIR/pki-64" || fail "couldn't read the 64 MiB node's PKI"
 CTL_ARGS=(-endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/pki-64/ca.crt" -cert "$WORKDIR/pki-64/admin.crt" -key "$WORKDIR/pki-64/admin.key")
-"$CTL" "${CTL_ARGS[@]}" version | grep -q "^Slot size: 64 MiB$" || fail "version doesn't say 64 MiB slots"
+grep -q "^Slot size: 64 MiB$" <<<"$("$CTL" "${CTL_ARGS[@]}" version)" || fail "version doesn't say 64 MiB slots"
 echo "64 MiB node up, version says so"
 
 CMD=(lifecycle upgrade -insecure-skip-signature-check "$BUNDLE_URL/v2")

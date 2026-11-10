@@ -1,0 +1,12 @@
+{
+  "id": "JANUS-2026-031",
+  "title": "A short-lived fleet admin certificate could carry a node's CA key away",
+  "severity": "medium",
+  "cvss": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N",
+  "cwe": [
+    "CWE-269",
+    "CWE-522"
+  ],
+  "target": "node",
+  "description": "`SystemService.StateExport` with `include_identity`, and `StateExportGrant` with it, gave the node's identity - its CA's private key - to any os:admin certificate calling the node itself, including the 12-hour certificates an issuing CA signs (a Controller sign-in, an API token's, janusctl fleet's). The node CA's key is valid for years and signs admin certificates of the node: whoever got a fleet admin's certificate for twelve hours could keep admin access to the node, and impersonate it to clients that pinned its CA, long after that certificate expired or the account was disabled. The documentation said the node's secrets never left it through the API.\n\n**Affected**: every node that trusts a fleet; a node that doesn't takes only certificates of its own CA, which already had this right.\n\n**Fix**: the identity goes only to a certificate this node's own CA signed (a rescue certificate, an older node's admin credential) or one the fleet's root itself signed: `janusctl system state export -identity -kit KIT` and `system state import -from NODE -identity -kit KIT` sign a one-hour certificate with the recovery kit for that call. The rest of the state - the sites' certificates and keys among it - still goes to an os:admin calling the node itself, as documented now.\n\n**Besides updating**: replacing a node with its identity takes the fleet's recovery kit (`-kit`) or the node's own credential (`janusctl access rescue`)."
+}

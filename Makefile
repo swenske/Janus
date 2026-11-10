@@ -1081,7 +1081,7 @@ terraform-provider-dist-test: terraform-provider-dist
 TOFU_BIN := $(BUILD_DIR)/tools/tofu-$(OPENTOFU_VERSION)
 $(TOFU_BIN):
 	mkdir -p $(BUILD_DIR)/tools
-	curl -fsSL -o $(BUILD_DIR)/tools/tofu.tar.gz https://github.com/opentofu/opentofu/releases/download/v$(OPENTOFU_VERSION)/tofu_$(OPENTOFU_VERSION)_linux_amd64.tar.gz
+	curl -fsSL --retry 6 --retry-delay 20 -o $(BUILD_DIR)/tools/tofu.tar.gz https://github.com/opentofu/opentofu/releases/download/v$(OPENTOFU_VERSION)/tofu_$(OPENTOFU_VERSION)_linux_amd64.tar.gz
 	echo "$(OPENTOFU_SHA256_AMD64)  $(BUILD_DIR)/tools/tofu.tar.gz" | sha256sum -c -
 	tar -xzf $(BUILD_DIR)/tools/tofu.tar.gz -C $(BUILD_DIR)/tools tofu
 	mv $(BUILD_DIR)/tools/tofu $@
@@ -1091,7 +1091,7 @@ $(TOFU_BIN):
 CHR_IMG := $(BUILD_DIR)/tools/chr-$(ROUTEROS_CHR_VERSION).img
 $(CHR_IMG):
 	mkdir -p $(BUILD_DIR)/tools
-	curl -fsSL -o $(BUILD_DIR)/tools/chr.img.zip https://download.mikrotik.com/routeros/$(ROUTEROS_CHR_VERSION)/chr-$(ROUTEROS_CHR_VERSION).img.zip
+	curl -fsSL --retry 6 --retry-delay 20 -o $(BUILD_DIR)/tools/chr.img.zip https://download.mikrotik.com/routeros/$(ROUTEROS_CHR_VERSION)/chr-$(ROUTEROS_CHR_VERSION).img.zip
 	echo "$(ROUTEROS_CHR_SHA256)  $(BUILD_DIR)/tools/chr.img.zip" | sha256sum -c -
 	unzip -o -q -d $(BUILD_DIR)/tools $(BUILD_DIR)/tools/chr.img.zip chr-$(ROUTEROS_CHR_VERSION).img
 	rm $(BUILD_DIR)/tools/chr.img.zip

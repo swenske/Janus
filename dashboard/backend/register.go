@@ -364,6 +364,7 @@ func (a *app) admitLabelled(p *pending.Node, machineID string, l map[string]stri
 	if err := a.store.Add(node); err != nil {
 		return nil, fmt.Errorf("persist node: %w", err)
 	}
+	a.trust.Admitted(node.ID)
 	a.trust.Kick() // brought to trust the fleet at once
 	a.logfwd.Poke()
 	a.consul.Poke()

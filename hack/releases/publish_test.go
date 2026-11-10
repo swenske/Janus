@@ -271,6 +271,20 @@ func TestPublishNew(t *testing.T) {
 	}
 }
 
+// A maintenance release (-latest=false) is published like a release,
+// never made the latest: the newest release stays it.
+func TestPublishMaintenanceNotLatest(t *testing.T) {
+	h := newHub(t)
+	h.add(release{Tag: "v2026.10.29-6", Commitish: "older"}, map[string]string{"rootfs.squashfs": "old"})
+	args := append([]string{"publish", "-latest=false"}, publishArgs(build(t, attempt1), false)[1:]...)
+	if out, err := runOut(t, args...); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if r := h.rels[1]; r.Draft || r.Prerelease || h.latest[r.ID] != "false" {
+		t.Errorf("release = %+v, make_latest %q", r, h.latest[r.ID])
+	}
+}
+
 // A rerun after an attempt failed while uploading: the draft it left is
 // completed with this attempt's build, in whole.
 func TestPublishCompletesTheDraft(t *testing.T) {

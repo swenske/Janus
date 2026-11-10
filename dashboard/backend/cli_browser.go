@@ -196,6 +196,17 @@ func (a *app) issueForCSR(w http.ResponseWriter, csr *x509.CertificateRequest, p
 		writeError(w, http.StatusConflict, "set up the fleet first: janusctl's certificates are the fleet's")
 		return
 	}
+	// The principal was captured when the sign-in was approved; a browser
+	// or device approval is issued a 12-hour certificate minutes later.
+	// Re-read the account so one disabled, deleted, demoted or lapsed in
+	// between gets no certificate (or one no higher than its role now) -
+	// security review 2026-11-05 #22.
+	if u, ok := a.auth.User(p.User); !ok || u.Disabled || u.Lapsed(time.Now()) {
+		writeError(w, http.StatusForbidden, p.User+": the account is no longer active")
+		return
+	} else {
+		p.Base = auth.Lower(p.Base, u.Role)
+	}
 	id, err := a.cliIdentityFor(p)
 	if err != nil {
 		writeError(w, http.StatusForbidden, p.User+" "+err.Error())

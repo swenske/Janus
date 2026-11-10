@@ -181,6 +181,43 @@ func TestReplica(t *testing.T) {
 	}
 }
 
+// TestStepDownForgetsOldCopies: a Controller stepping down again has no
+// copy of its earlier time as a standby to show - or promote from - only
+// copies of its new active (v2026.11.02-2's lab: "3h36m ago, epoch 5").
+func TestStepDownForgetsOldCopies(t *testing.T) {
+	s := open(t, t.TempDir(), newKey(t))
+	if err := s.SetRole(Standby, 5); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveReplica([]byte("epoch 5's"), Replica{At: time.Now().UTC(), Epoch: 5}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRole(Active, 6); err != nil {
+		t.Fatal(err)
+	}
+	if p := s.Pulls(); p.Last == nil {
+		t.Fatal("the copy's notes went at the promotion already")
+	}
+	if err := s.SetRole(Standby, 7); err != nil {
+		t.Fatal(err)
+	}
+	if p := s.Pulls(); p.Last != nil || !p.LastContact.IsZero() || p.PeerEpoch != 0 {
+		t.Errorf("stepped down, the old pulls kept: %+v", p)
+	}
+	if _, _, err := s.LastReplica(); !errors.Is(err, ErrNoReplica) {
+		t.Errorf("stepped down, the old copy kept: %v", err)
+	}
+	if err := s.SaveReplica([]byte("epoch 7's"), Replica{At: time.Now().UTC(), Epoch: 7}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRole(Standby, 7); err != nil { // standby to standby: its copies stay
+		t.Fatal(err)
+	}
+	if data, r, err := s.LastReplica(); err != nil || string(data) != "epoch 7's" || r.Epoch != 7 {
+		t.Errorf("a standby's own copy: %q %+v %v", data, r, err)
+	}
+}
+
 // TestClientPins: the client reaches a peer serving the certificate it
 // pinned, carrying the secret; another certificate is refused before
 // anything is sent.

@@ -138,11 +138,14 @@ logs consul`).
 The Controller's **Settings › Consul** points it at your Consul cluster
 with a token of its own ([the guide](guide/consul-controller.md)). For
 every node with this extension its selector picks, it makes a token -
-the node's own, its node identity and the policy `janus-nodes` - and
-sets the **managed layer**: the datacenter, the servers and the gossip
-key read from Consul, the servers' RPC CA (TLS, `auto_encrypt`), the
-token, the node's name, address and labels as `node_meta`. The node then
-registers its services with that token.
+the node's own, its node identity, the policy `janus-nodes` and its
+scope's - and sets the **managed layer**: the datacenter, the servers and
+the gossip key read from Consul, the servers' RPC CA (TLS,
+`auto_encrypt`), the token, the node's name, address and labels as
+`node_meta`, and its **scope** - its cluster's name, or its own. The node
+then registers its services with that token, its HAProxy services named
+after the scope (`haproxy-<scope>-<frontend>`, `haproxy-<scope>-url`,
+`haproxy-<scope>-exporter`): the only ones the token may write.
 
 The layer is apart from your configuration: saved on STATE as
 `config/consul-managed.json` (0600), rendered into janusd's part of the

@@ -120,6 +120,7 @@ a.button.primary:hover { filter: brightness(1.07); }
 .choice.suspended { cursor: default; border-style: dashed; background: var(--bg); color: var(--muted); }
 .choice.suspended:hover { border-color: var(--border); }
 .suspended-why { color: var(--text); }
+.support-note { margin: -0.3rem 0 0.7rem; }
 a.need-tester { text-decoration: none; margin-top: 0.15rem; }
 a.need-tester:hover { text-decoration: underline; }
 a.need-tester:focus-visible, a.ext-request:focus-visible, a.ext-link:focus-visible {

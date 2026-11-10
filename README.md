@@ -61,8 +61,13 @@ dm-verity, A/B updates, Secure Boot, SELinux enforcing by default), built
 and boot-tested on every image workflow run: an unsigned qcow2 for
 Proxmox/generic KVM-libvirt, and the signed update bundle.
 
-Three targets are **suspended since 2026-10-30, waiting for testers**:
-none was ever verified on real hardware, so nothing builds, tests or
+**Supported: amd64 virtual machines on KVM/libvirt and Proxmox VE**,
+with or without the Controller - what releases are tested for, and what
+the beta will cover
+([what Janus supports](docs/private-cloud/README.md#what-janus-supports)).
+Everything else is experimental: arm64 nodes get no updates, and three
+targets are **suspended since 2026-10-30, waiting for testers**: none
+was ever verified on real hardware, so nothing builds, tests or
 publishes them for now - their code and docs stay, and one line in
 `variants.mk` brings each back
 ([suspended targets](docs/internals/image-build.md#suspended-targets)).

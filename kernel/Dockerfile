@@ -33,7 +33,7 @@ ARG KERNEL_SHA256
 
 # The tarball is checked against KERNEL_SHA256, pinned in versions.mk
 # after checking its kernel.org signature - nothing is extracted before.
-FROM debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS fetch
+FROM debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4 AS fetch
 ARG KERNEL_VERSION
 ARG KERNEL_SHA256
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -42,7 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /src
 RUN test -n "${KERNEL_SHA256}" \
     && major="$(echo "${KERNEL_VERSION}" | cut -d. -f1)" \
-    && curl -fsSLO "https://cdn.kernel.org/pub/linux/kernel/v${major}.x/linux-${KERNEL_VERSION}.tar.xz" \
+    && curl -fsSLO --retry 6 --retry-delay 20 "https://cdn.kernel.org/pub/linux/kernel/v${major}.x/linux-${KERNEL_VERSION}.tar.xz" \
     && echo "${KERNEL_SHA256}  linux-${KERNEL_VERSION}.tar.xz" | sha256sum -c - \
     && tar xf linux-${KERNEL_VERSION}.tar.xz
 # The source's own date - its release commit's, which kernel.org's

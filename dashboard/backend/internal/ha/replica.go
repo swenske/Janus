@@ -247,10 +247,31 @@ func (c *Client) Do(ctx context.Context, method, path string, body []byte, limit
 	if int64(len(data)) > limit {
 		return nil, nil, fmt.Errorf("%s %s: more than %d bytes", method, path, limit)
 	}
+	if resp.StatusCode == http.StatusGone {
+		return nil, nil, fmt.Errorf("%w: %s %s: %s", ErrForgotten, method, path, bytes.TrimSpace(data))
+	}
 	if resp.StatusCode/100 != 2 {
 		return nil, nil, fmt.Errorf("%s %s: %s: %s", method, path, resp.Status, bytes.TrimSpace(data))
 	}
 	return data, resp.Header, nil
+}
+
+// ErrForgotten: the peer - reached on its pinned HA certificate, so the
+// active itself - no longer pairs with this Controller (410 Gone): it
+// forgot this standby, or pairs with another.
+var ErrForgotten = errors.New("the active forgot this standby")
+
+// Forget is what a standby the active forgot does: its last copy - the
+// active's data and master key - goes, and it pairs with no one
+// (security review 2026-11-05 #28: a standby removed from the pair kept a
+// copy it could still promote).
+func (s *Store) Forget() error {
+	for _, name := range []string{"replica.sealed", "replica.json"} {
+		if err := os.Remove(filepath.Join(s.dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return s.Unpair()
 }
 
 // State asks the peer where it stands.

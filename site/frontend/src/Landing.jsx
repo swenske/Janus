@@ -65,7 +65,7 @@ const PILLARS = [
     title: 'Light',
     points: [
       'A 16 MB root filesystem with 4 binaries - a Go init and its shutdown command, janusd and HAProxy - beside a signed kernel image: nothing else unless you add it.',
-      'A 55 MB compressed VM disk, both update slots included; boots straight to a serving HAProxy.',
+      'A 50 MB compressed VM disk, both update slots included; boots straight to a serving HAProxy.',
       'Built from scratch (LFS-style), from a kernel configured symbol by symbol.',
       'Optional software is chosen per image, not installed: an image carries exactly what you picked.',
     ],
@@ -310,8 +310,9 @@ export default function Landing() {
             <span className="step-n">2</span>
             <h3>Boot</h3>
             <p className="muted">
-              Import the disk in Proxmox or KVM - or let the Controller create the VM on libvirt or Proxmox VE. A node given nothing shows a one-time pairing code on its console,
-              never a key. VMware, bare metal and Raspberry Pi are suspended, <Link to="/builder">waiting for testers</Link>.
+              Import the disk in Proxmox or KVM - or let the Controller create the VM on libvirt or Proxmox VE, the two platforms Janus supports. A node given nothing shows a
+              one-time pairing code on its console, never a key. VMware, bare metal and Raspberry Pi are experimental,{' '}
+              <Link to="/builder">waiting for testers</Link>.
             </p>
           </div>
           <div className="step">

@@ -7,10 +7,22 @@ publishes them.
 ## Versions
 
 Releases are dated: `vYYYY.MM.DD`, then `-2`, `-3`... for more the same
-day - several a day is normal. A release is cumulative and only the
-latest is supported ([security policy](../../SECURITY.md)); releases are
-marked alpha in their name. A [pre-release](#pre-releases) takes the same
-kind of version: it is the release it may become.
+day. A release is cumulative; the latest is supported, and the previous
+one for 14 days after it ([security policy](../../SECURITY.md)); releases
+are marked alpha in their name. A [pre-release](#pre-releases) takes the
+same kind of version: it is the release it may become. A
+[maintenance release](#maintenance-releases) takes one of the day of the
+release it fixes.
+
+## Pace
+
+A release is cut as a pre-release, tested on the lab, then promoted -
+**at most once a week**: beta testers follow a pace they can keep. The
+exception is a security fix, which ships within the
+[security policy](../../SECURITY.md#reporting-a-vulnerability)'s targets:
+a release cut or promoted at once, tested on the lab when the target
+leaves the time - and, while the previous release is supported, a
+maintenance release of it.
 
 ## Cutting one
 
@@ -119,9 +131,72 @@ the docs' `/docs/` follows, what the upgrade-from-release test starts
 from - is never a pre-release: `hack/releases` asks GitHub, as git alone
 can't tell one from a release.
 
+## Maintenance releases
+
+For 14 days after a release ships, the one before it is still supported
+([security policy](../../SECURITY.md)): a vulnerability fixed then gets
+a maintenance release of it - the previous release with the fix and
+nothing else, for the nodes and Controllers that stay on it while their
+operators try the new one.
+
+1. **The newest line first**: the fix on `main`, released - cut, or in a
+   pre-release promoted at once. That release publishes the advisories.
+2. **A branch at the previous release's tag**, the fix cherry-picked
+   onto it - its `security/fixes` record included -, and the notes:
+
+   ```sh
+   git switch -c release/v2026.11.04 v2026.11.04
+   git cherry-pick <the fix's commits>
+   $EDITOR .github/release-notes/v2026.11.04-2.md   # 🔒 section required
+   ```
+
+   Its version is one of that release's day, after it - the next one
+   GitHub has neither as a release nor as a pre-release: it then sorts
+   between the release it fixes and the newest. When the newest release
+   is of the same day, no version is left: cut a release instead.
+3. **Dispatch** `image-build.yml` on the branch, with `release_version`
+   and `maintenance`:
+
+   ```sh
+   gh workflow run image-build.yml --ref release/v2026.11.04 \
+     -f release_version=v2026.11.04-2 -f maintenance=true
+   ```
+
+   The run checks it is one (`hack/releases check-release
+   -maintenance`): the newest release its branch reaches must be the
+   previous release - or a maintenance release of it, for a second fix
+   -, and its version of that day, newer, older than the newest. After
+   the 14 days it warns, and publishes all the same. It builds and
+   tests everything like a release, its `security.json` counts the
+   fixes since the release it fixes, and it publishes:
+   - the GitHub release, named "… - maintenance of v2026.11.04" with a
+     note on top, **never the latest**;
+   - the Controller's image under its version and its commit, **never
+     `latest`**;
+   - no janusctl on apt, no docs - both follow the newest release - and
+     no advisory: its fixes have theirs, from step 1. The run's summary
+     lists them: add the version to their patched versions on the
+     Security tab. An advisory of its own would read "before
+     v2026.11.04-2", which calls the newest release patched.
+4. **The notes on `main` too**, for the record: copy the notes file.
+
+Controllers and the image factory order releases by version, not by
+GitHub's list (by the date of each tag's commit, where the maintenance
+release comes first): the newest stays the latest, and a node on it is
+never offered the maintenance release. A node on the previous release is
+offered it on its Update page, beside the update, or installs it by its
+version ([updating nodes](../guide/updates.md#maintenance-releases)) -
+the Controller knows it by its name; the next update it is
+offered is the newest release, as before. Its 🔒 badge leaves out the
+fixes the maintenance release already carries.
+
+`latest` on Docker Hub is only ever pushed by `main` or a release that
+isn't a maintenance release: a run of another branch pushes its commit's
+tag alone.
+
 ## Without a release
 
 Dispatched without `release_version`, the same run builds and tests
 everything and uploads the images as workflow artifacts - the way to
-prove a change before a release. It also pushes the Controller's
-`latest` image.
+prove a change before a release. On `main`, it also pushes the
+Controller's `latest` image; on another branch, its commit's tag alone.

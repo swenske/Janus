@@ -13,9 +13,13 @@ import (
 // The node's secrets are never served by the file RPCs (Read, Copy): its
 // PKI's private keys, the Controller registration token, the ACME
 // account key and DNS provider credentials, the private keys of HAProxy's
-// certificates. No other API returns them either, and an os:admin
-// certificate that could carry them away would keep its access - or
-// impersonate the node - long after it expired: the node CA's key signs
+// certificates. They leave the node only with its whole state - an
+// admin calling the node itself (StateExport, StateExportGrant), a
+// member of its cluster (ClusterExport) - and its identity only to a
+// certificate of the fleet's root itself or one its own CA issued at its
+// console (Caller.RootSigned): an os:admin certificate of an issuing CA
+// that could carry the node CA's key away would keep its access - or
+// impersonate the node - long after it expired, the key signing
 // certificates valid for a year. List and DiskUsage still show their
 // names and sizes.
 //
@@ -35,7 +39,8 @@ var SecretPaths = []string{
 	"/etc/janus/config/letsencrypt.json", "/etc/.state/config/letsencrypt.json", // DNS provider credentials, EAB key
 	"/etc/janus/config/logforward", "/etc/.state/config/logforward", // log servers' API keys, passwords, client keys
 	"/etc/janus/config/consul-managed.json", "/etc/.state/config/consul-managed.json", // the Consul agent's ACL token, the gossip key
-	"/run/janus/consul", // the agent's configuration as it reads it (the same secrets), its files and data
+	"/run/janus/consul",                       // the agent's configuration as it reads it (the same secrets), its files and data
+	"/etc/janus/import", "/etc/.state/import", // a staged state import: another node's identity keys and secrets (security review 2026-11-05 #28)
 }
 
 // privateKeyBlock is the line opening a PEM private key: "PRIVATE KEY",

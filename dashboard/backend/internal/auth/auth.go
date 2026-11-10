@@ -771,6 +771,15 @@ func (s *Store) DeleteUser(name string) error {
 		return ErrLastAdmin
 	}
 	delete(s.users, name)
+	// Drop the account's sessions: left behind, a session token would
+	// come back to life if the name is later reused (a new account starts
+	// at Epoch 0, and an SSO account is created automatically) - security
+	// review 2026-11-05 #22.
+	for t, ss := range s.sessions {
+		if ss.User == name {
+			delete(s.sessions, t)
+		}
+	}
 	if err := s.save(); err != nil {
 		s.users[name] = u
 		return err

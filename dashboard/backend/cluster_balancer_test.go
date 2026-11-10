@@ -194,7 +194,7 @@ func TestClusterBalancer(t *testing.T) {
 		t.Errorf("tried %d times, lb-1's calls %v", hook.count()-n, f.callsOf("lb-1", mark))
 	}
 	cur, _ := a.clusters.Store.Get(c.ID)
-	if v := a.clusterView(cur); !slices.ContainsFunc(v.Problems, func(p string) bool { return strings.Contains(p, "balancer in front wasn't told") }) {
+	if v := a.clusterView(cur, nil); !slices.ContainsFunc(v.Problems, func(p string) bool { return strings.Contains(p, "balancer in front wasn't told") }) {
 		t.Errorf("the problems: %v", v.Problems)
 	}
 	// Reconcile calls again once it answers.

@@ -3,17 +3,26 @@ package main
 import (
 	"cmp"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"time"
 
 	"google.golang.org/grpc"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/pki"
 )
 
 // runState: a node's state carried to its replacement
@@ -31,10 +40,19 @@ func runState(conn *grpc.ClientConn, args []string) {
 	case "export":
 		fs := flag.NewFlagSet("system state export", flag.ExitOnError)
 		identity := fs.Bool("identity", false, "the node's CA and keys too: the replacement is this node to its clients")
+		kit := fs.String("kit", "", "with -identity: the fleet's recovery kit - the identity goes only to a certificate the fleet's root itself signs, or the node's own CA")
 		parseAnywhere(fs, args[1:])
 		if fs.NArg() != 1 {
-			fmt.Fprintln(os.Stderr, "usage: janusctl system state export [-identity] FILE|-")
+			fmt.Fprintln(os.Stderr, "usage: janusctl system state export [-identity [-kit KIT]] FILE|-")
 			os.Exit(2)
+		}
+		if *kit != "" {
+			kc, err := kitDial(stateFrom.endpoint, stateFrom.ctxName, stateFrom.ctx, stateFrom.node, stateFrom.ca, *kit)
+			if err != nil {
+				log.Fatalf("janusctl: %v", err)
+			}
+			defer kc.Close()
+			client = janusv1alpha1.NewSystemServiceClient(kc)
 		}
 		out := fs.Arg(0)
 		w := io.Writer(os.Stdout)
@@ -91,14 +109,15 @@ func runState(conn *grpc.ClientConn, args []string) {
 		fromCA := fs.String("from-ca", "", "with -from HOST:PORT: the other node's CA (default: -ca)")
 		fromCert := fs.String("from-cert", "", "with -from HOST:PORT: an admin certificate of the other node (default: -cert)")
 		fromKey := fs.String("from-key", "", "with -from HOST:PORT: its key (default: -key)")
+		kit := fs.String("kit", "", "with -from and -identity: the fleet's recovery kit - the other node grants its identity only to a certificate the fleet's root itself signs, or its own CA")
 		parseAnywhere(fs, args[1:])
 		if (*from == "") != (fs.NArg() == 1) || fs.NArg() > 1 {
-			fmt.Fprintln(os.Stderr, "usage: janusctl system state import [-identity] [-network | -save-network FILE] [-no-reboot] FILE|- | -from NODE")
+			fmt.Fprintln(os.Stderr, "usage: janusctl system state import [-identity] [-network | -save-network FILE] [-no-reboot] FILE|- | -from NODE [-kit KIT]")
 			os.Exit(2)
 		}
 		opts := &janusv1alpha1.StateImportOptions{ReuseIdentity: *identity, ApplyNetwork: *network, NoReboot: *noReboot}
 		if *from != "" {
-			resp := importFrom(c, client, opts, *from, *fromAddress, *fromCA, *fromCert, *fromKey)
+			resp := importFrom(c, client, opts, *from, *fromAddress, *fromCA, *fromCert, *fromKey, *kit)
 			printImported(resp, *network, *saveNetwork)
 			return
 		}
@@ -181,6 +200,8 @@ func printImported(resp *janusv1alpha1.StateImportResponse, network bool, saveNe
 var stateFrom struct {
 	ctxName       string
 	ctx           *cliContext
+	node          *ctxNode // the context's node janusctl reaches
+	endpoint      string   // where janusctl reaches it
 	ca, cert, key string
 }
 
@@ -189,7 +210,7 @@ var stateFrom struct {
 // a key and a signing request, the other node signs it for one export
 // (janusctl reaching it with its own credentials), the node pulls. Only
 // a request and a certificate pass through here - no key, no state.
-func importFrom(c context.Context, client janusv1alpha1.SystemServiceClient, opts *janusv1alpha1.StateImportOptions, from, address, caFile, certFile, keyFile string) *janusv1alpha1.StateImportResponse {
+func importFrom(c context.Context, client janusv1alpha1.SystemServiceClient, opts *janusv1alpha1.StateImportOptions, from, address, caFile, certFile, keyFile, kit string) *janusv1alpha1.StateImportResponse {
 	var (
 		conn     *grpc.ClientConn
 		endpoint string
@@ -200,21 +221,29 @@ func importFrom(c context.Context, client janusv1alpha1.SystemServiceClient, opt
 		if err != nil {
 			log.Fatalf("janusctl: -from: %v", err)
 		}
-		tlsConfig, err := nodeTLS(stateFrom.ctxName, ctx, nodes[0])
+		endpoint = nodes[0].Address
+		if kit != "" {
+			conn, err = kitDial(endpoint, stateFrom.ctxName, ctx, &nodes[0], "", kit)
+		} else {
+			var tlsConfig *tls.Config
+			if tlsConfig, err = nodeTLS(stateFrom.ctxName, ctx, nodes[0]); err != nil {
+				log.Fatalf("janusctl: -from: %v", err)
+			}
+			conn, err = dialTLS(endpoint, tlsConfig)
+		}
 		if err != nil {
 			log.Fatalf("janusctl: -from: %v", err)
-		}
-		endpoint = nodes[0].Address
-		conn, err = dialTLS(endpoint, tlsConfig)
-		if err != nil {
-			log.Fatal(err)
 		}
 	} else {
 		endpoint = from
 		if _, _, err := net.SplitHostPort(endpoint); err != nil {
 			endpoint = net.JoinHostPort(endpoint, "9505")
 		}
-		conn, err = dial(endpoint, cmp.Or(caFile, stateFrom.ca), cmp.Or(certFile, stateFrom.cert), cmp.Or(keyFile, stateFrom.key))
+		if kit != "" {
+			conn, err = kitDial(endpoint, "", nil, nil, cmp.Or(caFile, stateFrom.ca), kit)
+		} else {
+			conn, err = dial(endpoint, cmp.Or(caFile, stateFrom.ca), cmp.Or(certFile, stateFrom.cert), cmp.Or(keyFile, stateFrom.key))
+		}
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -229,4 +258,47 @@ func importFrom(c context.Context, client janusv1alpha1.SystemServiceClient, opt
 	})
 	check("StateImportFrom", err)
 	return resp
+}
+
+// kitDial reaches the node at endpoint with a certificate the fleet's
+// root itself signs - os:admin, an hour, for a key made here and kept in
+// this process -, the recovery kit at kitPath opened here: what a node
+// asks before its identity leaves it (StateExport, StateExportGrant with
+// the identity; security review 2026-11-05 #5). The node is checked as
+// the call would: by the context's CA for it (node), else the CA file
+// caFile.
+func kitDial(endpoint, ctxName string, ctx *cliContext, node *ctxNode, caFile, kitPath string) (*grpc.ClientConn, error) {
+	var caPEM []byte
+	user := ""
+	if node != nil {
+		caPEM, user = []byte(node.CAPEM), ctx.User
+	} else {
+		var err error
+		if caPEM, err = os.ReadFile(caFile); err != nil {
+			return nil, fmt.Errorf("-kit: the node's CA: %w", err)
+		}
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caPEM) {
+		return nil, errors.New("-kit: no CA certificate to check the node against")
+	}
+	_, root, err := openKitFile(kitPath)
+	if err != nil {
+		return nil, fmt.Errorf("-kit: %w", err)
+	}
+	if ctx != nil {
+		if err := sameFleet(filepath.Join(contextDir(ctxName), "cert.pem"), root.Cert); err != nil {
+			return nil, fmt.Errorf("-kit: %w", err)
+		}
+	}
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	leafPEM, err := root.IssueFor(key.Public(), pki.IssueOptions{CommonName: kitUser(user), Roles: []string{pki.RoleAdmin}, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, Validity: kitCertValidity})
+	if err != nil {
+		return nil, err
+	}
+	b, _ := pem.Decode(leafPEM)
+	return dialTLS(endpoint, &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{b.Bytes}, PrivateKey: key}}, RootCAs: pool, MinVersion: tls.VersionTLS13})
 }

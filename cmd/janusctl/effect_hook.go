@@ -210,9 +210,34 @@ func findIn(line string, depth int, out *[]invocation) {
 		return
 	}
 	named := mentionsJanusctl(line, parsed)
+	janusVars := janusctlVars(parsed)
 	for i := range parsed.cmds {
-		findInCommand(&parsed.cmds[i], named, depth, out)
+		findInCommand(&parsed.cmds[i], named, janusVars, depth, out)
 	}
+}
+
+// janusctlVars are the names of the variables this line assigns the
+// janusctl program to (J=janusctl, then `$J system reset`): its command
+// is built from a variable, so it can't be read before it runs
+// (security review 2026-11-05 #25).
+func janusctlVars(parsed shLine) map[string]bool {
+	var vars map[string]bool
+	for _, c := range parsed.cmds {
+		for _, w := range c.words {
+			if w.dynamic || !isAssignment(w.text) {
+				break // assignments are a command's prefix only
+			}
+			name, val, _ := strings.Cut(w.text, "=")
+			name = strings.TrimSuffix(name, "+")
+			if fields := strings.Fields(val); len(fields) > 0 && path.Base(fields[0]) == "janusctl" {
+				if vars == nil {
+					vars = map[string]bool{}
+				}
+				vars[name] = true
+			}
+		}
+	}
+	return vars
 }
 
 // mentionsJanusctl: janusctl is named somewhere in the line, as written
@@ -258,12 +283,19 @@ var runners = map[string]bool{
 	"taskset": true, "chrt": true, "systemd-run": true, "unbuffer": true, "caffeinate": true, "chpst": true,
 }
 
-func findInCommand(c *shCommand, named bool, depth int, out *[]invocation) {
+func findInCommand(c *shCommand, named bool, janusVars map[string]bool, depth int, out *[]invocation) {
 	words := c.words
 	i := 0
 	assigned := false
 	for i < len(words) && !words[i].dynamic && isAssignment(words[i].text) {
 		assigned = true
+		// A variable assigned a janusctl command line (X='janusctl
+		// system reset'; eval "$X" / bash -c "$X") is inspected through
+		// its value - whichever way it is later run (security review
+		// 2026-11-05 #25).
+		if _, val, _ := strings.Cut(words[i].text, "="); depth < 4 && strings.Contains(val, "janusctl") {
+			findIn(val, depth+1, out)
+		}
 		i++
 	}
 	for i < len(words) && !words[i].dynamic && prefixWords[words[i].text] {
@@ -318,11 +350,17 @@ func findInCommand(c *shCommand, named bool, depth int, out *[]invocation) {
 		// A program not known here: a janusctl in a variable, maybe.
 		inv := resolveInvocation(words[i:], false)
 		inv.cmd = c
+		name, isVar := plainVar(head.text)
 		switch {
 		case strings.Contains(strings.ToLower(head.text), "janusctl"):
 			inv.doubt = "the program is `" + head.text + "`, not known before it runs"
 		case inv.doubt == "" && inv.effect == effectCritical:
 			inv.doubt = "the program is `" + head.text + "`, not known before it runs - a janusctl, its words say: " + strings.Join(inv.path, " ") + ", critical"
+		case isVar && janusVars[name]:
+			// `J=janusctl ... $J system $R`: janusctl through a variable,
+			// its command built from variables - not caught above
+			// (security review 2026-11-05 #25).
+			inv.doubt = "the program is `" + head.text + "`, a janusctl, but its command is not known before it runs"
 		default:
 			return
 		}
@@ -561,12 +599,67 @@ func resolveInvocation(words []shWord, stdinArgs bool) invocation {
 		inv.doubt = "effects.go doesn't say what " + strings.Join(inv.path, " ") + " does"
 		return inv
 	}
+	inv.effectOf = escalateByFlag(strings.Join(inv.path, " "), args, inv.effectOf)
 	inv.help = c.help
 	inv.localFiles = inv.localFiles || namesLocalFiles(c, args)
 	return inv
 }
 
 func helpWord(s string) bool { return s == "-h" || s == "-help" || s == "--help" }
+
+// escalateByFlag raises an effect when a flag makes it critical, though
+// the command's class in effects.go can't say so on its own (security
+// review 2026-11-05 #25): `login -kit` prints the recovery kit's secrets.
+func escalateByFlag(path string, args []shWord, of effectOf) effectOf {
+	if path == "login" && hasFlag(args, "kit") {
+		return effectOf{effectCritical, "the recovery kit's secrets are printed"}
+	}
+	return of
+}
+
+// streamsData: a command that, without -o, streams clients' or the
+// node's data to stdout (the assistant would read it) - not auto-allowed
+// by the allow_reads option (security review 2026-11-05 #25). With -o it
+// writes a local file and is already held back as a local-files command.
+func streamsData(inv invocation) bool {
+	switch strings.Join(inv.path, " ") {
+	case "system pcap", "system support":
+		return true
+	}
+	return false
+}
+
+// hasFlag: a literal -NAME / --NAME [=value] is among the args.
+func hasFlag(args []shWord, name string) bool {
+	for _, a := range args {
+		if a.dynamic || !strings.HasPrefix(a.text, "-") {
+			continue
+		}
+		n, _, _ := strings.Cut(strings.TrimLeft(a.text, "-"), "=")
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
+// plainVar is the name of a $NAME / ${NAME} / "$NAME" expansion, or
+// false if the word isn't exactly one variable.
+func plainVar(s string) (string, bool) {
+	if !strings.HasPrefix(s, "$") {
+		return "", false
+	}
+	s = strings.TrimSuffix(strings.TrimPrefix(s[1:], "{"), "}")
+	if s == "" || !isNameStart(s[0]) {
+		return "", false
+	}
+	for i := 0; i < len(s); i++ {
+		if !isNameChar(s[i]) {
+			return "", false
+		}
+	}
+	return s, true
+}
 
 // namesLocalFiles: a flag or a positional argument of c names a file or
 // a directory of this machine.
@@ -613,6 +706,18 @@ func readsOnly(line string, invs []invocation) bool {
 	}
 	for _, inv := range invs {
 		if inv.doubt != "" || inv.effect != effectReads || !inv.direct || inv.localFiles || inv.cmd == nil {
+			return false
+		}
+		if streamsData(inv) {
+			return false // reads, but would stream clients' data to the assistant
+		}
+		// Only janusctl invoked by its bare name (resolved through PATH to
+		// the installed binary) or an absolute path is auto-allowed. A
+		// relative path - ./janusctl, bin/janusctl - resolves against the
+		// working directory and could be an unrelated executable a
+		// repository planted; let Claude Code ask (security review
+		// 2026-11-05 #13).
+		if len(inv.words) == 0 || (strings.Contains(inv.words[0], "/") && !strings.HasPrefix(inv.words[0], "/")) {
 			return false
 		}
 		for _, r := range inv.cmd.redirs {

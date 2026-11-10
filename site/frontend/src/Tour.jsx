@@ -533,7 +533,7 @@ function Light() {
         </div>
         <div className="row2">
           <div className="tile win" style={{ '--d': '2.2s' }}>
-            <b>55 MB VM disk</b>
+            <b>50 MB VM disk</b>
             <span>compressed, both update slots included</span>
             <div className="diskbar">
               <i className="grow" style={{ '--d': '2.5s', '--len': '1.2s', width: '50%', background: 'var(--accent)' }} />
@@ -1368,7 +1368,7 @@ function Workflow() {
             <b>Boot</b>
             <span>
               Import the disk in Proxmox or KVM, or let the Controller create the VM. A node given nothing shows a one-time pairing code on its console, never a key. VMware, bare metal
-              and Raspberry Pi wait for testers.
+              and Raspberry Pi are experimental, waiting for testers.
             </span>
           </li>
           <li className="win" style={{ '--d': '2.3s' }}>

@@ -71,6 +71,18 @@ type Manager struct {
 	// validation.
 	Env func() []string
 
+	// Spawn, if set, builds the command that runs HAProxy - both the real
+	// process and every `haproxy -c` validation - instead of exec'ing
+	// BinaryPath directly. janusd sets it on a node (cmd/janusd) so
+	// HAProxy starts in a mount namespace where STATE's secrets are
+	// absent (the node CA key, the Controller registration token, the
+	// ACME account key and DNS credentials, the log-forwarding
+	// credentials): HAProxy reads its own materials through /etc/haproxy,
+	// never those, so a configuration an operator applies cannot name one
+	// and have HAProxy open and serve it (security review 2026-11-05 #1,
+	// JANUS-2026-008). Nil - a host, CI - : BinaryPath is exec'd directly.
+	Spawn func(name string, arg ...string) *exec.Cmd
+
 	// Policy, if set, is what a configuration's global section must and
 	// may not say (globalcheck.go): checked by Validate before `haproxy
 	// -c`, so by Apply too - never at boot, where the configuration on
@@ -230,7 +242,7 @@ func (m *Manager) Validate(cfg []byte) (bool, []string) {
 	}
 	tmp.Close()
 
-	check := exec.Command(m.BinaryPath, append([]string{"-c"}, m.configArgs(tmp.Name())...)...)
+	check := m.command(m.BinaryPath, append([]string{"-c"}, m.configArgs(tmp.Name())...)...)
 	check.Env = m.env()
 	var combined bytes.Buffer
 	check.Stdout, check.Stderr = &combined, &combined
@@ -340,7 +352,7 @@ func (m *Manager) startLocked(wait bool) error {
 		args = append(args, "-sf", strconv.Itoa(old))
 	}
 
-	cmd := exec.Command(m.BinaryPath, args...)
+	cmd := m.command(m.BinaryPath, args...)
 	cmd.Env = m.env()
 	output := &tailWriter{limit: 16 << 10}
 	console := m.Console
@@ -456,6 +468,15 @@ func (m *Manager) configArgs(cfg string) []string {
 		}
 	}
 	return args
+}
+
+// command builds the command that runs HAProxy: through Spawn (the
+// node's mount-namespace jail) when set, else BinaryPath directly.
+func (m *Manager) command(name string, arg ...string) *exec.Cmd {
+	if m.Spawn != nil {
+		return m.Spawn(name, arg...)
+	}
+	return exec.Command(name, arg...)
 }
 
 // env is HAProxy's environment: janusd's, plus Env's.

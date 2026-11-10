@@ -15,10 +15,10 @@
 # sha256sums.asc (Kernel.org checksum autosigner,
 # B8868C80BA62A1FFFAF5FDA9632D3A06589DA6B1), which agree. Every track is
 # built with kernel/patches/ applied - its README says which and why.
-KERNEL_LONGTERM_VERSION := 6.18.60
-KERNEL_LONGTERM_SHA256  := 3c2f44ef6acc021a7ad444d9a2e6ec1ef488ff09368793d0004a6080f69d621e
-KERNEL_STABLE_VERSION   := 7.2.14
-KERNEL_STABLE_SHA256    := bb1b871ef95a8de10b3f7b7baf0e0d754abbf620f804b6caf860f226aa97647d
+KERNEL_LONGTERM_VERSION := 6.18.62
+KERNEL_LONGTERM_SHA256  := 490a7aedf1b355c565d3a6c05333ccccb5da82064eca46b590448a7099d7d651
+KERNEL_STABLE_VERSION   := 7.3.3
+KERNEL_STABLE_SHA256    := 79c66dde66cd96877fcde8f7d36aec946b1f423d2b97b5a7b1751b75c764f3d1
 
 # HAProxy, one pin per LTS branch an image can be built with (variants.mk,
 # haproxy.org). HAProxy doesn't sign its tarballs: sha256 as published by
@@ -143,9 +143,9 @@ RPI5_UEFI_SHA256  := c4fbbec9cd0d1115c9adab884923061b960de42b4ca6d65ba5f08cb6b46
 # for janus-controller-updater (dashboard/updater), which updates the
 # Controller with it - checked against the release's own .sha256 assets
 # (github.com/docker/compose/releases).
-DOCKER_COMPOSE_VERSION      := v5.6.1
-DOCKER_COMPOSE_SHA256_AMD64 := 47737f4236e6d3ccea7291995203f8f018058783b4c3a9469119811a0b5db8c0
-DOCKER_COMPOSE_SHA256_ARM64 := 42cfa75f51ad0ccf290bad37899e0038a8c10a0069e85233ecc1d53e3ff1347d
+DOCKER_COMPOSE_VERSION      := v5.7.0
+DOCKER_COMPOSE_SHA256_AMD64 := 7758048ad38e580f22559603312874fec8bb638d021a9e64182385fc17cc12a2
+DOCKER_COMPOSE_SHA256_ARM64 := 15861535d14e26555736b49376c95e14bfd94285366c8446bfac7156a972e76f
 
 # OpenTofu, which hack/terraform-provider-test.sh drives the Janus
 # Terraform provider (terraform-provider-janus) with - never shipped.

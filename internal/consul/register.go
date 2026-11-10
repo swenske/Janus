@@ -37,6 +37,9 @@ type Registrar struct {
 	Manager *Manager
 	// Sources reads what the services come from, now.
 	Sources func() (Sources, error)
+	// Scope says what the HAProxy services are named after, now
+	// (ScopeOf) - Sources' Scope.
+	Scope func() string
 	// Maintenance says why the node's services are out of service ("":
 	// they're not).
 	Maintenance func() string
@@ -99,6 +102,15 @@ func (r *Registrar) Status() SyncStatus {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.status
+}
+
+// CurrentScope is what the HAProxy services are named after now, ""
+// when nothing says.
+func (r *Registrar) CurrentScope() string {
+	if r == nil || r.Scope == nil {
+		return ""
+	}
+	return r.Scope()
 }
 
 // Run syncs until ctx ends.

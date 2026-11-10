@@ -138,6 +138,13 @@ func main() {
 	if err := lockDataDir(*dataDir); err != nil {
 		log.Fatal(err)
 	}
+	// What was read of each release's files, kept across a restart
+	// (#553): a Controller starting while GitHub is slow knows the
+	// latest release after one call, not after every security.json.
+	nodeproxy.ReleaseCacheFile = filepath.Join(*dataDir, "release-cache.json")
+	if err := nodeproxy.LoadReleaseCache(); err != nil {
+		log.Printf("releases: %v - read again from GitHub", err)
+	}
 	if err := keyReadable(*masterKeyFile); err != nil {
 		log.Fatal(err)
 	}
@@ -153,6 +160,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	tidyHA(*dataDir)
 	if peer, fenced := fencedAtStart(haStore, func() (ha.Witness, error) { return witnessOf(dirFiles(*dataDir), masterKey) }); fenced {
 		log.Printf("ha: the peer %s is the active at epoch %d, above this Controller's %d - starting as its standby", peer.Name, peer.Epoch, haStore.State().Epoch)
 		if err := haStore.SetRole(ha.Standby, peer.Epoch); err != nil {
@@ -160,6 +168,10 @@ func main() {
 		}
 	}
 	if haStore.State().Role == ha.Standby {
+		// A standby's copy holds the active's master key, sealed with its
+		// own: its own beside its data is worth the warning too (security
+		// review 2026-11-05 #28).
+		warnMasterKeyBesideData(masterKey)
 		runStandby(&standby{ha: haStore, dataDir: *dataDir, masterKeyFile: *masterKeyFile, masterKeyPath: masterKey.Path}, *addr, *registerAddr, *tlsCertFile, *tlsKeyFile)
 		return
 	}
@@ -193,7 +205,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("controller ID: %v", err)
 	}
-	hypervisorStore, err := hypervisor.Open(*dataDir)
+	hypervisorStore, err := hypervisor.Open(*dataDir, masterKey)
 	if err != nil {
 		log.Fatalf("open hypervisor store: %v", err)
 	}
@@ -212,9 +224,7 @@ func main() {
 		}
 		log.Printf("registration: nodes are told to register at %s (%s)", addr, from)
 	}
-	if masterKey.BesideData {
-		log.Printf("WARNING: the master key is %s, in the data directory: a copy of it holds the fleet's issuing CA key, the identity CA's and the accounts' authenticator secrets - set JANUS_CONTROLLER_MASTER_KEY_FILE to a file outside it (dashboard/README.md)", masterKey.Path)
-	}
+	warnMasterKeyBesideData(masterKey)
 	controllerIdentity, err := identity.Open(*dataDir, masterKey, *advertiseAddresses)
 	if err != nil {
 		log.Fatalf("the Controller's TLS identity: %v", err)
@@ -258,6 +268,7 @@ func main() {
 		loginLimiter:          auth.NewLoginLimiter(),
 		registerLimiter:       ratelimit.New(registerBurst, registerEvery),
 		audit:                 auditLog,
+		auditLimiter:          ratelimit.New(60, time.Second),
 		backups:               backupStore,
 		masterKeyPath:         masterKey.Path,
 		identity:              controllerIdentity,
@@ -399,6 +410,9 @@ func (a *app) routes(spa http.Handler) *http.ServeMux {
 	// The node pages' hashed assets, the same for every node: one path,
 	// cached once (nodeproxy.Static); public like the pages themselves.
 	mux.Handle("/node-app/", http.StripPrefix("/node-app", nodeAssets))
+	// What the Content Security Policy blocked, from the browsers
+	// (security_headers.go): logged, public like the pages.
+	mux.HandleFunc(cspReportPath, cspReport())
 	a.registerTokenRoutes(mux)
 	a.registerEnrollRoutes(mux)
 	a.registerUserRoutes(mux)
@@ -431,7 +445,12 @@ type app struct {
 	// registration port (register.go); nil in tests that don't care.
 	registerLimiter *ratelimit.Limiter
 	audit           *audit.Log
-	backups         *backup.Store
+	// auditLimiter caps how fast one address adds audit entries that
+	// carry no account, so an unauthenticated flood can't rotate the
+	// audit file and erase its history (security review 2026-11-05 #10);
+	// nil in tests means no limit.
+	auditLimiter *ratelimit.Limiter
+	backups      *backup.Store
 	// sso is the single sign-on: providers, sign-ins under way
 	// (sso_login.go); nil in tests that don't use it.
 	sso *singleSignOn
@@ -926,4 +945,13 @@ func dataWritable(dir string) error {
 		}
 	}
 	return fmt.Errorf("%s isn't writable by this process (uid %d): a Controller from before v2026.10.08 ran as root and its data is root's - give it to this user once, with the Controller stopped: docker run --rm -v <the data volume>:/data busybox chown -R %d:%d /data - then start it again (dashboard/README.md, \"Who the Controller runs as\")", dir, os.Getuid(), os.Getuid(), os.Getgid())
+}
+
+// warnMasterKeyBesideData says so when the master key is a file in the
+// data directory: a copy of the directory then holds everything it
+// seals - an active's or a standby's alike.
+func warnMasterKeyBesideData(k *secrets.Key) {
+	if k.BesideData {
+		log.Printf("WARNING: the master key is %s, in the data directory: a copy of it holds the fleet's issuing CA key, the identity CA's and the accounts' authenticator secrets - set JANUS_CONTROLLER_MASTER_KEY_FILE to a file outside it (dashboard/README.md)", k.Path)
+	}
 }

@@ -1,0 +1,12 @@
+{
+  "id": "JANUS-2026-013",
+  "title": "A Controller reader could read a cluster's haproxy.cfg, VRRP/BGP and per-member secrets",
+  "severity": "medium",
+  "cvss": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+  "cwe": [
+    "CWE-200",
+    "CWE-862"
+  ],
+  "target": "controller",
+  "description": "A cluster's versions and member list were served to any Controller account or API token with the reader role, unredacted. `GET /api/clusters/{id}/versions/{n}` returned every file of a version whole - `haproxy.cfg` (userlist and stats-auth passwords, credential headers), `keepalived.conf` (VRRP `auth_pass`) and `bird.conf` (BGP session passwords) - and the cluster view returned each member's `vars`, where an admin naturally puts a per-member password. On a node these are hidden from readers: `GetConfig` masks haproxy.cfg for a caller who may not apply a configuration (JANUS-2026-006), and `VRRPGetConfig`/`BGPGetConfig` are operator-only (JANUS-2026-005). The Controller gave all of it to readers.\n\n**Affected**: a Controller with at least one cluster and an account or token holding the reader role.\n\n**Fix**: a caller below operator now gets `haproxy.cfg` masked with the same redaction a node applies, no `keepalived.conf`/`bird.conf`, and no member `vars`; operators and admins see them unchanged.\n\n**Besides updating**: nothing."
+}

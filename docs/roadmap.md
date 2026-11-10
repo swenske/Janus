@@ -54,15 +54,17 @@ it.
 - The Terraform provider on the Terraform and OpenTofu **registries**,
   and more of a node under Terraform (its HAProxy configuration first).
 - **Bare metal, VMware ESXi and Raspberry Pi**: built and tested under
-  QEMU, but [suspended](internals/image-build.md#suspended-targets) until
-  someone verifies them on real hardware. arm64 nodes get no updates yet:
-  no A/B update was ever proven there.
+  QEMU, but experimental and
+  [suspended](internals/image-build.md#suspended-targets) until someone
+  verifies them on real hardware. arm64 nodes get no updates yet: no A/B
+  update was ever proven there. What Janus supports - and the beta will
+  cover - is amd64 virtual machines on KVM/libvirt and Proxmox VE
+  ([what Janus supports](private-cloud/README.md#what-janus-supports)).
 - **An API compatibility promise**: the API is `v1alpha1`, and a release
   may still change it ([stability](private-cloud/own-orchestrator.md#stability)).
 - Smaller follow-ups: replacing a node straight from another one, changing
   a node's address from the Controller, SSO back-channel logout,
-  enforcing the Controller's Content Security Policy, authenticated time
-  (NTS).
+  authenticated time (NTS).
 
 Not planned, by design: a declarative machine configuration
 (`ApplyConfiguration`), and anything that would run a command on a node.

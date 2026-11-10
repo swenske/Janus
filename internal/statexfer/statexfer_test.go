@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,6 +12,28 @@ import (
 	"strings"
 	"testing"
 )
+
+// TestStageValidatesConfig: an imported haproxy.cfg is checked against
+// the node's policy before it is staged, so an import can't install a
+// config Apply would refuse (security review 2026-11-05 #16).
+func TestStageValidatesConfig(t *testing.T) {
+	_, stream := export(t, false)
+	dst := t.TempDir()
+	if _, err := Stage(dst, ImportOptions{ValidateConfig: func([]byte) error { return errors.New("no uid") }}, bytes.NewReader(stream)); err == nil || !strings.Contains(err.Error(), "no uid") {
+		t.Fatalf("a rejected config was staged: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, StagingDir)); !os.IsNotExist(err) {
+		t.Error("the stage stayed after a rejected config")
+	}
+	var seen []byte
+	_, stream2 := export(t, false)
+	if _, err := Stage(dst, ImportOptions{ValidateConfig: func(b []byte) error { seen = b; return nil }}, bytes.NewReader(stream2)); err != nil {
+		t.Fatal(err)
+	}
+	if string(seen) != nodeState["haproxy/haproxy.cfg"] {
+		t.Errorf("ValidateConfig saw %q, want %q", seen, nodeState["haproxy/haproxy.cfg"])
+	}
+}
 
 // nodeState is a node's STATE as janusd leaves it: configuration,
 // secrets, identity, and what isn't carried.

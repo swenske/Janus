@@ -42,24 +42,17 @@ type app struct {
 // buildLimiter bounds how many builds visitors can start: every build
 // takes the self-hosted runner for several minutes.
 type buildLimiter struct {
-	mu        sync.Mutex
-	requested map[string]time.Time   // build key -> when it was requested
-	byIP      map[string][]time.Time // recent requests per client
-	all       []time.Time
-	perIP     int
-	global    int
-	prebuilds int // per window, for prebuildClient - apart from the visitors'
-	window    time.Duration
-	retryWait time.Duration // a requested build isn't requested again before this
+	mu         sync.Mutex
+	requested  map[string]time.Time   // build key -> when it was requested
+	byIP       map[string][]time.Time // recent requests per client
+	all        []time.Time
+	prebuildAt []time.Time // recent prebuild requests, apart from the visitors'
+	perIP      int
+	global     int
+	prebuilds  int // per window, for the prebuild client
+	window     time.Duration
+	retryWait  time.Duration // a requested build isn't requested again before this
 }
-
-// prebuildClient is who requests the builds a new release makes for the
-// schematics in use (app.prebuild). It isn't a visitor: held to a
-// visitor's 5 an hour, the last of ~16 schematics got their update 3
-// hours after v2026.10.27-3, and their nodes were told of the release's
-// security fixes with nothing to install. Its own budget, which the
-// visitors' doesn't count.
-const prebuildClient = "prebuild"
 
 func newBuildLimiter() *buildLimiter {
 	return &buildLimiter{requested: map[string]time.Time{}, byIP: map[string][]time.Time{},
@@ -72,20 +65,26 @@ func recent(ts []time.Time, window time.Duration) []time.Time {
 }
 
 // allow records a build request: start is true when a build has to be
-// started, false when one already was (and isn't being retried).
-func (b *buildLimiter) allow(key, ip string, retry bool) (start bool, err error) {
+// started, false when one already was (and isn't being retried). The
+// prebuild client (the builds a new release makes for the schematics in
+// use, app.prebuild) has its own budget, told apart by prebuild rather
+// than by a sentinel in the IP space a visitor could reach through a
+// spoofed X-Forwarded-For (security review 2026-11-05 #14).
+func (b *buildLimiter) allow(key, ip string, prebuild, retry bool) (start bool, err error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if t, ok := b.requested[key]; ok && time.Since(t) < b.retryWait && !retry {
 		return false, nil
 	}
-	b.byIP[ip] = recent(b.byIP[ip], b.window)
 	now := time.Now()
-	if ip == prebuildClient {
-		if len(b.byIP[ip]) >= b.prebuilds {
+	if prebuild {
+		b.prebuildAt = recent(b.prebuildAt, b.window)
+		if len(b.prebuildAt) >= b.prebuilds {
 			return false, errors.New("the release's builds took this hour's budget - the rest follow")
 		}
+		b.prebuildAt = append(b.prebuildAt, now)
 	} else {
+		b.byIP[ip] = recent(b.byIP[ip], b.window)
 		b.all = recent(b.all, b.window)
 		if len(b.all) >= b.global {
 			return false, errors.New("too many builds were requested in the last hour - try again later")
@@ -94,8 +93,8 @@ func (b *buildLimiter) allow(key, ip string, retry bool) (start bool, err error)
 			return false, errors.New("you requested too many builds in the last hour - try again later")
 		}
 		b.all = append(b.all, now)
+		b.byIP[ip] = append(b.byIP[ip], now)
 	}
-	b.byIP[ip] = append(b.byIP[ip], now)
 	b.requested[key] = now
 	return true, nil
 }
@@ -441,7 +440,7 @@ func (a *app) handleImageBuild(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, st)
 		return
 	}
-	if err := a.startBuild(r.Context(), sc, version, arch, clientIP(r), st.State == "failed"); errors.Is(err, errSuspended) {
+	if err := a.startBuild(r.Context(), sc, version, arch, clientIP(r), false, st.State == "failed"); errors.Is(err, errSuspended) {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	} else if err != nil {
@@ -456,12 +455,12 @@ func (a *app) handleImageBuild(w http.ResponseWriter, r *http.Request) {
 // suspended (variants.mk's SUSPENDED_TARGETS).
 var errSuspended = errors.New("this architecture's images are suspended, waiting for testers - see the builder's \"Need tester\" link")
 
-func (a *app) startBuild(ctx context.Context, sc *schematic.Schematic, version, arch, ip string, retry bool) error {
+func (a *app) startBuild(ctx context.Context, sc *schematic.Schematic, version, arch, ip string, prebuild, retry bool) error {
 	if suspendedArch(arch) {
 		return errSuspended
 	}
 	key := buildKey(sc.ID(), version, arch)
-	start, err := a.builds.allow(key, ip, retry)
+	start, err := a.builds.allow(key, ip, prebuild, retry)
 	if err != nil || !start {
 		return err
 	}
@@ -626,7 +625,7 @@ func (a *app) handleUpdates(w http.ResponseWriter, r *http.Request) {
 		}
 	case "none", "failed":
 		// A node asking for its update is reason enough to build it.
-		if err := a.startBuild(r.Context(), targetSC, target.Version, arch, clientIP(r), st.State == "failed"); err != nil {
+		if err := a.startBuild(r.Context(), targetSC, target.Version, arch, clientIP(r), false, st.State == "failed"); err != nil {
 			up.Message = err.Error()
 		} else {
 			up.State = "building"

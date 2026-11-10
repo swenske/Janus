@@ -20,11 +20,12 @@ var credentialHeaders = map[string]bool{
 }
 
 var (
-	// headerFetch is a sample fetch reading a credential header -
-	// hdr(x-api-key), req.hdr(Authorization), req.fhdr(cookie),lower,
-	// hdr_beg(...) - whose ACL patterns are then the credentials it's
-	// compared with.
-	headerFetch = regexp.MustCompile(`(?i)^(?:req\.|res\.)?f?hdr(?:_[a-z]+)?\(\s*(?:authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-auth-token)\s*[,)]`)
+	// headerFetch is a sample fetch reading a credential - a credential
+	// header (hdr(x-api-key), req.hdr(Authorization), req.fhdr(cookie)),
+	// the bearer token (http_auth_bearer), a cookie (req.cook(SESSIONID))
+	// or a URL parameter (url_param(token)) - whose ACL patterns are then
+	// the credentials it's compared with (security review 2026-11-05 #21).
+	headerFetch = regexp.MustCompile(`(?i)^(?:(?:req\.|res\.)?f?hdr(?:_[a-z]+)?\(\s*(?:authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-auth-token)\s*[,)]|http_auth_bearer\b|(?:req\.|res\.)?cook(?:ie)?\(|url_param\()`)
 	// inlineHeader is a credential header written into one word, as in
 	// "option httpchk GET / HTTP/1.0\r\nAuthorization:\ Basic\ ...".
 	inlineHeader = regexp.MustCompile(`(?i)(?:authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-auth-token):(?:\\ | )*`)
@@ -104,6 +105,10 @@ func redactLine(line string) string {
 					whole(ws[4])
 				}
 			}
+		}
+	case "tcp-check": // tcp-check send <data> | send-binary <hex>: may carry a credential (a Redis AUTH, for one)
+		if (word(1) == "send" || word(1) == "send-binary") && len(ws) > 2 {
+			whole(ws[2])
 		}
 	case "http-check": // http-check send ... hdr <name> <value> ...
 		if word(1) == "send" {

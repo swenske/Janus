@@ -35,7 +35,10 @@ A subdirectory can serve as a `crt` directory (`crt
   The next reload - or the next boot - can't fail because of a file.
 - **A private key is never read back**: a file holding one (a
   certificate's PEM bundle) is listed as such, can be replaced or
-  removed, but its content never leaves the node.
+  removed, but no file call returns its content. It leaves the node
+  only with the node's whole state, to an admin calling the node itself
+  ([replacing a node](guide/replacing-a-node.md)), or to another member
+  of its [cluster](guide/clusters.md).
 - Writing a file doesn't change the running HAProxy by itself: ask for a
   reload with it (`-reload`, or the checkbox in the Controller), or reload
   later (`janusctl haproxy reload`, **Reload** on the Controller's

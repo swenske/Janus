@@ -14,11 +14,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/labels"
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/acme"
 )
@@ -43,6 +46,32 @@ type Settings struct {
 	EABHMACKey string `json:"eab_hmac_key,omitempty"` // secret
 	// DNSProviders are what a node's dns-01 certificate names, by name.
 	DNSProviders []DNSProvider `json:"dns_providers,omitempty"`
+	// NamePolicy is which names a node may be ordered a certificate for
+	// (security review 2026-11-05 #2, JANUS-2026-009): a node's own
+	// configuration names the domains, the challenge, the DNS provider
+	// and the CA, and an os:operator may put the node in CONTROLLER_ORDERED
+	// mode, so without this an operator of one node could have the
+	// Controller order - with its shared DNS credentials - a wildcard of
+	// the organization's zone or another node's name. Empty: nothing is
+	// ordered (fail closed). A name is allowed only if a rule whose
+	// selector picks the node covers it.
+	NamePolicy []NameRule `json:"name_policy,omitempty"`
+	// Directories is the ACME directories (the aliases "letsencrypt",
+	// "letsencrypt-staging", or https URLs) a node's configuration may
+	// name: the node chooses the CA, so without this it could point the
+	// Controller's account and its external-account-binding at a CA of
+	// its own and read back the fetch (an SSRF oracle). Empty: Let's
+	// Encrypt's production and staging directories.
+	Directories []string `json:"directories,omitempty"`
+}
+
+// NameRule permits the nodes its selector picks (by their labels; empty
+// selects every node) to be ordered certificates for names at or under
+// its suffixes. A suffix "example.com" allows "example.com",
+// "*.example.com" and "www.example.com".
+type NameRule struct {
+	Selector map[string]string `json:"selector,omitempty"`
+	Suffixes []string          `json:"suffixes"`
 }
 
 // DNSProvider is a DNS provider the Controller answers DNS-01 with: its
@@ -53,6 +82,58 @@ type DNSProvider struct {
 	Settings               map[string]string `json:"settings"`
 	Resolvers              []string          `json:"resolvers,omitempty"`
 	PropagationWaitSeconds uint32            `json:"propagation_wait_seconds,omitempty"`
+}
+
+// defaultDirectories are the CA directories allowed when Settings leaves
+// Directories empty: Let's Encrypt's production and staging.
+var defaultDirectories = []string{acme.LetsEncrypt, acme.LetsEncryptStaging}
+
+// AllowOrder says why node n - picked by its labels - may not be ordered
+// a certificate for domains against directory, or nil if it may
+// (security review 2026-11-05 #2). Fail closed: with no NamePolicy, no
+// name is allowed.
+func (s Settings) AllowOrder(nodeLabels map[string]string, domains []string, directory string) error {
+	dir := acme.ResolveDirectory(directory)
+	allowed := false
+	switch {
+	case len(s.Directories) == 0:
+		allowed = slices.Contains(defaultDirectories, dir)
+	default:
+		for _, d := range s.Directories {
+			if acme.ResolveDirectory(d) == dir {
+				allowed = true
+				break
+			}
+		}
+	}
+	if !allowed {
+		return fmt.Errorf("the Controller's ordering policy doesn't allow the CA directory %q - add it under \"Ordering for the nodes\" on the Let's Encrypt tab", dir)
+	}
+	for _, d := range domains {
+		if !s.allowsName(nodeLabels, d) {
+			return fmt.Errorf("the Controller's ordering policy doesn't allow the name %q for this node - add a name rule under \"Ordering for the nodes\" on the Let's Encrypt tab", d)
+		}
+	}
+	return nil
+}
+
+// allowsName reports whether some NameRule whose selector picks a node
+// with these labels covers domain (a leading "*." is matched against the
+// zone it stands for).
+func (s Settings) allowsName(nodeLabels map[string]string, domain string) bool {
+	d := strings.ToLower(strings.TrimPrefix(domain, "*."))
+	for _, r := range s.NamePolicy {
+		if !labels.Match(r.Selector, nodeLabels) {
+			continue
+		}
+		for _, suf := range r.Suffixes {
+			suf = strings.ToLower(strings.Trim(suf, "."))
+			if suf != "" && (d == suf || strings.HasSuffix(d, "."+suf)) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Provider is the provider named name.
@@ -96,6 +177,20 @@ func (s *Settings) mergeSecrets(saved Settings) {
 		if !ok || old.Type != p.Type {
 			continue
 		}
+		// Reuse a kept (empty) setting only when no visible setting
+		// changed: else an admin could point a kept credential at an
+		// endpoint of their choice while leaving the secret blank
+		// (security review 2026-11-05 #19).
+		changed := false
+		for k, v := range p.Settings {
+			if v != "" && v != old.Settings[k] {
+				changed = true
+				break
+			}
+		}
+		if changed {
+			continue
+		}
 		for k, v := range p.Settings {
 			if v == "" {
 				s.DNSProviders[i].Settings[k] = old.Settings[k]
@@ -119,8 +214,30 @@ func (s Settings) Validate() []string {
 	for _, e := range acme.Validate(cfg) {
 		errs = append(errs, strings.TrimPrefix(e, "account: "))
 	}
+	for i, r := range s.NamePolicy {
+		if err := labels.Check(r.Selector); err != nil {
+			errs = append(errs, fmt.Sprintf("name rule %d: %v", i+1, err))
+		}
+		if len(r.Suffixes) == 0 {
+			errs = append(errs, fmt.Sprintf("name rule %d: no name suffix", i+1))
+		}
+		for _, suf := range r.Suffixes {
+			if d := strings.Trim(suf, "."); d == "" || !domainSuffix.MatchString(d) {
+				errs = append(errs, fmt.Sprintf("name rule %d: %q isn't a domain suffix (e.g. example.com)", i+1, suf))
+			}
+		}
+	}
+	for _, d := range s.Directories {
+		if r := acme.ResolveDirectory(d); !strings.HasPrefix(r, "https://") {
+			errs = append(errs, fmt.Sprintf("directory %q: an https:// URL, or \"letsencrypt\"/\"letsencrypt-staging\"", d))
+		}
+	}
 	return errs
 }
+
+// domainSuffix is a dotted name of labels (letters, digits, '-'), e.g.
+// example.com or a.b.example.com.
+var domainSuffix = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
 // Order is what the Controller did for one node's certificate.
 type Order struct {

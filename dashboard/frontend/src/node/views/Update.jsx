@@ -1,4 +1,4 @@
-import { Archive, CircleCheck, ExternalLink, FlaskConical, Layers, Loader2, Puzzle, RefreshCcw, Rocket, Upload as UploadIcon, X } from 'lucide-react'
+import { Archive, CircleCheck, ExternalLink, FlaskConical, Layers, Loader2, Puzzle, RefreshCcw, Rocket, ShieldCheck, Upload as UploadIcon, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, postJSON } from '../api.js'
 import { apiURL } from '../../shared/base.js'
@@ -24,7 +24,7 @@ const FILES = [
 ]
 
 export default function Update({ route = '' }) {
-  const { check, overview } = useNodeStatus()
+  const { check, overview, reload: reloadStatus } = useNodeStatus()
   // How the bundle reaches the node, remembered per browser: "url" (the
   // node downloads it), "relay" (the Controller downloads it and pushes
   // it to the node), "upload" (files from this computer).
@@ -61,8 +61,9 @@ export default function Update({ route = '' }) {
   // apps…" opens the panel (?extensions).
   const [changing, setChanging] = useState(() => new URLSearchParams(route.split('?')[1] || '').has('extensions'))
   const [target, setTarget] = useState(null)
-  // pre: the pre-release filled in below (its prereleaseOffer), installed
-  // while the URL is still its.
+  // pre: the pre-release or maintenance release filled in below (its
+  // releaseOffer - maintenance_of set for a maintenance release),
+  // installed while the URL is still its.
   const [pre, setPre] = useState(null)
   // chosen: the release this page filled the form in with - the latest,
   // the pre-release, the prepared image -, its version known while the
@@ -120,7 +121,9 @@ export default function Update({ route = '' }) {
   }, [])
   const byURL = mode === 'url' || mode === 'relay'
   const targetActive = !!target && byURL && reference === target.bundle_base_url
-  const preActive = !!pre && byURL && reference === pre.bundle_base_url
+  const offerActive = !!pre && byURL && reference === pre.bundle_base_url
+  const preActive = offerActive && !pre.maintenance_of
+  const maintenanceActive = offerActive && !!pre.maintenance_of
   // The version the form installs, when the page knows it, and how it
   // stands against the node's: 1 newer, 0 the same, -1 older.
   const installing = chosen && byURL && reference === chosen.url ? chosen.version : ''
@@ -212,8 +215,16 @@ export default function Update({ route = '' }) {
       reboot_mode: kexec ? 'kexec' : 'firmware',
     }
     const result = await run(async () => {
-      if (mode === 'url') return postJSON('/api/lifecycle/upgrade-url', { reference, sha256: sha, ...health })
-      if (mode === 'relay') return relayUpgrade({ reference, sha256: sha, ...health }, setRelay)
+      // Each mode streams the node's messages as they come (NDJSON) - a
+      // download asked again after a 504 shows while it waits.
+      if (mode === 'url')
+        return streamUpgrade(
+          '/api/lifecycle/upgrade-url',
+          { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reference, sha256: sha, ...health }) },
+          setRelay,
+        )
+      if (mode === 'relay')
+        return streamUpgrade('/api/lifecycle/upgrade-relay', { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reference, sha256: sha, ...health }) }, setRelay)
       const form = new FormData()
       for (const f of FILES) form.append(f.field, files[f.field])
       form.append('sha256', sha)
@@ -222,11 +233,14 @@ export default function Update({ route = '' }) {
       form.append('insecure_skip_signature_check', String(allowUnsigned))
       form.append('allow_schematic_change', String(allowSchematic))
       form.append('reboot_mode', health.reboot_mode)
-      const resp = await fetch(apiURL('/api/lifecycle/upgrade-upload'), { method: 'POST', body: form })
-      if (!resp.ok) throw new ApiError((await resp.text()).trim(), resp.status)
-      return resp.json()
+      return streamUpgrade('/api/lifecycle/upgrade-upload', { body: form }, setRelay)
     })
     setRelay(null)
+    // A refusal can leave the other slot holding part of the release
+    // (slot A now holds it, and Rollback won't switch to it): read it
+    // again rather than show the slot as it was (v2026.11.09-3's lab
+    // campaign).
+    if (!result) reloadStatus()
     if (result) {
       // The node's last word says how it reboots: through kexec, or
       // through the firmware and why it couldn't kexec.
@@ -402,6 +416,7 @@ export default function Update({ route = '' }) {
                   </button>
                 </div>
               )}
+              {uc.maintenance && <MaintenanceOffer offer={uc.maintenance} canUpgrade={canUpgrade} onReady={applyPrerelease} />}
               {uc.prerelease && <PrereleaseOffer offer={uc.prerelease} canUpgrade={canUpgrade} onReady={applyPrerelease} />}
             </div>
           )}
@@ -415,13 +430,18 @@ export default function Update({ route = '' }) {
               Installs the pre-release <strong className="mono">{pre.version}</strong> - for testing, not supported. <em>Rollback</em> goes back to the current system.
             </div>
           )}
+          {maintenanceActive && (
+            <div className="notice" style={{ marginBottom: '0.75rem' }}>
+              Installs the maintenance release <strong className="mono">{pre.version}</strong>: {pre.maintenance_of} with its security fixes, nothing else of the newer release.
+            </div>
+          )}
           {order === -1 ? (
             <div className="notice danger" style={{ marginBottom: '0.75rem' }}>
               Installs <strong className="mono">{installing}</strong>, older than the {v.version} the node runs.
             </div>
           ) : (
             installing &&
-            !preActive &&
+            !offerActive &&
             !targetActive && (
               <div className="notice" style={{ marginBottom: '0.75rem' }}>
                 Installs <strong className="mono">{installing}</strong>
@@ -521,40 +541,20 @@ export default function Update({ route = '' }) {
   )
 }
 
-// PrereleaseOffer is the newest pre-release, folded away under the latest
-// release: for testing, never an update. Using it takes its version typed;
-// the default schematic's is ready at once, another schematic's is built by
-// the image factory first (POST /api/factory/prerelease, followed every
-// 20 s) - only when asked, never by viewing this page.
-function PrereleaseOffer({ offer, canUpgrade, onReady }) {
+// useOfferPrep prepares a release offered besides the update - a
+// pre-release, a maintenance release: the default schematic's is ready at
+// once, another schematic's is built by the image factory first (POST
+// /api/factory/prerelease, followed every 20 s) - only when asked, never by
+// viewing this page. prepare() fills the installation in once it's ready.
+function useOfferPrep(offer, onReady) {
   const [prep, setPrep] = useState(null)
   const [busy, run] = useAction()
-  const confirm = useConfirm()
   const readyRef = useRef(onReady)
   useEffect(() => {
     readyRef.current = onReady
   })
   const ask = () => postJSON('/api/factory/prerelease', { version: offer.version })
-  const use = async () => {
-    const ok = await confirm({
-      title: `Use the pre-release ${offer.version}?`,
-      body: (
-        <>
-          <div className="notice warn">
-            <strong>{offer.version} is a pre-release</strong>, published to be tested before it becomes a release - on a lab node, or by a beta tester. It may still change or be
-            withdrawn, and it isn&apos;t supported: don&apos;t install it on a node your production depends on.
-          </div>
-          <p style={{ margin: 0 }}>
-            It only fills in the installation below; installing stays the usual A/B update, and <em>Rollback</em> goes back to the current system. Once it&apos;s promoted to a
-            release, the node simply runs that release.
-          </p>
-        </>
-      ),
-      action: 'Use the pre-release',
-      danger: true,
-      typeToConfirm: offer.version,
-    })
-    if (!ok) return
+  const prepare = async () => {
     if (offer.state === 'ready') return onReady(offer)
     const r = await run(ask)
     if (!r) return
@@ -576,6 +576,93 @@ function PrereleaseOffer({ offer, canUpgrade, onReady }) {
     // ask only names offer.version, part of prep's request
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prep])
+  return { prep, busy, prepare }
+}
+
+// OfferPrep says where an offered release's build for this node stands.
+function OfferPrep({ offer, prep }) {
+  return (
+    <>
+      {prep?.state === 'building' && (
+        <div className="notice small">
+          <span className="row" style={{ gap: '0.4rem' }}>
+            <Loader2 size={14} className="spin" /> The image factory is building {offer.version} for this node&apos;s schematic - usually 5 to 15 minutes; this page asks again
+            every 20 s.
+          </span>
+        </div>
+      )}
+      {prep && prep.state !== 'building' && prep.state !== 'ready' && (
+        <div className="notice warn small">
+          {prep.state === 'failed' ? 'The build failed' : 'Not available'}
+          {prep.message ? `: ${prep.message}` : '.'}
+        </div>
+      )}
+    </>
+  )
+}
+
+// MaintenanceOffer is the maintenance release of the node's release
+// (docs/guide/updates.md#maintenance-releases): that release with its
+// security fixes and nothing else, for a node staying on it for now -
+// supported, so shown in full; the update above stays the newest release.
+function MaintenanceOffer({ offer, canUpgrade, onReady }) {
+  const { prep, busy, prepare } = useOfferPrep(offer, onReady)
+  return (
+    <div className="notice maintenance-offer">
+      <div className="stack" style={{ gap: '0.5rem' }}>
+        <div className="small">
+          <strong>
+            Maintenance release <span className="mono">{offer.version}</span>
+          </strong>{' '}
+          of {offer.maintenance_of}
+          {offer.published_at ? `, published ${dateTime(Date.parse(offer.published_at))}` : ''}: its security fixes, without the newer release&apos;s changes - for a node that
+          stays on {offer.maintenance_of} for now.{' '}
+          {offer.release_url && (
+            <a href={offer.release_url} target="_blank" rel="noreferrer">
+              Its notes <ExternalLink size={12} />
+            </a>
+          )}
+        </div>
+        <OfferPrep offer={offer} prep={prep} />
+        {canUpgrade && (
+          <div>
+            <button className="small" onClick={prepare} disabled={busy || prep?.state === 'building'}>
+              <ShieldCheck size={13} /> {busy ? 'Asking the image factory…' : prep?.state === 'ready' ? 'Use it again' : 'Use this maintenance release'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// PrereleaseOffer is the newest pre-release, folded away under the latest
+// release: for testing, never an update. Using it takes its version typed
+// (then useOfferPrep).
+function PrereleaseOffer({ offer, canUpgrade, onReady }) {
+  const { prep, busy, prepare } = useOfferPrep(offer, onReady)
+  const confirm = useConfirm()
+  const use = async () => {
+    const ok = await confirm({
+      title: `Use the pre-release ${offer.version}?`,
+      body: (
+        <>
+          <div className="notice warn">
+            <strong>{offer.version} is a pre-release</strong>, published to be tested before it becomes a release - on a lab node, or by a beta tester. It may still change or be
+            withdrawn, and it isn&apos;t supported: don&apos;t install it on a node your production depends on.
+          </div>
+          <p style={{ margin: 0 }}>
+            It only fills in the installation below; installing stays the usual A/B update, and <em>Rollback</em> goes back to the current system. Once it&apos;s promoted to a
+            release, the node simply runs that release.
+          </p>
+        </>
+      ),
+      action: 'Use the pre-release',
+      danger: true,
+      typeToConfirm: offer.version,
+    })
+    if (ok) await prepare()
+  }
 
   return (
     <details className="prerelease-offer" open={!!prep}>
@@ -592,20 +679,7 @@ function PrereleaseOffer({ offer, canUpgrade, onReady }) {
             </a>
           )}
         </div>
-        {prep?.state === 'building' && (
-          <div className="notice small">
-            <span className="row" style={{ gap: '0.4rem' }}>
-              <Loader2 size={14} className="spin" /> The image factory is building {offer.version} for this node&apos;s schematic - usually 5 to 15 minutes; this page asks again
-              every 20 s.
-            </span>
-          </div>
-        )}
-        {prep && prep.state !== 'building' && prep.state !== 'ready' && (
-          <div className="notice warn small">
-            {prep.state === 'failed' ? 'The build failed' : 'Not available'}
-            {prep.message ? `: ${prep.message}` : '.'}
-          </div>
-        )}
+        <OfferPrep offer={offer} prep={prep} />
         {canUpgrade && (
           <div>
             <button className="small" onClick={use} disabled={busy || prep?.state === 'building'}>
@@ -946,12 +1020,13 @@ function Preparation({ prep }) {
   )
 }
 
-// relayUpgrade runs POST /api/lifecycle/upgrade-relay, passing each
-// progress line it streams (NDJSON) to onProgress; the last line says
-// whether it worked.
-async function relayUpgrade(body, onProgress) {
-  const resp = await fetch(apiURL('/api/lifecycle/upgrade-relay'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+// streamUpgrade POSTs an update to path asking for NDJSON, passing each
+// progress line to onProgress; the last line says whether it worked. A
+// refusal before the node's first message is a plain error.
+async function streamUpgrade(path, init, onProgress) {
+  const resp = await fetch(apiURL(path), { method: 'POST', ...init, headers: { ...(init.headers || {}), Accept: 'application/x-ndjson' } })
   if (!resp.ok) throw new ApiError((await resp.text()).trim(), resp.status)
+  if (!(resp.headers.get('Content-Type') || '').includes('ndjson')) return resp.json()
   const reader = resp.body.getReader()
   const decoder = new TextDecoder()
   let buf = ''

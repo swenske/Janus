@@ -90,16 +90,24 @@ type updateCheck struct {
 	// the newest release (ReleaseInfo.PrereleaseFor): for testing, shown on
 	// the Update page only - never in UpdateAvailable or SecurityUpdate.
 	// RunningPrerelease: the node runs a pre-release.
-	Prerelease        *prereleaseOffer `json:"prerelease,omitempty"`
-	RunningPrerelease bool             `json:"running_prerelease,omitempty"`
+	Prerelease        *releaseOffer `json:"prerelease,omitempty"`
+	RunningPrerelease bool          `json:"running_prerelease,omitempty"`
+
+	// Maintenance is the maintenance release of the node's release, when
+	// there is one (ReleaseInfo.MaintenanceFor): its security fixes
+	// without the newer release's changes, for a node staying on its
+	// release for now - shown on the Update page beside the update, which
+	// stays the newest release.
+	Maintenance *releaseOffer `json:"maintenance,omitempty"`
 }
 
-// prereleaseOffer is a pre-release for a node. State is "ready" (BundleURL
-// and SHA256 set) for the default schematic; for another one "prepare" -
-// the image factory builds it only when asked (POST /api/factory/prerelease),
-// so viewing an Update page never starts a build - then "building", "ready",
-// "failed" or "unavailable" (Message says why).
-type prereleaseOffer struct {
+// releaseOffer is a release a node may install besides the update: a
+// pre-release or a maintenance release. State is "ready" (BundleURL and
+// SHA256 set) for the default schematic; for another one "prepare" - the
+// image factory builds it only when asked (POST /api/factory/prerelease),
+// so viewing an Update page never starts a build - then "building",
+// "ready", "failed" or "unavailable" (Message says why).
+type releaseOffer struct {
 	Version     string `json:"version"`
 	ReleaseURL  string `json:"release_url,omitempty"`
 	PublishedAt string `json:"published_at,omitempty"`
@@ -107,7 +115,12 @@ type prereleaseOffer struct {
 	SHA256      string `json:"sha256,omitempty"`
 	State       string `json:"state"`
 	Message     string `json:"message,omitempty"`
+	// MaintenanceOf: a maintenance release, of that release.
+	MaintenanceOf string `json:"maintenance_of,omitempty"`
 }
+
+// prepareTimeout bounds POST /api/factory/prerelease.
+const prepareTimeout = 40 * time.Second
 
 func registerUpdateRoutes(mux *http.ServeMux, node *store.Node) {
 	mux.HandleFunc("GET /api/update-check", func(w http.ResponseWriter, r *http.Request) {
@@ -172,8 +185,9 @@ func registerUpdateRoutes(mux *http.ServeMux, node *store.Node) {
 		})
 	})
 	mux.HandleFunc("POST /api/factory/prerelease", func(w http.ResponseWriter, r *http.Request) {
-		// The pre-release to prepare: the one the update check offers, no
-		// other (a stale page gets a conflict, not some older build).
+		// The pre-release or maintenance release to prepare: one the
+		// update check offers, no other (a stale page gets a conflict, not
+		// some older build).
 		var req struct {
 			Version string `json:"version"`
 		}
@@ -181,7 +195,11 @@ func registerUpdateRoutes(mux *http.ServeMux, node *store.Node) {
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		unary(w, r, node, unaryTimeout, func(ctx context.Context, c *grpc.ClientConn) (any, error) {
+		// Its own budget (#553): the newest release, then the image
+		// factory's answer - the first ask after a publication found the
+		// factory busy reading GitHub and came back "unavailable" when the
+		// 10 s every short call has were spent.
+		unary(w, r, node, prepareTimeout, func(ctx context.Context, c *grpc.ClientConn) (any, error) {
 			v, err := janusv1alpha1.NewSystemServiceClient(c).Version(ctx, &emptypb.Empty{})
 			if err != nil {
 				return nil, err
@@ -191,19 +209,23 @@ func registerUpdateRoutes(mux *http.ServeMux, node *store.Node) {
 	})
 }
 
-// preparePrerelease finds the bundle of the pre-release version built for
-// the node running v - from GitHub for the default schematic, else asking
-// the image factory to build it when it doesn't exist yet.
-func preparePrerelease(ctx context.Context, v *janusv1alpha1.VersionResponse, version string) (*prereleaseOffer, error) {
+// preparePrerelease finds the bundle of the pre-release or maintenance
+// release version built for the node running v - from GitHub for the
+// default schematic, else asking the image factory to build it when it
+// doesn't exist yet.
+func preparePrerelease(ctx context.Context, v *janusv1alpha1.VersionResponse, version string) (*releaseOffer, error) {
 	rel, err := getLatestRelease(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Unavailable, "newest release: %v", err)
 	}
 	pre := rel.PrereleaseFor(v.GetVersion())
 	if pre == nil || pre.TagName != version {
-		return nil, status.Errorf(codes.FailedPrecondition, "%s isn't the pre-release offered to this node - reload the page", version)
+		pre = rel.MaintenanceFor(v.GetVersion())
 	}
-	offer := &prereleaseOffer{Version: pre.TagName, ReleaseURL: pre.HTMLURL, PublishedAt: pre.PublishedAt}
+	if pre == nil || pre.TagName != version {
+		return nil, status.Errorf(codes.FailedPrecondition, "%s isn't a release offered to this node - reload the page", version)
+	}
+	offer := &releaseOffer{Version: pre.TagName, ReleaseURL: pre.HTMLURL, PublishedAt: pre.PublishedAt, MaintenanceOf: pre.MaintenanceOf}
 	b, state, err := ResolveBundle(ctx, pre.TagName, NodeSchematic(v))
 	switch {
 	case err == nil:
@@ -225,9 +247,15 @@ func checkUpdate(ctx context.Context, v *janusv1alpha1.VersionResponse) *updateC
 			Extensions: uc.Extensions, HAProxy: uc.HAProxy, Kernel: uc.Kernel})
 		uc.RunningPrerelease = rel.IsPrerelease(uc.Version)
 		if pre := rel.PrereleaseFor(uc.Version); pre != nil {
-			uc.Prerelease = &prereleaseOffer{Version: pre.TagName, ReleaseURL: pre.HTMLURL, PublishedAt: pre.PublishedAt, State: "prepare"}
+			uc.Prerelease = &releaseOffer{Version: pre.TagName, ReleaseURL: pre.HTMLURL, PublishedAt: pre.PublishedAt, State: "prepare"}
 			if uc.Default {
 				uc.Prerelease.State, uc.Prerelease.BundleURL, uc.Prerelease.SHA256 = "ready", pre.BundleBaseURL, pre.SHA256
+			}
+		}
+		if m := rel.MaintenanceFor(uc.Version); m != nil {
+			uc.Maintenance = &releaseOffer{Version: m.TagName, ReleaseURL: m.HTMLURL, PublishedAt: m.PublishedAt, MaintenanceOf: m.MaintenanceOf, State: "prepare"}
+			if uc.Default {
+				uc.Maintenance.State, uc.Maintenance.BundleURL, uc.Maintenance.SHA256 = "ready", m.BundleBaseURL, m.SHA256
 			}
 		}
 	}

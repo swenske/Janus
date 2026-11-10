@@ -1,0 +1,11 @@
+{
+  "id": "JANUS-2026-025",
+  "title": "The janusctl plugin hook missed commands built from variables and under-rated a few effects",
+  "severity": "medium",
+  "cvss": "CVSS:3.1/AV:L/AC:H/PR:L/UI:R/S:U/C:L/I:L/A:L",
+  "cwe": [
+    "CWE-88"
+  ],
+  "target": "client",
+  "description": "The Claude Code plugin's effect hook decides whether the assistant may run a janusctl command on its own. Two gaps let a critical command slip through without a decision. A whole janusctl command held in a variable and run through eval or a shell (`X='janusctl system reset'; eval \"$X\"`, `bash -c \"$X\"`), or a command whose program is a janusctl-valued variable with a dynamic subcommand (`J=janusctl; $J system $SUB`), got no decision though the plugin's documentation promises it asks. And `network vrrp apply`, `network bgp apply`, `haproxy server-state` and `haproxy session-kill` move traffic or close connections yet were rated \"changes\", `login -kit` prints the recovery kit's secrets yet was rated \"changes\", and `system pcap`/`system support` without `-o` stream clients' or the node's data to stdout yet were auto-allowed by the allow_reads option.\n\n**Affected**: a user running the janusctl Claude Code plugin who lets the assistant act, above all with allow_reads on.\n\n**Fix**: the hook inspects a janusctl command line held in a variable's value and asks when a janusctl-valued variable runs a dynamic command; the four traffic/connection commands are critical and `login -kit` is escalated; `system pcap`/`system support` are no longer auto-allowed as reads.\n\n**Besides updating**: nothing - the hook ships with the plugin."
+}

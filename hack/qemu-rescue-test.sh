@@ -154,6 +154,12 @@ check "the banner shows the rescue code" "rescue    .*$CODE" "$(sed 's/\x1b\[[0-
 if window_open; then fail "the window answers through a firewall that shuts 9506"; fi
 halt
 echo "  ok: a rescue volume - the console shows a rescue code; the saved firewall shuts the window"
+# The Controller relays a machine's console to the machine's operators,
+# the code hidden (security review 2026-11-05 #12): this very console,
+# through the Controller's redactors.
+JANUS_CONSOLE_LOG="$LOG" JANUS_CONSOLE_CODE="$CODE" go test ./dashboard/backend -run '^TestRealConsoleCodeHidden$' -count=1 -v >"$WORKDIR/redact.out" 2>&1 || { cat "$WORKDIR/redact.out" >&2; fail "the Controller relays this console with its rescue code"; }
+grep -q -- "--- PASS: TestRealConsoleCodeHidden" "$WORKDIR/redact.out" || { cat "$WORKDIR/redact.out" >&2; fail "the console redaction test didn't run"; }
+echo "  ok: the Controller relays this console without its rescue code ($(grep -o 'hidden [0-9]* times' "$WORKDIR/redact.out"))"
 
 # --- -skip-firewall: rescued, then bob's fleet ---
 boot "$WORKDIR/rescue-skip.iso"
@@ -179,6 +185,9 @@ check "the wrong code audited" $'PairingService/Rescue\tpairing code\t[0-9.:]+\t
 check "the rescue audited" $'PairingService/Rescue\tpairing code\t[0-9.:]+\tOK' "$audit"
 sleep 35 # the window lingers for a lost answer (api.PairReplay)
 if window_open; then fail "the rescue window still answers once used"; fi
+# #18: the skipped firewall must not outlive the window - it's applied
+# once the window closes, in this same boot.
+check "the skipped firewall is applied when the window closes" "firewall: the rescue window closed - the saved ruleset is applied now" "$(cat "$LOG")"
 as_rescued "$WORKDIR/r1" access trust-reset >/dev/null || fail "trust-reset with the rescue certificate"
 bob -context home fleet init -name home -issuer bob-laptop -user bob -yes "$WORKDIR/bob-kit.age" >/dev/null 2>&1 || fail "bob's fleet"
 bob fleet adopt edge-r -endpoint "127.0.0.1:$API" -ca "$WORKDIR/r1/ca.crt" -cert "$WORKDIR/r1/admin.crt" -key "$WORKDIR/r1/admin.key" >/dev/null || fail "bob adopting R"

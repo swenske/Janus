@@ -169,17 +169,45 @@ func TestLogins(t *testing.T) {
 	if _, ok := l.TakeDone(key); ok {
 		t.Fatal("done taken after its time")
 	}
-	// Full: refused, until the old ones expire.
+	// Full: the oldest is evicted, not refused, so a flood can't block
+	// new sign-ins (security review 2026-11-05 #23).
 	for range maxLogins {
 		if _, err := l.Start(Login{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := l.Start(Login{}); err != ErrBusy {
-		t.Fatalf("full: %v", err)
+	if _, err := l.Start(Login{}); err != nil {
+		t.Fatalf("full should evict, not refuse: %v", err)
+	}
+	l.mu.Lock()
+	n := len(l.pending) + len(l.done)
+	l.mu.Unlock()
+	if n > maxLogins {
+		t.Fatalf("grew past the cap: %d", n)
 	}
 	now = now.Add(loginTTL)
 	if _, err := l.Start(Login{}); err != nil {
 		t.Fatalf("swept: %v", err)
+	}
+}
+
+// TestSecretReenterOnIssuerChange: the client secret must be given again
+// when the issuer changes, so a kept secret can't be redirected to a
+// provider of the admin's choice (security review 2026-11-05 #19).
+func TestSecretReenterOnIssuerChange(t *testing.T) {
+	s, _ := openStore(t)
+	p := keycloak(t)
+	if _, err := s.Put(p, ptr("s3cret")); err != nil {
+		t.Fatal(err)
+	}
+	p.Issuer = "https://evil.example.com/realms/x"
+	if _, err := s.Put(p, nil); err == nil || !strings.Contains(err.Error(), "give the client secret again") {
+		t.Fatalf("issuer change kept the secret: %v", err)
+	}
+	if _, err := s.Put(p, ptr("s3cret2")); err != nil {
+		t.Fatalf("re-entered secret refused: %v", err)
+	}
+	if got, _ := s.Secret("kc"); got != "s3cret2" {
+		t.Fatalf("secret %q", got)
 	}
 }

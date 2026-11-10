@@ -150,7 +150,11 @@ mitigations CPU ; le point est documenté ici pour qu'il soit revu.
   téléchargements, `frame-ancestors 'none'`) ; à passer en mode bloquant
   quand `qemu-dashboard-test` reste sans violation dans la console.
   Vérifié sur un `dashboardd` lancé localement : les cinq en-têtes sur `/`
-  et sur `/api/auth/status`.
+  et sur `/api/auth/status`. Passée en `Content-Security-Policy`
+  (bloquante) le 2026-11-04 (#501), avec `report-uri /csp-report` : le
+  Controller journalise ce qu'un navigateur a bloqué ; `hack/ui-preview.sh
+  check` et `make controller-sso-test` échouent sur toute violation
+  (`docs/controller-ui.md`, « Content Security Policy »).
 
 ## 4. (Moyenne) Serveurs HTTP sans délais ni version TLS minimale explicite
 

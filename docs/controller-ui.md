@@ -564,6 +564,20 @@ newer), never back to the release: the node page's `GET
 `?version=`: the create-a-node form asks it for the pre-release once it's
 typed in.
 
+**Maintenance releases** ([releasing](contributing/releasing.md#maintenance-releases))
+are releases, never the latest: `fetchLatestRelease` sorts GitHub's list
+by version (`calver.SortNewestFirst` - GitHub orders it by the date of
+each tag's commit) and keeps those whose name says "- maintenance of vX"
+(`ReleaseInfo.MaintenanceOf`). `MaintenanceFor` gives a node the newest
+one of its release's day, newer than it - `maintenance` in its
+`/api/update-check`; never for a development build, never instead of
+the update. The node's Update page shows it in full under the update
+(`MaintenanceOffer`, a `.notice`: it is supported); **Use this
+maintenance release** fills the installation form in, the default
+schematic's at once, another's through `POST /api/factory/prerelease`
+(which prepares the release on offer, either kind) - the same
+`useOfferPrep` as a pre-release, without the typed version.
+
 ## The node page
 
 Hash routing (`#/haproxy/config`, `#/tools/files?path=/etc`), a sidebar
@@ -1218,6 +1232,30 @@ turn, and the step waited for is written under it.
   includes, so whoever sees a node may read its figures anyway; a node
   that doesn't trust the fleet yet gets curves for an admin only, like
   its page.
+
+## Content Security Policy
+
+Every response of the Controller's main port - the page, the API, each
+node's page - carries an enforced `Content-Security-Policy`
+(`dashboard/backend/security_headers.go`). It allows what the two built
+frontends load, nothing else:
+
+| Directive | Allows | For |
+|---|---|---|
+| `default-src 'self'` | this origin | whatever isn't named below: fonts, the manifest |
+| `script-src 'self'` | the built scripts and `theme-boot.js` | no inline script, no `eval` |
+| `style-src 'self' 'unsafe-inline'` | the built stylesheets, inline styles | React's `style` props |
+| `img-src 'self' data: blob:` | this origin's images, `data:` and `blob:` URLs | the TOTP QR code, downloads |
+| `connect-src 'self'` | `fetch` and `EventSource` to this origin | the API, the node relays |
+| `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'none'` | - | no plugin, no other base URL, forms post here, never framed |
+
+What it blocks, the browser reports to `/csp-report`, and the Controller
+logs it: `csp: "<page>" blocked "<directive>": "<what>"`, ten lines a
+minute at most. A change that loads anything else - a font or a script
+from a CDN, an inline script, a worker made from a `blob:`, a request
+to another origin - changes the policy in the same PR:
+`hack/ui-preview.sh check` fails on a violation, in a page's console or
+in the Controller's log, and so does `make controller-sso-test`.
 
 ## Verifying a change
 

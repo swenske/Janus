@@ -6,12 +6,16 @@ CD-ROM for its first boot - then the same Controller, `janusctl` and
 HAProxy configuration as on any platform.
 
 > [!WARNING]
-> **Suspended since 2026-10-30, waiting for testers.** Janus was never
+> **Experimental - suspended since 2026-10-30, waiting for testers.** Janus was never
 > run on a real ESXi host: VMware's devices - the PVSCSI disk
 > controller, the VMXNET 3 network card - and the screen console were
 > proven under QEMU only. Until someone can test it, nothing builds or
 > tests the VMDK and releases don't publish `janus.vmdk` - v2026.10.30's
-> is the last; `make vmware-image` still builds one. Running ESXi?
+> is the last; `make vmware-image` still builds one. The images'
+> kernel is now built for KVM/QEMU virtual machines, without the PVSCSI
+> and VMXNET 3 drivers: VMware comes back with a kernel of its own, and
+> an update refuses to install one that can't drive a node's disk or
+> network cards. Running ESXi?
 > [Offer to test it](https://github.com/swenske/Janus/issues/new?template=need-tester-vmware.yml).
 > The Controller can't create nodes on vSphere yet (planned): the
 > virtual machines are made by hand or with `govc`, as below.

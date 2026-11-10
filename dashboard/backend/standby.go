@@ -85,10 +85,7 @@ func runStandby(s *standby, addr, registerAddr, tlsCert, tlsKey string) {
 		writeJSON(w, http.StatusOK, s.status())
 	})
 	mainMux.HandleFunc("GET /{$}", s.page)
-	mainMux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Retry-After", "30")
-		writeError(w, http.StatusServiceUnavailable, "this Controller is a standby: the active answers")
-	})
+	mainMux.HandleFunc("/", s.notServing)
 	serve(addr, &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{*cert}}, securityHeaders(mainMux))
 
 	// `dashboardd promote` on this host.
@@ -139,10 +136,20 @@ func (s *standby) peerRoutes() *http.ServeMux {
 		}()
 		writeJSON(w, http.StatusAccepted, map[string]string{"message": "taking over"})
 	}))
-	peerMux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
-		writeError(w, http.StatusServiceUnavailable, "this Controller is a standby: the active answers")
-	})
+	peerMux.HandleFunc("/", s.notServing)
 	return peerMux
+}
+
+// notServing answers what a standby doesn't serve: the active does - or,
+// promoted, this Controller once it has started again.
+func (s *standby) notServing(w http.ResponseWriter, _ *http.Request) {
+	if s.ha.State().Role == ha.Active {
+		w.Header().Set("Retry-After", "5")
+		writeError(w, http.StatusServiceUnavailable, "this Controller was just promoted: it answers as the active once started again, in a few seconds")
+		return
+	}
+	w.Header().Set("Retry-After", "30")
+	writeError(w, http.StatusServiceUnavailable, "this Controller is a standby: the active answers")
 }
 
 func serve(addr string, tlsConfig *tls.Config, h http.Handler) {
@@ -208,6 +215,9 @@ func (s *standby) pull(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	st, err := c.State(ctx)
+	if errors.Is(err, ha.ErrForgotten) {
+		return s.forgotten(err)
+	}
 	if err != nil {
 		_ = s.ha.NotePull(now, false, 0, err)
 		return fmt.Errorf("the active %s: %w", peerName(s.ha.State()), err)
@@ -223,6 +233,9 @@ func (s *standby) pull(ctx context.Context) error {
 		return err
 	}
 	archive, h, err := c.Do(ctx, http.MethodGet, "/ha/replica", nil, ha.MaxReplica)
+	if errors.Is(err, ha.ErrForgotten) {
+		return s.forgotten(err)
+	}
 	if err != nil {
 		_ = s.ha.NotePull(now, true, st.Epoch, err)
 		return err
@@ -231,6 +244,21 @@ func (s *standby) pull(ctx context.Context) error {
 		return nil
 	}
 	return s.ha.SaveReplica(archive, ha.ReplicaFrom(h, now))
+}
+
+// forgotten: the active said it no longer pairs with this standby - its
+// last copy, the active's data and master key, goes, and it pairs with
+// no one (ha.Store.Forget). A promotion under way keeps it.
+func (s *standby) forgotten(err error) error {
+	if s.promoting.Load() {
+		return err
+	}
+	name := peerName(s.ha.State())
+	if ferr := s.ha.Forget(); ferr != nil {
+		return fmt.Errorf("%w - and dropping the copy: %w", err, ferr)
+	}
+	log.Printf("ha: the active %s forgot this standby - its last copy is deleted, it pairs with no one (pair again: dashboardd standby -pair)", name)
+	return err
 }
 
 // status is what the standby's main port says to anyone: no address, no
@@ -243,7 +271,10 @@ func (s *standby) status() map[string]any {
 		out["last_copy"] = p.Last.At
 	}
 	if p.Error != "" {
-		out["error"] = p.Error
+		// Not the raw error on this open endpoint: it can name the active's
+		// address (security review 2026-11-05 #28). The reason is in
+		// `dashboardd ha status` on the host.
+		out["pull_failing"] = true
 	}
 	if st.Peer != nil {
 		out["active"] = st.Peer.Name
@@ -268,7 +299,7 @@ var standbyPage = template.Must(template.New("standby").Funcs(template.FuncMap{
 <dl><dt>Epoch</dt><dd>{{.Epoch}}</dd>
 <dt>Last copy</dt><dd>{{if .Last}}{{ago .Last.At}}{{else}}none yet{{end}}</dd>
 <dt>The active last answered</dt><dd>{{ago .Pulls.LastContact}}</dd>
-{{if .Pulls.Error}}<dt>Last pull</dt><dd class="err">{{.Pulls.Error}}</dd>{{end}}</dl>
+{{if .Pulls.Error}}<dt>Last pull</dt><dd class="err">failing - run <code>dashboardd ha status</code> on this host for the reason</dd>{{end}}</dl>
 <p>To take over: <code>dashboardd promote</code> on this host, or the active's switchover (Settings, High availability).</p>
 </body></html>`))
 
@@ -435,7 +466,47 @@ func setAside(dataDir, masterKeyPath string, now time.Time) (string, error) {
 			return "", err
 		}
 	}
+	if err := prunePrevious(dataDir); err != nil {
+		log.Printf("standby: pruning %s: %v", filepath.Join(ha.Dir, "previous"), err)
+	}
 	return dest, nil
+}
+
+// keptPrevious is how many set-asides ha/previous/ keeps, the newest:
+// each is a whole data directory, and the updater copies them all while
+// the Controller is stopped for an update.
+const keptPrevious = 2
+
+// prunePrevious removes the set-asides beyond the newest keptPrevious -
+// their names are the times they were made.
+func prunePrevious(dataDir string) error {
+	dir := filepath.Join(dataDir, ha.Dir, "previous")
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for i := 0; i < len(entries)-keptPrevious; i++ {
+		if err := os.RemoveAll(filepath.Join(dir, entries[i].Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// tidyHA clears what an earlier run left in <data>/ha at a Controller's
+// start: the standby's control socket - nothing listens on it now, and
+// the updater's copy of the data directory refused it - and the
+// set-asides beyond keptPrevious.
+func tidyHA(dataDir string) {
+	if err := os.Remove(controlSocket(dataDir)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("ha: the old control socket: %v", err)
+	}
+	if err := prunePrevious(dataDir); err != nil {
+		log.Printf("ha: pruning %s: %v", filepath.Join(ha.Dir, "previous"), err)
+	}
 }
 
 // clearDataDir empties a standby's data directory before a copy is

@@ -202,9 +202,16 @@ func configVersionInfo(v haproxy.Version, cfg []byte, mask bool) *janusv1alpha1.
 	if !v.Time.IsZero() {
 		info.AppliedUnix = v.Time.Unix()
 	}
-	if mask && cfg != nil {
-		masked := haproxy.RedactConfig(cfg)
-		info.Sha256, info.Size = sha256Hex(masked), uint64(len(masked))
+	if mask {
+		if cfg != nil {
+			masked := haproxy.RedactConfig(cfg)
+			info.Sha256, info.Size = sha256Hex(masked), uint64(len(masked))
+		} else {
+			// The text isn't available to mask: don't reveal the real,
+			// unmasked SHA-256 - the offline oracle JANUS-2026-006 removed
+			// (security review 2026-11-05 #21).
+			info.Sha256, info.Size = "", 0
+		}
 	}
 	return info
 }

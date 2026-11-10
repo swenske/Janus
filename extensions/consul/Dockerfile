@@ -10,7 +10,7 @@ ARG CONSUL_VERSION
 ARG CONSUL_SHA256
 ARG ARCH
 
-FROM debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS fetch
+FROM debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4 AS fetch
 ARG CONSUL_VERSION
 ARG CONSUL_SHA256
 ARG ARCH
@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
         binutils-aarch64-linux-gnu \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
-RUN curl -fsSLo consul.zip "https://releases.hashicorp.com/consul/${CONSUL_VERSION}/consul_${CONSUL_VERSION}_linux_${ARCH}.zip" \
+RUN curl --retry 6 --retry-delay 20 -fsSLo consul.zip "https://releases.hashicorp.com/consul/${CONSUL_VERSION}/consul_${CONSUL_VERSION}_linux_${ARCH}.zip" \
     && echo "${CONSUL_SHA256}  consul.zip" | sha256sum -c - \
     && unzip -q consul.zip \
     && case "${ARCH}" in arm64) strip=aarch64-linux-gnu-strip ;; *) strip=strip ;; esac \

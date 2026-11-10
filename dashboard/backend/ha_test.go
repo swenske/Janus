@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -113,8 +114,14 @@ func TestHAPeerRoutesNeedTheToken(t *testing.T) {
 			}
 			rec := httptest.NewRecorder()
 			mux.ServeHTTP(rec, req)
-			if rec.Code != http.StatusUnauthorized {
-				t.Errorf("%s %s with %q: %d", r.method, r.path, bearer, rec.Code)
+			// No secret: not a peer. Another secret: a standby this
+			// Controller doesn't pair with - gone.
+			want := http.StatusGone
+			if bearer == "" {
+				want = http.StatusUnauthorized
+			}
+			if rec.Code != want {
+				t.Errorf("%s %s with %q: %d, want %d", r.method, r.path, bearer, rec.Code, want)
 			}
 		}
 	}
@@ -512,5 +519,122 @@ func TestStandbyStateWhilePromoting(t *testing.T) {
 	}
 	if st := state(); st.Role != ha.Active || st.Epoch != 3 {
 		t.Fatalf("promoted, not started again yet: %+v", st)
+	}
+	// Its other answers - the new standby's first copy asks for one -
+	// say it's starting again, not that it's a standby (v2026.11.02-2's
+	// lab: "this Controller is a standby" for 5 s after a switchover).
+	req := httptest.NewRequest("GET", "/ha/replica", nil)
+	req.Header.Set("Authorization", "Bearer "+s.Bearer())
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "just promoted") || rec.Header().Get("Retry-After") != "5" {
+		t.Errorf("promoted, the replica asked: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestHALeftovers: the set-asides kept are the newest two, and a
+// Controller's start removes the control socket a standby left - the
+// updater's backup refused it (v2026.11.02-2's lab).
+func TestHALeftovers(t *testing.T) {
+	dir := t.TempDir()
+	mustMkdirAll := func(p string) {
+		t.Helper()
+		if err := os.MkdirAll(p, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	previous := filepath.Join(dir, ha.Dir, "previous")
+	for _, n := range []string{"20261102T101500Z", "20261102T111800Z", "20261102T112200Z"} {
+		mustMkdirAll(filepath.Join(previous, n, "store"))
+	}
+	start := time.Date(2026, 11, 2, 13, 0, 0, 0, time.UTC)
+	if err := os.WriteFile(filepath.Join(dir, "users.json"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dest, err := setAside(dir, filepath.Join(dir, "master.key"), start)
+	if err != nil || filepath.Base(dest) != "20261102T130000Z" {
+		t.Fatalf("setAside: %q %v", dest, err)
+	}
+	names := func() []string {
+		t.Helper()
+		entries, err := os.ReadDir(previous)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, e := range entries {
+			out = append(out, e.Name())
+		}
+		return out
+	}
+	if got := strings.Join(names(), " "); got != "20261102T112200Z 20261102T130000Z" {
+		t.Errorf("kept after a set-aside: %s", got)
+	}
+
+	// A socket nothing listens on any more, as a standby's exit leaves it.
+	sock := controlSocket(dir)
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln.(*net.UnixListener).SetUnlinkOnClose(false)
+	_ = ln.Close()
+	if _, err := os.Lstat(sock); err != nil {
+		t.Fatalf("the test's socket: %v", err)
+	}
+	mustMkdirAll(filepath.Join(previous, "20261102T090000Z"))
+	tidyHA(dir)
+	if _, err := os.Lstat(sock); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the control socket left: %v", err)
+	}
+	if got := strings.Join(names(), " "); got != "20261102T112200Z 20261102T130000Z" {
+		t.Errorf("kept at a start: %s", got)
+	}
+	tidyHA(t.TempDir()) // no ha/ at all: nothing to do, nothing said
+}
+
+// TestForgottenStandbyDropsItsCopy: a standby the active forgot hears so
+// at its next pull (410, over the active's pinned HA certificate) and
+// drops its last copy - the active's data and master key -, pairing with
+// no one (security review 2026-11-05 #28).
+func TestForgottenStandbyDropsItsCopy(t *testing.T) {
+	active := newHAActive(t)
+	token, _, err := active.app.ha.NewPairing(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sdir := t.TempDir()
+	shs := mustOpenHA(t, sdir)
+	ctx := context.Background()
+	if _, err := pairStandby(ctx, shs, active.addr, token, "b", "b:8443"); err != nil {
+		t.Fatal(err)
+	}
+	sb := &standby{ha: shs, dataDir: sdir}
+	if err := sb.pull(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := shs.LastReplica(); err != nil {
+		t.Fatalf("no copy after the pull: %v", err)
+	}
+	if err := active.app.ha.Unpair(); err != nil {
+		t.Fatal(err)
+	}
+	err = sb.pull(ctx)
+	if !errors.Is(err, ha.ErrForgotten) {
+		t.Fatalf("the pull after the active forgot it: %v", err)
+	}
+	if _, _, err := shs.LastReplica(); err == nil {
+		t.Error("the forgotten standby kept its copy")
+	}
+	for _, name := range []string{"replica.sealed", "replica.json"} {
+		if _, err := os.Stat(filepath.Join(sdir, ha.Dir, name)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if st := shs.State(); st.Peer != nil || st.Role != ha.Standby {
+		t.Errorf("the forgotten standby: %+v", st)
+	}
+	if err := sb.pull(ctx); err == nil || !strings.Contains(err.Error(), "not paired") {
+		t.Errorf("a pull with no peer: %v", err)
 	}
 }

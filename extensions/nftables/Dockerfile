@@ -17,7 +17,7 @@ ARG LIBMNL_VERSION
 ARG LIBNFTNL_VERSION
 ARG NFTABLES_VERSION
 
-FROM debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS fetch
+FROM debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4 AS fetch
 ARG LIBMNL_VERSION
 ARG LIBMNL_SHA256
 ARG LIBNFTNL_VERSION
@@ -29,10 +29,10 @@ ARG JANSSON_SHA256
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates xz-utils bzip2 netbase \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
-RUN curl -fsSLO "https://www.netfilter.org/pub/libmnl/libmnl-${LIBMNL_VERSION}.tar.bz2" \
-    && curl -fsSLO "https://www.netfilter.org/pub/libnftnl/libnftnl-${LIBNFTNL_VERSION}.tar.xz" \
-    && curl -fsSLO "https://www.netfilter.org/pub/nftables/nftables-${NFTABLES_VERSION}.tar.xz" \
-    && curl -fsSLO "https://github.com/akheron/jansson/releases/download/v${JANSSON_VERSION}/jansson-${JANSSON_VERSION}.tar.gz" \
+RUN curl -fsSLO --retry 6 --retry-delay 20 "https://www.netfilter.org/pub/libmnl/libmnl-${LIBMNL_VERSION}.tar.bz2" \
+    && curl -fsSLO --retry 6 --retry-delay 20 "https://www.netfilter.org/pub/libnftnl/libnftnl-${LIBNFTNL_VERSION}.tar.xz" \
+    && curl -fsSLO --retry 6 --retry-delay 20 "https://www.netfilter.org/pub/nftables/nftables-${NFTABLES_VERSION}.tar.xz" \
+    && curl -fsSLO --retry 6 --retry-delay 20 "https://github.com/akheron/jansson/releases/download/v${JANSSON_VERSION}/jansson-${JANSSON_VERSION}.tar.gz" \
     && printf '%s  %s\n' \
         "${JANSSON_SHA256}" "jansson-${JANSSON_VERSION}.tar.gz" \
         "${LIBMNL_SHA256}" "libmnl-${LIBMNL_VERSION}.tar.bz2" \
@@ -90,7 +90,7 @@ RUN apk add --no-cache build-base linux-headers pkgconf bison flex
 COPY --from=fetch /src /src
 RUN STRIP=strip /src/build.sh
 
-FROM --platform=linux/amd64 debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS build-arm64
+FROM --platform=linux/amd64 debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4 AS build-arm64
 RUN apt-get update && apt-get install -y --no-install-recommends make pkgconf bison flex file binutils \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=musltoolchain / /opt/musl-cross

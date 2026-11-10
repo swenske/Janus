@@ -14,12 +14,14 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
@@ -291,3 +293,173 @@ type discardExport struct {
 
 func (d *discardExport) Context() context.Context       { return d.ctx }
 func (d *discardExport) Send(*janusv1alpha1.Data) error { return nil }
+
+// TestIdentityNeedsARootSignedCertificate: the node's identity leaves
+// only with a certificate this node's own CA or the fleet's root itself
+// signed - not with an admin certificate an issuing CA made for twelve
+// hours (security review 2026-11-05 #5). The rest of the state still
+// goes to any admin calling the node itself.
+func TestIdentityNeedsARootSignedCertificate(t *testing.T) {
+	ca, err := pki.NewCA("the node")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	writeState(t, root, map[string]string{"haproxy/haproxy.cfg": "global\n", "pki/ca.key": "the node CA's key\n"})
+	s := &System{BuildVersion: "test", LocalCA: func() *pki.CA { return ca }, StateRoot: root}
+	ctx := context.Background()
+	as := func(c Caller) context.Context { return context.WithValue(ctx, callerKey{}, c) }
+	fleetAdmin := as(Caller{Name: "alice", Roles: []string{pki.RoleAdmin}, Fleet: true})
+	scopedAdmin := as(Caller{Name: "web", Roles: []string{pki.RoleAdmin}, Fleet: true, Scoped: true})
+	kit := as(Caller{Name: "kit:alice", Roles: []string{pki.RoleAdmin}, Fleet: true, RootSigned: true})
+	own := as(Caller{Name: "rescue:bob", Roles: []string{pki.RoleAdmin}, RootSigned: true})
+
+	export := func(ctx context.Context, identity bool) error {
+		return s.StateExport(&janusv1alpha1.StateExportRequest{IncludeIdentity: identity}, &discardExport{ctx: ctx})
+	}
+	for name, c := range map[string]context.Context{"a fleet admin": fleetAdmin, "a scoped admin": scopedAdmin} {
+		if err := export(c, true); status.Code(err) != codes.PermissionDenied || !strings.Contains(err.Error(), "-kit KIT") {
+			t.Errorf("%s exporting the identity: %v", name, err)
+		}
+		if err := export(c, false); err != nil {
+			t.Errorf("%s exporting the rest: %v", name, err)
+		}
+	}
+	for name, c := range map[string]context.Context{"a recovery kit's certificate": kit, "the node's own CA's": own} {
+		if err := export(c, true); err != nil {
+			t.Errorf("%s exporting the identity: %v", name, err)
+		}
+	}
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{Subject: pkix.Name{CommonName: "new"}}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant := func(ctx context.Context, identity bool) error {
+		_, err := s.StateExportGrant(ctx, &janusv1alpha1.StateExportGrantRequest{Csr: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der}), IncludeIdentity: identity})
+		return err
+	}
+	if err := grant(fleetAdmin, true); status.Code(err) != codes.PermissionDenied {
+		t.Errorf("a fleet admin granting the identity: %v", err)
+	}
+	if err := grant(fleetAdmin, false); err != nil {
+		t.Errorf("a fleet admin granting the rest: %v", err)
+	}
+	if err := grant(kit, true); err != nil {
+		t.Errorf("a recovery kit's certificate granting the identity: %v", err)
+	}
+}
+
+// TestRootSigned: told by the chain the TLS handshake verified - the
+// leaf's issuer is the fleet's root itself, or the node's own CA (by its
+// key) when the leaf carries the console mark; the node's CA through its
+// API, an issuing CA under the root, a Controller acting for a user, a
+// scoped certificate never are.
+func TestRootSigned(t *testing.T) {
+	local, _ := pki.NewCA("this node")
+	rotated := &x509.Certificate{Raw: []byte("the node CA, cross-signed"), RawSubjectPublicKeyInfo: local.Cert.RawSubjectPublicKeyInfo, PublicKey: local.Cert.PublicKey}
+	root, _ := pki.NewCA("fleet root")
+	issuing, _ := pki.NewCA("an issuing CA")
+	other, _ := pki.NewCA("another node")
+	prevLocal, prevRoot := LocalCA, FleetRoot
+	LocalCA = func() *x509.Certificate { return local.Cert }
+	FleetRoot = func() *x509.Certificate { return root.Cert }
+	t.Cleanup(func() { LocalCA, FleetRoot = prevLocal, prevRoot })
+	api := &x509.Certificate{Raw: []byte("leaf"), Subject: pkix.Name{CommonName: "alice", Organization: []string{pki.RoleAdmin}}}
+	console := &x509.Certificate{Raw: []byte("console leaf"), Subject: pkix.Name{CommonName: "rescue:bob", Organization: []string{pki.RoleAdmin}},
+		Extensions: []pkix.Extension{{Id: pki.ConsoleOID, Value: []byte{0x0c, 0x07, 'c', 'o', 'n', 's', 'o', 'l', 'e'}}}}
+	with := func(leaf *x509.Certificate, chain ...*x509.Certificate) context.Context {
+		return peer.NewContext(context.Background(), &peer.Peer{Addr: &net.TCPAddr{}, AuthInfo: credentials.TLSInfo{State: tls.ConnectionState{
+			PeerCertificates: []*x509.Certificate{leaf},
+			VerifiedChains:   [][]*x509.Certificate{append([]*x509.Certificate{leaf}, chain...)},
+		}}})
+	}
+	const method = "/janus.v1alpha1.SystemService/StateExport"
+	for _, c := range []struct {
+		name  string
+		leaf  *x509.Certificate
+		chain []*x509.Certificate
+		want  bool
+	}{
+		{"the node's own CA, at its console", console, []*x509.Certificate{local.Cert}, true},
+		{"the node's CA by its key, at its console", console, []*x509.Certificate{rotated}, true},
+		{"the node's own CA, through its API", api, []*x509.Certificate{local.Cert}, false},
+		{"the fleet's root itself", api, []*x509.Certificate{root.Cert}, true},
+		{"an issuing CA under the root", api, []*x509.Certificate{issuing.Cert, root.Cert}, false},
+		{"an issuing CA, the mark forged", console, []*x509.Certificate{issuing.Cert, root.Cert}, false},
+		{"another node's CA, at its console", console, []*x509.Certificate{other.Cert}, false},
+	} {
+		caller, err := authorize(with(c.leaf, c.chain...), method)
+		if err != nil || caller.RootSigned != c.want {
+			t.Errorf("%s: RootSigned %v, %v - want %v", c.name, caller.RootSigned, err, c.want)
+		}
+	}
+	ctl := &x509.Certificate{Raw: []byte("controller"), Subject: pkix.Name{CommonName: "janus-controller", Organization: []string{pki.RoleController}}}
+	relayed := metadata.NewIncomingContext(peer.NewContext(context.Background(), &peer.Peer{Addr: &net.TCPAddr{}, AuthInfo: credentials.TLSInfo{State: tls.ConnectionState{
+		PeerCertificates: []*x509.Certificate{ctl},
+		VerifiedChains:   [][]*x509.Certificate{{ctl, root.Cert}},
+	}}}), metadata.Pairs(pki.AsUserKey, "alice", pki.AsRolesKey, pki.RoleAdmin))
+	if caller, err := authorize(relayed, method); err != nil || caller.RootSigned {
+		t.Errorf("a Controller acting for a user, its certificate the root's: RootSigned %v, %v", caller.RootSigned, err)
+	}
+}
+
+// TestConsoleOnlyCalls: TrustReset takes a certificate of the node's own
+// CA issued at its console; one the node issued through its API - for an
+// admin of the fleet, say - doesn't do (security review 2026-11-05 #28).
+// Nor may GenerateClientConfiguration name a certificate as the node names
+// its rescue certificates or a recovery kit's.
+func TestConsoleOnlyCalls(t *testing.T) {
+	local, err := pki.NewCA("this node")
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue := func(console bool) *x509.Certificate {
+		t.Helper()
+		certPEM, _, err := local.Issue(pki.IssueOptions{CommonName: "x", Roles: []string{pki.RoleAdmin}, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, Console: console})
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := pem.Decode(certPEM)
+		c, err := x509.ParseCertificate(b.Bytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	with := func(leaf *x509.Certificate) context.Context {
+		return peer.NewContext(context.Background(), &peer.Peer{Addr: &net.TCPAddr{}, AuthInfo: credentials.TLSInfo{State: tls.ConnectionState{
+			PeerCertificates: []*x509.Certificate{leaf},
+			VerifiedChains:   [][]*x509.Certificate{{leaf, local.Cert}},
+		}}})
+	}
+	if !viaLocalCA(with(issue(true)), local.Cert.Raw) {
+		t.Error("a console certificate of the node's CA refused")
+	}
+	if viaLocalCA(with(issue(false)), local.Cert.Raw) {
+		t.Error("a certificate the node issued through its API let through")
+	}
+
+	s := &System{LocalCA: func() *pki.CA { return local }}
+	for _, name := range []string{"rescue:bob", "Rescue:bob", "kit:alice", "KIT:x"} {
+		if _, err := s.GenerateClientConfiguration(context.Background(), &janusv1alpha1.GenerateClientConfigurationRequest{Name: name}); status.Code(err) != codes.InvalidArgument {
+			t.Errorf("%q: %v", name, err)
+		}
+	}
+	resp, err := s.GenerateClientConfiguration(context.Background(), &janusv1alpha1.GenerateClientConfigurationRequest{Name: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := pem.Decode(resp.GetCrt())
+	c, err := x509.ParseCertificate(b.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pki.IsConsole(c) {
+		t.Error("GenerateClientConfiguration issued a certificate with the console mark")
+	}
+}

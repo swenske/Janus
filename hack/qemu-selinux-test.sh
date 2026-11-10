@@ -77,6 +77,8 @@ boot_and_check() {
     -drive file="$VERITY",format=raw,if=virtio,readonly=on \
     -netdev "user,id=net0,hostfwd=tcp::${host_port}-:8080" \
     -device virtio-net-pci,netdev=net0 \
+    -device qemu-xhci,id=xhci -device usb-tablet,bus=xhci.0 \
+    -qmp unix:"$WORKDIR/$label.qmp",server=on,wait=off \
     -serial file:"$log" \
     &
   QEMU_PID=$!
@@ -89,6 +91,16 @@ boot_and_check() {
     sleep 1
   done
 
+  # A USB device plugged in and taken out once the node runs, like the
+  # tablet every Proxmox VM has (found by usb enumeration after the
+  # policy is loaded): devtmpfs makes its node, then removes it (#516).
+  if [ "$code" = "200" ]; then
+    python3 "$(dirname "$0")/qmp.py" "$WORKDIR/$label.qmp" device_add '{"driver":"usb-kbd","bus":"xhci.0","id":"kbd"}' >/dev/null
+    sleep 2
+    python3 "$(dirname "$0")/qmp.py" "$WORKDIR/$label.qmp" device_del '{"id":"kbd"}' >/dev/null
+    sleep 2
+  fi
+
   kill "$QEMU_PID" 2>/dev/null || true
   wait "$QEMU_PID" 2>/dev/null || true
   QEMU_PID=""
@@ -96,6 +108,12 @@ boot_and_check() {
   if [ "$code" != "200" ]; then
     echo "SELinux test FAILED ($label): no HTTP 200 within ${HTTP_TIMEOUT_SECS}s (last code: '${code}')" >&2
     echo "--- console output ---" >&2; cat "$log" >&2
+    exit 1
+  fi
+  # A kernel without USB (a virtual machine's, variants.mk's
+  # KERNEL_FLAVOR virt) never sees the tablet nor the keyboard.
+  if grep -aq "usbcore: registered new" "$log" && ! grep -aq "usb [0-9-]*: USB disconnect" "$log"; then
+    echo "SELinux test FAILED ($label): the USB keyboard plugged in and taken out never showed - nothing proved about devtmpfs's device nodes" >&2
     exit 1
   fi
   if ! grep -qF "init: selinux: loaded policy" "$log"; then

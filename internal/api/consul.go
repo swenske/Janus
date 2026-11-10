@@ -83,6 +83,7 @@ func managedToProto(m *consul.Managed) *janusv1alpha1.ConsulManaged {
 		CaPem: r.CAPEM, NodeMeta: r.NodeMeta,
 		Services: &janusv1alpha1.ConsulManagedServices{Janus: r.Services.Janus, Exporters: r.Services.Exporters,
 			Frontends: r.Services.Frontends, Urls: r.Services.URLs},
+		Scope: r.Scope,
 	}
 }
 
@@ -96,6 +97,7 @@ func managedFromProto(p *janusv1alpha1.ConsulManaged) *consul.Managed {
 		NodeMeta: p.GetNodeMeta(),
 		Services: consul.Toggles{Janus: p.GetServices().GetJanus(), Exporters: p.GetServices().GetExporters(),
 			Frontends: p.GetServices().GetFrontends(), URLs: p.GetServices().GetUrls()},
+		Scope: p.GetScope(),
 	}
 }
 
@@ -119,6 +121,10 @@ func (n *Network) ConsulManagedGet(_ context.Context, _ *emptypb.Empty) (*janusv
 			resp.SyncedUnix = st.At.Unix()
 		}
 		resp.SyncError, resp.Registered, resp.Maintenance = st.Err, int32(min(st.Registered, 1<<30)), st.Maintenance //nolint:gosec // G115: bounded
+		// What its services are named after: the Controller checks the
+		// token's right against it - and gives the layer again to a node
+		// updated since it dropped the scope (an older release does).
+		resp.Scope = n.ConsulRegistrar.CurrentScope()
 	}
 	return resp, nil
 }

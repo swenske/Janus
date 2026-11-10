@@ -283,7 +283,8 @@ func (a *app) handleMachinePower(w http.ResponseWriter, r *http.Request) {
 // sequences, which SSE's line format can't carry raw). Private keys are
 // hidden - a node from before the pairing code prints its root admin
 // credential there at its first boot, which the Controller must never
-// hold. The console is shared with every
+// hold -, and so are pairing and rescue codes (codeRedactor): the
+// machine's operators read it. The console is shared with every
 // other reader (consoleHub).
 func (a *app) handleMachineConsole(w http.ResponseWriter, r *http.Request) {
 	m, ok := a.getMachine(w, r)

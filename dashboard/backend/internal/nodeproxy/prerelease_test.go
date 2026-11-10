@@ -51,6 +51,7 @@ func fakeReleases(t *testing.T, reads *atomic.Int32, body func(base string) stri
 // pre-release; the newest pre-release is offered apart when newer, and
 // never counts in security updates.
 func TestPrereleasesApart(t *testing.T) {
+	freshAssetCaches(t)
 	var reads atomic.Int32
 	fakeReleases(t, &reads, func(base string) string {
 		rel := func(tag string, pre bool, sec string) string {
@@ -289,8 +290,15 @@ func TestReleaseRefresh(t *testing.T) {
 	}
 	get(fresh)
 	fetched(3, "a refresh right after one that failed")
+	// Past releaseCacheTTL, GitHub still failing: the list kept (staleTTL),
+	// tried again; past staleTTL, the error.
 	older(releaseCacheTTL)
+	if rel := get(ctx); rel.TagName != "v2026.10.13" {
+		t.Errorf("past releaseCacheTTL, GitHub failing: %q", rel.TagName)
+	}
+	fetched(4, "past releaseCacheTTL")
+	older(staleTTL)
 	if _, err := getLatestRelease(ctx); err == nil {
-		t.Error("past releaseCacheTTL, GitHub failing is an error")
+		t.Error("past staleTTL, GitHub failing is an error")
 	}
 }

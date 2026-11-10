@@ -240,8 +240,30 @@ grep -q "only janusd's socket" <<<"$out" || fail "the refusal doesn't name the s
 awk '{print} /^global/{print "    daemon"}' "$WORKDIR/files.cfg" > "$WORKDIR/daemon.cfg"
 if out="$(ctl haproxy apply-config "$WORKDIR/daemon.cfg" 2>&1)"; then fail "daemon was applied"; fi
 grep -q '"daemon" isn.t allowed' <<<"$out" || fail "the refusal doesn't name daemon: $out"
+# The same check can't be dodged by quoting the keyword (HAProxy unquotes
+# it) or by hiding a required line in a false conditional (security
+# review 2026-11-05 #4).
+awk '{print} /^global/{print "    \"daemon\""}' "$WORKDIR/files.cfg" > "$WORKDIR/quoted.cfg"
+if out="$(ctl haproxy apply-config "$WORKDIR/quoted.cfg" 2>&1)"; then fail "a quoted daemon was applied"; fi
+grep -q '"daemon" isn.t allowed' <<<"$out" || fail "the quoted-daemon refusal doesn't name daemon: $out"
+awk '{print} /^global/{print "    .if 0"; print "    .endif"}' "$WORKDIR/files.cfg" > "$WORKDIR/cond.cfg"
+if out="$(ctl haproxy apply-config "$WORKDIR/cond.cfg" 2>&1)"; then fail "a configuration with a conditional was applied"; fi
+grep -q '\.if' <<<"$out" || fail "the conditional refusal doesn't name .if: $out"
 files_served || fail "the files aren't served any more after the refused configurations"
-echo "  ok: the global section a node requires (uid, janusd's only stats socket, no daemon)"
+echo "  ok: the global section a node requires (uid, janusd's only stats socket, no daemon; quotes and .if can't dodge it)"
+# The HAProxy jail (security review 2026-11-05 #1): HAProxy runs in a
+# mount namespace where STATE's secrets are absent, so a configuration
+# that names one - here the node CA key, by both the path it has under
+# /etc/janus and its path on STATE - can't open it: `haproxy -c` fails
+# with "error opening file", the apply is refused, no key is ever served.
+for secret in /etc/janus/pki/ca.key /etc/.state/pki/ca.key; do
+  cp "$WORKDIR/files.cfg" "$WORKDIR/jail.cfg"
+  printf '\nfrontend jail_probe\n    mode http\n    bind 127.0.0.1:8098\n    http-request return status 200 content-type text/plain file %s\n' "$secret" >> "$WORKDIR/jail.cfg"
+  if out="$(ctl haproxy apply-config "$WORKDIR/jail.cfg" 2>&1)"; then fail "a configuration reading $secret was applied - the HAProxy jail isn't hiding STATE"; fi
+  grep -qi "error opening file" <<<"$out" || fail "refusing $secret didn't fail opening the file (the jail may not be in place): $out"
+done
+files_served || fail "the files aren't served any more after the jail-probe configurations"
+echo "  ok: the HAProxy jail hides STATE's secrets (the node CA key can't be opened by a configuration)"
 grep -q "files-test" <<<"$(ctl system logs -n 500 haproxy)" || fail "HAProxy's access log (log stdout) isn't in its service log"
 if ctl haproxy file-delete errors/503.http >/dev/null 2>&1; then fail "an error page in use was removed"; fi
 echo garbage > "$WORKDIR/garbage.pem"

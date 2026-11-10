@@ -10,7 +10,7 @@ gap is a real boot, on real hardware, which this project's own
 development and CI environments genuinely don't have.**
 
 > [!WARNING]
-> **Suspended since 2026-10-30, waiting for testers.** Until someone
+> **Experimental - suspended since 2026-10-30, waiting for testers.** Until someone
 > tests a real board, nothing builds or tests the Raspberry Pi images
 > (nor any arm64 image) and releases don't publish them - v2026.10.30's
 > are the last. They still build by hand, below. Have a Pi 4 or 5?

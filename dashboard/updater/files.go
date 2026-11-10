@@ -86,7 +86,8 @@ func syncDir(dir string) error {
 }
 
 // copyTree copies the directory src to dst, which mustn't exist yet:
-// files, directories and symlinks, with their modes and owners.
+// files, directories and symlinks, with their modes and owners; sockets
+// are left out.
 func copyTree(src, dst string) error {
 	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -118,6 +119,10 @@ func copyTree(src, dst string) error {
 			if err := copyFile(path, to, fi.Mode().Perm()); err != nil {
 				return err
 			}
+		case fi.Mode()&fs.ModeSocket != 0:
+			// An address a process listens on, not data: whoever needs
+			// it makes it again (a Controller's ha/control.sock).
+			return nil
 		default:
 			return fmt.Errorf("%s: not a regular file, directory or symlink", path)
 		}

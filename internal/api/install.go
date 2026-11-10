@@ -143,7 +143,7 @@ func (l *Lifecycle) Install(req *janusv1alpha1.InstallRequest, stream janusv1alp
 		if err != nil {
 			return err
 		}
-		if tree, err = checkHashTree(t, u.name, hashTree); err != nil {
+		if tree, err = checkHashTree(t, u.name, hashTree, nothingWritten); err != nil {
 			return err
 		}
 		if vt != nil && (vt.DataBytes() != t.DataBytes() || !bytes.Equal(vt.RootDigest, t.RootDigest)) {
@@ -170,6 +170,17 @@ func (l *Lifecycle) Install(req *janusv1alpha1.InstallRequest, stream janusv1alp
 	}
 	if err := send("verifying", 0.12, fmt.Sprintf("rootfs.squashfs, rootfs.verity: the ones uki-a.efi and uki-b.efi pin (root hash %x…)", vt.RootDigest[:6])); err != nil {
 		return err
+	}
+	// Its kernel must drive the machine the disk will boot.
+	image, _ := readSlotImage(squashfsPath)
+	hardware, err := l.checkHardware(req.GetSource(), image, diskPath)
+	if err != nil {
+		return err
+	}
+	if hardware != "" {
+		if err := send("verifying", 0.13, "rootfs.squashfs: "+hardware); err != nil {
+			return err
+		}
 	}
 
 	disk, err := diskfs.Open(diskPath, diskfs.WithOpenMode(diskfs.ReadWrite))

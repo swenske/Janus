@@ -1,0 +1,12 @@
+{
+  "id": "JANUS-2026-010",
+  "title": "An operator could evade the HAProxy global-section policy with quotes or a conditional block",
+  "severity": "medium",
+  "cvss": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:H/A:L",
+  "cwe": [
+    "CWE-20",
+    "CWE-693"
+  ],
+  "target": "node",
+  "description": "janusd checks a node's HAProxy `global` section before applying it - it must drop privileges into the empty chroot and expose only janusd's admin socket, and may not daemonize, run programs or set the process dumpable. The check split each line with whitespace only, but HAProxy itself unquotes `\"...\"`, `'...'` and backslash escapes, and honours the configuration conditionals `.if/.elif/.else/.endif`. So an `os:operator` who may apply a configuration could write `\"daemon\"`, `set\\env ...` or a second `stats socket` behind quotes - the check passed them, HAProxy acted on them - or put the required `chroot`/`uid`/`gid` lines inside an `.if 0` block, which the check counted and HAProxy skipped. The result was HAProxy running as root without its chroot, or an unauthenticated runtime admin socket reachable from the network (servers, maps, certificates, captured requests). This weakened the fix for the 2026-10-07 review's finding #6.\n\n**Affected**: a node whose HAProxy an operator can configure (direct `os:operator`, a Controller operator, an operator API token).\n\n**Fix**: the policy now tokenizes a line the way HAProxy's `parse_line` does - unquoting and unescaping each argument - so a keyword can't hide behind quotes, and it refuses any line whose first token is a `.if`/`.elif`/`.else`/`.endif` conditional (a node's configuration is applied whole and needs none). JANUS-2026-008's mount namespace already keeps such a configuration from reaching the node's secrets; this restores the privilege-drop and single-socket guarantees the policy makes.\n\n**Besides updating**: nothing - the fix is on the node, applied by the update."
+}

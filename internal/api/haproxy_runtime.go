@@ -8,6 +8,7 @@ import (
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/events"
 	"github.com/swenske/Janus/internal/haproxy"
+	"github.com/swenske/Janus/internal/rbac"
 )
 
 // Runtime diagnostics: map and ACL lookups, stick tables, streams, the
@@ -57,14 +58,25 @@ func (h *HAProxy) TableList(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1
 	return resp, nil
 }
 
-func (h *HAProxy) TableShow(_ context.Context, req *janusv1alpha1.TableShowRequest) (*janusv1alpha1.TableShowResponse, error) {
+func (h *HAProxy) TableShow(ctx context.Context, req *janusv1alpha1.TableShowRequest) (*janusv1alpha1.TableShowResponse, error) {
 	t, entries, truncated, err := h.Manager.TableShow(req.GetTable(), req.GetKey(), tableFilters(req.GetFilters()), listLimit(req.GetLimit()))
 	if err != nil {
 		return nil, haproxyError(err)
 	}
 	resp := &janusv1alpha1.TableShowResponse{Table: stickTable(t), Truncated: truncated}
+	// A string- or binary-keyed table's keys may be a client's session
+	// cookie, an Authorization header or an API key - the class of secret
+	// GetConfig hides from a caller who may not apply a configuration
+	// (JANUS-2026-006). Mask them for such a caller; the counters stay,
+	// and an address-keyed table (ip/ipv6/integer) is shown as before -
+	// Netstat shows those too (security review 2026-11-05 #9).
+	maskKeys := maskTableKeys(ctx, t.Type)
 	for _, e := range entries {
-		entry := &janusv1alpha1.TableEntry{Key: e.Key, Use: e.Use, ExpiresMs: e.ExpiresMS}
+		key := e.Key
+		if maskKeys {
+			key = "(hidden)"
+		}
+		entry := &janusv1alpha1.TableEntry{Key: key, Use: e.Use, ExpiresMs: e.ExpiresMS}
 		for _, d := range e.Data {
 			entry.Data = append(entry.Data, &janusv1alpha1.TableData{Name: d.Name, Value: d.Value})
 		}
@@ -73,12 +85,26 @@ func (h *HAProxy) TableShow(_ context.Context, req *janusv1alpha1.TableShowReque
 	return resp, nil
 }
 
+// maskTableKeys reports whether a table of this key type has keys the
+// caller may not see: a string or binary key, for a caller who may not
+// apply a configuration (JANUS-2026-006's secrets).
+func maskTableKeys(ctx context.Context, keyType string) bool {
+	if keyType != "string" && keyType != "binary" {
+		return false
+	}
+	caller, _ := CallerFrom(ctx)
+	return !rbac.Allowed(janusv1alpha1.HAProxyService_ApplyConfig_FullMethodName, caller.Roles)
+}
+
 func (h *HAProxy) TableClear(_ context.Context, req *janusv1alpha1.TableClearRequest) (*emptypb.Empty, error) {
 	filters := tableFilters(req.GetFilters())
 	if err := h.Manager.TableClear(req.GetTable(), req.GetKey(), filters, req.GetAll()); err != nil {
 		return nil, haproxyError(err)
 	}
-	events.Publish("haproxy.table.cleared", map[string]any{"table": req.GetTable(), "key": req.GetKey(), "filters": filters, "all": req.GetAll()})
+	// Not the key itself: on a string/binary table it may be a client's
+	// session cookie or credential, and readers read events (security
+	// review 2026-11-05 #9) - say only that one was targeted.
+	events.Publish("haproxy.table.cleared", map[string]any{"table": req.GetTable(), "keyed": req.GetKey() != "", "filters": filters, "all": req.GetAll()})
 	return &emptypb.Empty{}, nil
 }
 

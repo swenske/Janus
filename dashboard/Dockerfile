@@ -25,7 +25,7 @@
 # entrypoint in the compose file (dashboard/README.md, "Updating the
 # Controller"), with Docker Compose's static binary next to it - pinned in
 # versions.mk, checked against its sha256 here.
-FROM golang:1.27.3-trixie@sha256:fbb7ae40b62ff8afe31662df570d39b4f5052ac32b90dae8e60d7657a20a74f4 AS compose
+FROM golang:1.27.3-trixie@sha256:c65ecfe613b539ac74c62a4c3b2c27e8f8a6076384c8f27e8a3c0f3be17cc385 AS compose
 ARG TARGETARCH
 ARG DOCKER_COMPOSE_VERSION
 ARG DOCKER_COMPOSE_SHA256_AMD64
@@ -37,11 +37,11 @@ RUN set -eu; \
       arm64) arch=aarch64; sum="$DOCKER_COMPOSE_SHA256_ARM64" ;; \
       *) echo "no Docker Compose build for $TARGETARCH" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL -o /docker-compose "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-${arch}"; \
+    curl -fsSL --retry 6 --retry-delay 20 -o /docker-compose "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-${arch}"; \
     echo "${sum}  /docker-compose" | sha256sum -c -; \
     chmod 0755 /docker-compose
 
-FROM golang:1.27.3-trixie@sha256:fbb7ae40b62ff8afe31662df570d39b4f5052ac32b90dae8e60d7657a20a74f4 AS build
+FROM golang:1.27.3-trixie@sha256:c65ecfe613b539ac74c62a4c3b2c27e8f8a6076384c8f27e8a3c0f3be17cc385 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY gen/ gen/
