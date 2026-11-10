@@ -25,6 +25,13 @@ test('kinds', () => {
   assert.equal(kindOf(url), 'url')
   assert.equal(kindOf(web), 'other')
   assert.deepEqual(counts([janus, exporter, haexp, frontend, url, web]), { all: 6, frontend: 1, url: 1, exporter: 2, other: 2 })
+  // Named after the node's cluster: the same kinds, by their tags.
+  const scoped = (s, name) => ({ ...s, name })
+  assert.equal(kindOf(scoped(url, 'haproxy-kluster-prod-url')), 'url')
+  assert.equal(kindOf(scoped(frontend, 'haproxy-kluster-prod-fe-https')), 'frontend')
+  assert.equal(kindOf(scoped(haexp, 'haproxy-kluster-prod-exporter')), 'exporter')
+  // A frontend named url isn't the URLs' service: no url tag.
+  assert.equal(kindOf(scoped(frontend, 'haproxy-kluster-prod-url')), 'frontend')
 })
 
 test('filtering', () => {

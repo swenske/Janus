@@ -49,8 +49,16 @@ type ImageSource struct {
 	// node built with an extension must not lose it to an update built
 	// without it. See docs/image-factory.md.
 	AllowSchematicChange bool `protobuf:"varint,4,opt,name=allow_schematic_change,json=allowSchematicChange,proto3" json:"allow_schematic_change,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// Accept a bundle whose kernel has no driver for this node's boot disk
+	// (Install: the target disk) or for one of its network interfaces - as
+	// its image.json's kernel.drivers says (internal/hwsupport); a bundle
+	// that names no drivers isn't checked. Off, Upgrade and Install refuse
+	// it: the kernel would wait for its disk forever, with nothing on the
+	// node left to roll it back, or the node would lose that network. Only
+	// for a machine whose devices change before it boots the release.
+	AllowUnsupportedHardware bool `protobuf:"varint,5,opt,name=allow_unsupported_hardware,json=allowUnsupportedHardware,proto3" json:"allow_unsupported_hardware,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *ImageSource) Reset() {
@@ -107,6 +115,13 @@ func (x *ImageSource) GetInsecureSkipSignatureCheck() bool {
 func (x *ImageSource) GetAllowSchematicChange() bool {
 	if x != nil {
 		return x.AllowSchematicChange
+	}
+	return false
+}
+
+func (x *ImageSource) GetAllowUnsupportedHardware() bool {
+	if x != nil {
+		return x.AllowUnsupportedHardware
 	}
 	return false
 }
@@ -641,12 +656,13 @@ var File_janus_v1alpha1_lifecycle_proto protoreflect.FileDescriptor
 
 const file_janus_v1alpha1_lifecycle_proto_rawDesc = "" +
 	"\n" +
-	"\x1ejanus/v1alpha1/lifecycle.proto\x12\x0ejanus.v1alpha1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1cjanus/v1alpha1/network.proto\x1a\x1bjanus/v1alpha1/system.proto\"\xbc\x01\n" +
+	"\x1ejanus/v1alpha1/lifecycle.proto\x12\x0ejanus.v1alpha1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1cjanus/v1alpha1/network.proto\x1a\x1bjanus/v1alpha1/system.proto\"\xfa\x01\n" +
 	"\vImageSource\x12\x1c\n" +
 	"\treference\x18\x01 \x01(\tR\treference\x12\x16\n" +
 	"\x06sha256\x18\x02 \x01(\tR\x06sha256\x12A\n" +
 	"\x1dinsecure_skip_signature_check\x18\x03 \x01(\bR\x1ainsecureSkipSignatureCheck\x124\n" +
-	"\x16allow_schematic_change\x18\x04 \x01(\bR\x14allowSchematicChange\"\xd5\x03\n" +
+	"\x16allow_schematic_change\x18\x04 \x01(\bR\x14allowSchematicChange\x12<\n" +
+	"\x1aallow_unsupported_hardware\x18\x05 \x01(\bR\x18allowUnsupportedHardware\"\xd5\x03\n" +
 	"\x0eInstallRequest\x123\n" +
 	"\x06source\x18\x01 \x01(\v2\x1b.janus.v1alpha1.ImageSourceR\x06source\x12\x12\n" +
 	"\x04disk\x18\x02 \x01(\tR\x04disk\x12-\n" +

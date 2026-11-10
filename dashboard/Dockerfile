@@ -37,7 +37,7 @@ RUN set -eu; \
       arm64) arch=aarch64; sum="$DOCKER_COMPOSE_SHA256_ARM64" ;; \
       *) echo "no Docker Compose build for $TARGETARCH" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL -o /docker-compose "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-${arch}"; \
+    curl -fsSL --retry 6 --retry-delay 20 -o /docker-compose "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-${arch}"; \
     echo "${sum}  /docker-compose" | sha256sum -c -; \
     chmod 0755 /docker-compose
 

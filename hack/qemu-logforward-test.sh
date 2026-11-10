@@ -252,7 +252,7 @@ if reader system reboot 2>/dev/null; then fail "a reader rebooted the node"; fi
 audit="$(timeout 5 "$CTL_BIN" -endpoint "127.0.0.1:${P_GRPC}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" system audit || true)"
 grep -qE $'\tSystemService/MetricsConfigSet\tadmin \(os:admin\)\t[0-9.:]+\tOK, [0-9]+ ms$' <<<"$audit" || fail "system audit lacks the admin's change: $audit"
 grep -qE $'\tSystemService/Reboot\tci-reader \(os:reader\)\t[0-9.:]+\trefused: ' <<<"$audit" || fail "system audit lacks the reader's refused reboot: $audit"
-if reader system audit 2>/dev/null | grep -q .; then fail "a reader read the audit"; fi
+if grep -q . <<<"$(reader system audit 2>/dev/null)"; then fail "a reader read the audit"; fi
 wait_received "the reader's refused reboot over TLS, as authpriv" 'm["input"] == "tls" and m["msgid"] == "audit" and m["facility"] == "10" and m["severity"] == "4" and "SystemService/Reboot by ci-reader (os:reader)" in m["msg"] and "refused" in m["msg"]'
 wait_received "the admin's change in the audit over TLS" 'm["input"] == "tls" and m["msgid"] == "audit" and "SystemService/MetricsConfigSet by admin (os:admin)" in m["msg"] and ": OK in " in m["msg"]'
 echo "Part 1b OK: the audit keeps an admin's change and a reader's refused reboot (system audit, admins only), sent as authpriv"

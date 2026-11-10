@@ -154,6 +154,12 @@ check "the banner shows the rescue code" "rescue    .*$CODE" "$(sed 's/\x1b\[[0-
 if window_open; then fail "the window answers through a firewall that shuts 9506"; fi
 halt
 echo "  ok: a rescue volume - the console shows a rescue code; the saved firewall shuts the window"
+# The Controller relays a machine's console to the machine's operators,
+# the code hidden (security review 2026-11-05 #12): this very console,
+# through the Controller's redactors.
+JANUS_CONSOLE_LOG="$LOG" JANUS_CONSOLE_CODE="$CODE" go test ./dashboard/backend -run '^TestRealConsoleCodeHidden$' -count=1 -v >"$WORKDIR/redact.out" 2>&1 || { cat "$WORKDIR/redact.out" >&2; fail "the Controller relays this console with its rescue code"; }
+grep -q -- "--- PASS: TestRealConsoleCodeHidden" "$WORKDIR/redact.out" || { cat "$WORKDIR/redact.out" >&2; fail "the console redaction test didn't run"; }
+echo "  ok: the Controller relays this console without its rescue code ($(grep -o 'hidden [0-9]* times' "$WORKDIR/redact.out"))"
 
 # --- -skip-firewall: rescued, then bob's fleet ---
 boot "$WORKDIR/rescue-skip.iso"

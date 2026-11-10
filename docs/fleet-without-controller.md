@@ -100,8 +100,10 @@ janusctl reaches the node's pairing window (port 9506; `-pairing
 HOST:PORT` elsewhere), checks the certificate it presents against the
 code before it sends anything, then gives it the fleet: the node trusts
 it from then on, and its window closes. A mistyped code is caught by
-janusctl; five wrong ones close the window until the node restarts,
-which shows a new code. The code is good once and nothing else: there's
+janusctl; five wrong ones from one address pause that address. The
+window's code is renewed every hour while it waits - read the console
+again if janusctl says the certificate isn't the one the code names.
+The code is good once and nothing else: there's
 nothing to keep ([the pairing window](internals/trust.md#the-pairing-window)).
 
 Each node logs what the fleet's certificates do as theirs: `api:

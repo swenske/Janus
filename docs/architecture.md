@@ -447,11 +447,19 @@ derives STATE, the ESP and the other slot from it as before;
 mounts the new disk's `BOOT-A-*` instead of its own. One consequence: one
 Janus installation per machine - two would carry the same labels.
 
-The x86 kernel carries what common servers and PCs need: SMP (512 CPUs),
-x2APIC with interrupt remapping, NUMA, MSI-X; AHCI, NVMe, USB storage,
-virtio-scsi, pvscsi, MegaRAID, mpt3sas, SmartPQI; Intel (e1000 to i40e),
-Realtek r8169, Broadcom tg3/bnxt, Mellanox mlx5 and vmxnet3 NICs - none
-needs a firmware file, none is shipped. The console is the screen (EFI
+The x86 kernel is built for KVM/QEMU virtual machines - every image
+Janus publishes is one's: Proxmox, libvirt, the Controller's machines.
+SMP (512 CPUs), x2APIC, NUMA, MSI-X, CPU and memory hot-plug;
+virtio-blk, virtio-scsi, AHCI and PIIX disks; virtio-net and Intel
+e1000/e1000e NICs - none needs a firmware file, none is shipped. A
+physical machine's or VMware's devices need a kernel of their own,
+which comes back with their targets
+([suspended](internals/image-build.md#suspended-targets)). Each
+image's `image.json` names the drivers its kernel has for disks and
+NICs (`variants.mk`'s `KERNEL_DRIVERS`): Upgrade and Install refuse an
+image whose kernel can't drive the node's disk or NICs - a kernel that
+can't see its root filesystem never gets far enough to roll back. The
+console is the screen (EFI
 framebuffer) and the serial port: `rootfs/init` copies userspace output
 - janusd's motd and pairing code included - to `/dev/tty0`,
 best effort, never holding the serial console back; not on an image

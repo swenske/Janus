@@ -6,7 +6,9 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
@@ -97,6 +99,12 @@ func registerClusterRoutes(mux *http.ServeMux, node *store.Node) {
 	})
 	mux.HandleFunc("GET /api/cluster", cl(func(ctx context.Context, c janusv1alpha1.ClusterServiceClient) (any, error) {
 		in, err := c.ClusterGet(ctx, &emptypb.Empty{})
+		if status.Code(err) == codes.Unimplemented {
+			// A node too old to have clusters is in none - not a 501 the
+			// browser logs as an error on each of its pages (v2026.11.09's
+			// lab campaign, a v2026.10.21 node).
+			return clusterMembership{Managed: []string{}, Members: []string{}}, nil
+		}
 		if err != nil {
 			return nil, err
 		}

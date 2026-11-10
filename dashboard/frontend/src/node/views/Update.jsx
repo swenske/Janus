@@ -24,7 +24,7 @@ const FILES = [
 ]
 
 export default function Update({ route = '' }) {
-  const { check, overview } = useNodeStatus()
+  const { check, overview, reload: reloadStatus } = useNodeStatus()
   // How the bundle reaches the node, remembered per browser: "url" (the
   // node downloads it), "relay" (the Controller downloads it and pushes
   // it to the node), "upload" (files from this computer).
@@ -215,8 +215,16 @@ export default function Update({ route = '' }) {
       reboot_mode: kexec ? 'kexec' : 'firmware',
     }
     const result = await run(async () => {
-      if (mode === 'url') return postJSON('/api/lifecycle/upgrade-url', { reference, sha256: sha, ...health })
-      if (mode === 'relay') return relayUpgrade({ reference, sha256: sha, ...health }, setRelay)
+      // Each mode streams the node's messages as they come (NDJSON) - a
+      // download asked again after a 504 shows while it waits.
+      if (mode === 'url')
+        return streamUpgrade(
+          '/api/lifecycle/upgrade-url',
+          { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reference, sha256: sha, ...health }) },
+          setRelay,
+        )
+      if (mode === 'relay')
+        return streamUpgrade('/api/lifecycle/upgrade-relay', { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reference, sha256: sha, ...health }) }, setRelay)
       const form = new FormData()
       for (const f of FILES) form.append(f.field, files[f.field])
       form.append('sha256', sha)
@@ -225,11 +233,14 @@ export default function Update({ route = '' }) {
       form.append('insecure_skip_signature_check', String(allowUnsigned))
       form.append('allow_schematic_change', String(allowSchematic))
       form.append('reboot_mode', health.reboot_mode)
-      const resp = await fetch(apiURL('/api/lifecycle/upgrade-upload'), { method: 'POST', body: form })
-      if (!resp.ok) throw new ApiError((await resp.text()).trim(), resp.status)
-      return resp.json()
+      return streamUpgrade('/api/lifecycle/upgrade-upload', { body: form }, setRelay)
     })
     setRelay(null)
+    // A refusal can leave the other slot holding part of the release
+    // (slot A now holds it, and Rollback won't switch to it): read it
+    // again rather than show the slot as it was (v2026.11.09-3's lab
+    // campaign).
+    if (!result) reloadStatus()
     if (result) {
       // The node's last word says how it reboots: through kexec, or
       // through the firmware and why it couldn't kexec.
@@ -1009,12 +1020,13 @@ function Preparation({ prep }) {
   )
 }
 
-// relayUpgrade runs POST /api/lifecycle/upgrade-relay, passing each
-// progress line it streams (NDJSON) to onProgress; the last line says
-// whether it worked.
-async function relayUpgrade(body, onProgress) {
-  const resp = await fetch(apiURL('/api/lifecycle/upgrade-relay'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+// streamUpgrade POSTs an update to path asking for NDJSON, passing each
+// progress line to onProgress; the last line says whether it worked. A
+// refusal before the node's first message is a plain error.
+async function streamUpgrade(path, init, onProgress) {
+  const resp = await fetch(apiURL(path), { method: 'POST', ...init, headers: { ...(init.headers || {}), Accept: 'application/x-ndjson' } })
   if (!resp.ok) throw new ApiError((await resp.text()).trim(), resp.status)
+  if (!(resp.headers.get('Content-Type') || '').includes('ndjson')) return resp.json()
   const reader = resp.body.getReader()
   const decoder = new TextDecoder()
   let buf = ''

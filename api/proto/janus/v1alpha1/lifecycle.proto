@@ -79,6 +79,14 @@ message ImageSource {
   // node built with an extension must not lose it to an update built
   // without it. See docs/image-factory.md.
   bool allow_schematic_change = 4;
+  // Accept a bundle whose kernel has no driver for this node's boot disk
+  // (Install: the target disk) or for one of its network interfaces - as
+  // its image.json's kernel.drivers says (internal/hwsupport); a bundle
+  // that names no drivers isn't checked. Off, Upgrade and Install refuse
+  // it: the kernel would wait for its disk forever, with nothing on the
+  // node left to roll it back, or the node would lose that network. Only
+  // for a machine whose devices change before it boots the release.
+  bool allow_unsupported_hardware = 5;
 }
 
 message InstallRequest {

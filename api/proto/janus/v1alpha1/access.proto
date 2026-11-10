@@ -23,8 +23,10 @@ service AccessService {
   rpc TrustSet(TrustSetRequest) returns (TrustState);
 
   // Forgets the fleet: its certificates no longer let anyone in. Only a
-  // certificate of the node's own CA may do it - the way back when a
-  // fleet is lost, never for the fleet itself.
+  // certificate the node's own CA issued at its console - a rescue
+  // certificate - may do it: the way back when a fleet is lost, never
+  // for the fleet itself, nor for a certificate the node issued through
+  // its API.
   rpc TrustReset(google.protobuf.Empty) returns (TrustState);
 
   // Replaces the node's own CA: a new CA, server certificate and admin

@@ -19,8 +19,8 @@ const NODE_DOCS = 'https://janus.sw-servers.net/docs/consul.md#from-the-controll
 const SERVICES = [
   ['janus', 'janus', "janusd's API (:9505)"],
   ['exporters', 'janus-exporter, node-exporter', 'the exporters, for Prometheus'],
-  ['frontends', 'haproxy-<frontend>', 'each frontend and listen section'],
-  ['urls', 'haproxy-url', 'each host its maps and Host ACLs route - for a blackbox probe'],
+  ['frontends', 'haproxy-<cluster>-<frontend>', 'each frontend and listen section - named after the node\'s cluster, or the node alone'],
+  ['urls', 'haproxy-<cluster>-url', 'each host its maps and Host ACLs route - for a blackbox probe'],
 ]
 
 function Field({ label, children, grow, className = '' }) {
@@ -291,6 +291,12 @@ agent_prefix ""   { policy = "read" }`}</pre>
                     <td className="num">{n.state === 'applied' || n.urls ? n.urls : '-'}</td>
                     <td className="mono small" title={n.token_accessor ? `accessor ${n.token_accessor}` : undefined}>
                       {n.token_accessor ? `${n.token_accessor.slice(0, 8)}…` : '-'}
+                      {n.scope && <div className="muted">writes haproxy-{n.scope}-…</div>}
+                      {n.legacy && (
+                        <div title="Its release doesn’t name its HAProxy services after its scope yet: its token may still write any haproxy-… service, until the node is updated.">
+                          <Badge tone="warn">and any haproxy-…</Badge>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}

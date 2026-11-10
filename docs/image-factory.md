@@ -92,7 +92,10 @@ Each image says what it is built with, in `/usr/lib/janus/image.json` on
 its read-only rootfs (protected by dm-verity like the rest): the node
 reports it - `janusctl version` shows its HAProxy (version, branch,
 pinned or the release's default) and kernel track, the Controller shows
-them, and the node's metrics export them (`janus_component_info`).
+them, and the node's metrics export them (`janus_component_info`). It
+also says what the kernel drives (`kernel.drivers`, from `variants.mk`):
+an update whose kernel has no driver for a node's boot disk or network
+interfaces is refused ([updates](guide/updates.md#with-janusctl)).
 
 Only amd64 images can be built with a HAProxy branch or kernel track other
 than the defaults; Raspberry Pi images come with the defaults - and are

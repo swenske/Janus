@@ -85,12 +85,12 @@ ARG AWSLC_SHA256
 ARG ZLIB_VERSION
 ARG ZLIB_SHA256
 RUN test -n "${AWSLC_SHA256}" \
-    && curl -fsSLo aws-lc-${AWSLC_VERSION}.tar.gz \
+    && curl --retry 6 --retry-delay 20 -fsSLo aws-lc-${AWSLC_VERSION}.tar.gz \
        "https://github.com/aws/aws-lc/archive/refs/tags/v${AWSLC_VERSION}.tar.gz" \
     && echo "${AWSLC_SHA256}  aws-lc-${AWSLC_VERSION}.tar.gz" | sha256sum -c - \
     && tar xf aws-lc-${AWSLC_VERSION}.tar.gz
 RUN test -n "${ZLIB_SHA256}" \
-    && curl -fsSLO "https://zlib.net/fossils/zlib-${ZLIB_VERSION}.tar.gz" \
+    && curl -fsSLO --retry 6 --retry-delay 20 "https://zlib.net/fossils/zlib-${ZLIB_VERSION}.tar.gz" \
     && echo "${ZLIB_SHA256}  zlib-${ZLIB_VERSION}.tar.gz" | sha256sum -c - \
     && tar xf zlib-${ZLIB_VERSION}.tar.gz
 
@@ -109,7 +109,7 @@ RUN test -n "${HAPROXY_SHA256}" \
     && for url in "https://www.haproxy.org/download/${branch}/src/$f" \
         "https://distfiles.gentoo.org/distfiles/${gentoo}/$f" \
         "http://distcache.freebsd.org/ports-distfiles/$f"; do \
-        if curl -fsSL --connect-timeout 20 -o "$f" "$url" \
+        if curl -fsSL --retry 6 --retry-delay 20 --connect-timeout 20 -o "$f" "$url" \
             && echo "${HAPROXY_SHA256}  $f" | sha256sum -c -; then \
             break; \
         fi; \

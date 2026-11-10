@@ -231,7 +231,10 @@ var commands = &command{name: "janusctl", subs: []*command{
 			valFlag("collectors", "A,B", "the collectors to run", argNone),
 		}},
 		{name: "state", help: "the node's state carried to its replacement (docs/guide/replacing-a-node.md)", subs: []*command{
-			{name: "export", args: "FILE|-", help: "the node's configuration, certificates and keys, network: a tar to import on its replacement", flags: []flagDef{boolFlag("identity", "the node's CA and keys too: the replacement is this node to its clients")}, pos: []argKind{argFile}, required: 1},
+			{name: "export", args: "FILE|-", help: "the node's configuration, certificates and keys, network: a tar to import on its replacement", flags: []flagDef{
+				boolFlag("identity", "the node's CA and keys too: the replacement is this node to its clients"),
+				valFlag("kit", "KIT", "with -identity: the fleet's recovery kit - the identity goes only to a certificate the fleet's root itself signs, or the node's own CA", argFile),
+			}, pos: []argKind{argFile}, required: 1},
 			{name: "import", args: "FILE|- | -from NODE", help: "take another node's state - from a file, a pipe, or pulled from the node itself -, then restart into it; the node must be unused", flags: []flagDef{
 				boolFlag("identity", "take the exported node's identity: its credentials work here, this node's own stop"),
 				boolFlag("network", "the exported network configuration too: the node takes the other's addresses"),
@@ -242,6 +245,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 				valFlag("from-ca", "FILE", "with -from HOST:PORT: the other node's CA (default: -ca)", argFile),
 				valFlag("from-cert", "FILE", "with -from HOST:PORT: an admin certificate of the other node (default: -cert)", argFile),
 				valFlag("from-key", "FILE", "with -from HOST:PORT: its key (default: -key)", argFile),
+				valFlag("kit", "KIT", "with -from and -identity: the fleet's recovery kit - the other node grants its identity only to a certificate the fleet's root itself signs, or its own CA", argFile),
 			}, pos: []argKind{argFile}},
 		}},
 		{name: "sysctl", help: "kernel parameters: HAProxy's on trial, the CIS benchmark's read-only (docs/guide/kernel-tuning.md)", subs: []*command{
@@ -523,6 +527,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 			valFlag("registration-token", "TOKEN", "a Controller enrollment token", argNone),
 			valFlag("logs-size-mb", "MIB", "the LOGS partition's size (-1: none; default 5 % of the disk)", argNone),
 			boolFlag("insecure-skip-signature-check", "accept unsigned UKIs - development only"),
+			boolFlag("allow-unsupported-hardware", "accept a kernel without a driver for the disk or a network interface"),
 		}, pos: []argKind{argRemote, argRemote}, required: 2},
 		{name: "upgrade", args: "BUNDLE_DIR|URL", help: "write a release to the inactive slot and reboot into it", flags: []flagDef{
 			valFlag("sha256", "HEX", "rootfs.squashfs's expected SHA-256", argNone),
@@ -530,6 +535,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 			valFlag("health-timeout", "SECONDS", "how long it has to be healthy", argNone),
 			boolFlag("insecure-skip-signature-check", "accept unsigned UKIs - development only"),
 			boolFlag("allow-schematic-change", "accept another image schematic"),
+			boolFlag("allow-unsupported-hardware", "accept a kernel without a driver for the boot disk or a network interface"),
 			boolFlag("kexec", "reboot into the new slot without the firmware (seconds, not a POST)"),
 		}, pos: []argKind{argRemote}, required: 1},
 		{name: "rollback", help: "boot the other slot"},

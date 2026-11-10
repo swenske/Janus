@@ -339,6 +339,12 @@ func (p Provider) Evaluate(groups []string) auth.SSOAccess {
 	return a
 }
 
+// TrustedAsIs reports whether p's sign-ins stand for the second factor
+// without the ID token saying so: MFAProvider mode, no ACR nor AMR asked.
+func (p Provider) TrustedAsIs() bool {
+	return p.MFA == MFAProvider && len(p.ACR) == 0 && len(p.AMR) == 0
+}
+
 // MFAMet reports whether a sign-in's ID token stands for its second
 // factor: p in MFAProvider mode, trusting the provider as is (no ACR nor
 // AMR asked) or the token carrying one of them.

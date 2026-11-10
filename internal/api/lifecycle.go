@@ -56,6 +56,11 @@ type Lifecycle struct {
 	HAProxy *haproxy.Manager
 	// Version is janusd's: Upgrade says how a bundle compares to it.
 	Version string
+	// CheckHardware: this janusd runs a node (-manage-host) - Upgrade and
+	// Install refuse a release whose kernel can't drive its disk or
+	// network interfaces (checkHardware). Off on a host janusd only runs
+	// on (tests), whose devices are no node's.
+	CheckHardware bool
 }
 
 // Upgrade writes no more than the target partition holds (its real
@@ -144,13 +149,9 @@ func fetchBundleFile(ctx context.Context, bundleRef, filename string, maxBytes i
 		url := strings.TrimSuffix(bundleRef, "/") + "/" + filename
 		fetchCtx, cancel := context.WithTimeout(ctx, upgradeFetchTimeout)
 		defer cancel()
-		req, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, url, nil)
+		resp, err := getRetrying(fetchCtx, url)
 		if err != nil {
-			return nil, fmt.Errorf("build request for %s: %w", url, err)
-		}
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("GET %s: %w", url, err)
+			return nil, err
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode == http.StatusNotFound {
@@ -256,7 +257,8 @@ func checkSchematic(src *janusv1alpha1.ImageSource, nodeCmdline string, uki []by
 // rootfs/init/main.go for the same parsing applied to finding STATE
 // instead.
 type bootContext struct {
-	disk        string
+	disk        string // the partitions' prefix (vda, nvme0n1p)
+	wholeDisk   string // the disk itself (vda, nvme0n1)
 	currentSlot string
 	targetSlot  string
 	espDevice   string
@@ -267,7 +269,12 @@ func resolveBootContext() (*bootContext, error) {
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "read /proc/cmdline: %v", err)
 	}
-	dataDev, ok := bootslot.DataDevice(string(cmdline))
+	return bootContextOf(string(cmdline))
+}
+
+// bootContextOf is the boot context a kernel command line says.
+func bootContextOf(cmdline string) (*bootContext, error) {
+	dataDev, ok := bootslot.DataDevice(cmdline)
 	if !ok {
 		return nil, status.Errorf(codes.FailedPrecondition, "couldn't find a dm-mod.create= verity data device in /proc/cmdline - not booted from a recognized A/B image")
 	}
@@ -279,12 +286,14 @@ func resolveBootContext() (*bootContext, error) {
 	if !ok {
 		return nil, status.Errorf(codes.Internal, "couldn't derive the disk from root device %q", dataDev)
 	}
+	whole, _ := bootslot.WholeDisk(dataDev)
 	espDev, ok := bootslot.ESPDevice(dataDev)
 	if !ok {
 		return nil, status.Errorf(codes.Internal, "couldn't derive the ESP device from root device %q", dataDev)
 	}
 	return &bootContext{
 		disk:        disk,
+		wholeDisk:   whole,
 		currentSlot: current,
 		targetSlot:  bootslot.OtherSlot(current),
 		espDevice:   espDev,
@@ -403,8 +412,10 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 		return status.Errorf(codes.InvalidArgument, "source.reference is required - a local release bundle directory or an http(s):// URL (see image/release/assemble.sh)")
 	}
 
-	send := func(stage string, progress float64, message string) error {
-		return stream.Send(&janusv1alpha1.UpgradeResponse{Stage: stage, Progress: progress, Message: message})
+	stage, progress := "verifying", 0.0
+	send := func(st string, p float64, message string) error {
+		stage, progress = st, p
+		return stream.Send(&janusv1alpha1.UpgradeResponse{Stage: st, Progress: p, Message: message})
 	}
 
 	unlock, err := lockSlots()
@@ -417,7 +428,9 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 		return err
 	}
 
-	ctx := stream.Context()
+	// A download asked again (GitHub answering 504) is said where the
+	// update stands.
+	ctx := withFetchNotice(stream.Context(), func(msg string) { _ = send(stage, progress, msg) })
 	verb := "reading"
 	if strings.HasPrefix(bundleRef, "http://") || strings.HasPrefix(bundleRef, "https://") {
 		verb = "downloading"
@@ -544,9 +557,25 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 	// is installed all the same (going back is allowed), but never
 	// without saying so.
 	image, imageErr := readSlotImage(targetDataDev)
+	// Its kernel must drive this machine: a kernel without the boot
+	// disk's driver never gets as far as init, so nothing on the node
+	// could roll it back.
+	// The disk itself: an NVMe disk's partitions are nvme0n1p<N>, its
+	// sysfs entry nvme0n1 (v2026.11.09's lab campaign: "can't tell...
+	// lstat /sys/block/nvme0n1p").
+	hardware, err := l.checkHardware(req.GetSource(), image, bc.wholeDisk)
+	if err != nil {
+		slotWritten(bc.targetSlot, nil, errors.New("holds a release whose kernel can't drive this machine"), false)
+		return status.Errorf(status.Code(err), "%s - slot %s now holds it, and Rollback won't switch to it", status.Convert(err).Message(), bc.targetSlot)
+	}
 	slotWritten(bc.targetSlot, image, imageErr, false)
 	if err := send("verifying", 0.45, describeImage(image, imageErr, l.Version)); err != nil {
 		return err
+	}
+	if hardware != "" {
+		if err := send("verifying", 0.46, "rootfs.squashfs: "+hardware); err != nil {
+			return err
+		}
 	}
 
 	if err := send("writing-hash", 0.5, fmt.Sprintf("writing rootfs.verity to slot %s (%s)", bc.targetSlot, targetHashDev)); err != nil {

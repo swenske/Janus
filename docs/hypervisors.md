@@ -736,7 +736,11 @@ On the machine's card, and on its node's card:
 - **Console**: the serial console, read-only (a node has no shell),
   from the moment it's opened. Private keys are hidden - an older
   node's first boot printed its admin credential there -: the Controller
-  never holds a node's admin credential, even passing through. Every
+  never holds a node's admin credential, even passing through. So are
+  pairing and rescue codes: a rescue code is an admin certificate of the
+  node's own CA for whoever types it first, and the console is the
+  machine operators' - read it on the hypervisor's own console
+  ([recovery](guide/recovery.md#neither)). Every
   page showing it - and the Controller, while a node registers - shares
   one console. A console already open on the host (`virsh console`)
   keeps it.

@@ -73,6 +73,25 @@ type sourceFails struct {
 	seen  time.Time
 }
 
+// Renewal is how often janusd gives an open pairing window a new
+// certificate and code: the code's 59 bits name the certificate, and
+// whoever wants another certificate with the same 59 bits has that long
+// to find one (security review 2026-11-05 #28). A rescue window lives
+// half an hour anyway.
+const Renewal = time.Hour
+
+// Renew gives an open window a new secret (the new code's): the old
+// one no longer opens it, and the sources it paused start afresh.
+func (w *Window) Renew(secret []byte) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.why != "" {
+		return
+	}
+	w.secret = append([]byte(nil), secret...)
+	w.fails = nil
+}
+
 // NewWindow opens a window for secret (Code.SecretBytes), for lifetime -
 // 0: until it's closed.
 func NewWindow(secret []byte, lifetime time.Duration) *Window {

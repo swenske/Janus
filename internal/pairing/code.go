@@ -11,8 +11,10 @@
 // Twenty Crockford base32 symbols, 100 bits: the first 59 bits of the
 // window certificate's SHA-256 - a client checks the certificate the
 // node presents against them before it sends anything (finding another
-// key whose certificate has the same 59 bits takes 2^59 tries, the
-// window lasts until the node restarts) -, then a 36-bit secret - the
+// key whose certificate has the same 59 bits takes 2^59 tries: janusd
+// renews an open pairing window's certificate and code every Renewal,
+// so that work has an hour, not the window's whole life) -, then a
+// 36-bit secret - the
 // proof that the client read the console, five wrong ones closing the
 // window -, then a 5-bit check that catches a mistyped code before it
 // costs a try. The code is new at each start, kept in memory only, and

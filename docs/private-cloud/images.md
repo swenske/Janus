@@ -82,7 +82,7 @@ how the factory builds an image.
   certificate is enrolled in the firmware
   ([Secure Boot](../guide/secure-boot.md)); every update a node installs
   is signed and checked either way.
-- **One disk** (virtio, SCSI, SATA, NVMe): the image's own layout - an
+- **One disk** (virtio-blk, virtio-scsi, SATA, IDE): the image's own layout - an
   EFI partition, two system slots for A/B updates, and STATE, a small
   partition keeping the node's identity and configuration. The images
   are a few hundred megabytes and need no more: there's nothing to
@@ -97,6 +97,6 @@ how the factory builds an image.
   fingerprint, its pairing code, its registration's errors - is on both the screen
   and the serial port, and the serial one is easier to read and copy
   from.
-- **Network interfaces**: virtio, VMware's vmxnet3, Intel's and
-  Broadcom's common ones, Mellanox ConnectX-4 and later - none needing
-  a firmware file ([physical hardware](../provisioning-a-node.md#physical-hardware)).
+- **Network interfaces**: virtio, or the Intel e1000/e1000e QEMU and
+  Proxmox emulate - the kernel is built for KVM/QEMU virtual machines
+  ([physical hardware](../provisioning-a-node.md#physical-hardware)).

@@ -35,7 +35,7 @@ flowchart TB
 
 | Piece | Built by | Notes |
 |---|---|---|
-| The kernel | `make kernel-build` (`kernel/`) | One per kernel track (`variants.mk`): `kernel/configs/janus_<track>_defconfig`, made with `make kernel-menuconfig KERNEL_TRACK=<track>`, never hand-edited, every track's saying what the others' say (`go test ./hack/kconfig`): KSPP hardening, SELinux, dm-verity, nf_tables, the drivers bare metal needs - no firmware files. Janus's own patches (`kernel/patches/`, each one sent upstream) applied to every track. `kernel/built-files-<track>-*.txt` list what each build reads, for the vulnerability checks |
+| The kernel | `make kernel-build` (`kernel/`) | One per kernel track (`variants.mk`): `kernel/configs/janus_<track>_defconfig`, made with `make kernel-menuconfig KERNEL_TRACK=<track>`, never hand-edited, every track's saying what the others' say (`go test ./hack/kconfig`): KSPP hardening, SELinux, dm-verity, nf_tables, no io_uring (nothing on a node uses it), the devices of a KVM/QEMU virtual machine (`variants.mk`'s `KERNEL_DRIVERS`, in each image's `image.json`) - no firmware files. Janus's own patches (`kernel/patches/`, each one sent upstream) applied to every track. `kernel/built-files-<track>-*.txt` list what each build reads, for the vulnerability checks |
 | HAProxy | `make haproxy-build` (`pkgs/haproxy`) | One per LTS branch (`variants.mk`, `make haproxy-build-<branch>`), laid onto the base tree as a layer of its own. Static, against musl and [AWS-LC](../haproxy-config.md#tls-aws-lc) built from source, with its Prometheus exporter; no PCRE2, no Lua |
 | janusd, init, janus-acme | `make build`, statically | No C library anywhere in the base system: Go is static |
 | The SELinux policy | `make selinux-policy` (`selinux/`) | Monolithic, hand-written: a domain per daemon, every rule from a real denial |
@@ -119,7 +119,11 @@ builds images automatically leaves it out:
 - They still build by hand: `make vmware-image`, `make
   iso-image-with-bundle`, `make pi4-sdcard-image`...
 
-To lift one, take it off the line - nothing else changes. For
+To lift one, take it off the line - nothing else changes, but for
+`vmware` and `baremetal` the kernel: it is built for KVM/QEMU virtual
+machines (`variants.mk`'s `KERNEL_FLAVOR` virt), without their disks'
+and network cards' drivers - they come back with a kernel of their own,
+whose images name the drivers it has. For
 `raspberry-pi`, first run `make rpi4-kernel-config-refresh
 kernel-built-files` and commit the result: the arm64 kernel config and
 its list of built files aren't refreshed while it's suspended. The next

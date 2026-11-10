@@ -22,7 +22,7 @@ ARG KEEPALIVED_SHA256
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates autoconf automake pkgconf \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
-RUN curl -fsSLO "https://www.keepalived.org/software/keepalived-${KEEPALIVED_VERSION}.tar.gz" \
+RUN curl -fsSLO --retry 6 --retry-delay 20 "https://www.keepalived.org/software/keepalived-${KEEPALIVED_VERSION}.tar.gz" \
     && echo "${KEEPALIVED_SHA256}  keepalived-${KEEPALIVED_VERSION}.tar.gz" | sha256sum -c - \
     && tar xzf "keepalived-${KEEPALIVED_VERSION}.tar.gz" && mv "keepalived-${KEEPALIVED_VERSION}" keepalived
 # What only the tarball has, not the git tag - autotools' outputs, the

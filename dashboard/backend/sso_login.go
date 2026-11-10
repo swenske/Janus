@@ -405,6 +405,14 @@ func (a *app) handleSSOFinish(w http.ResponseWriter, r *http.Request) {
 	}
 	noteAudit(r, u.Name, "sso "+id)
 	providerMFA := p.MFAMet(res.ACR, res.AMR)
+	if providerMFA && p.TrustedAsIs() && (u.HasPassword || u.MFA.Enabled()) {
+		// A provider trusted as is - nothing in its token says a second
+		// factor was given - stands for it only for an account that has
+		// none here: a linked account with a password or a second factor
+		// of its own keeps them, or whoever has the provider's password
+		// would skip both (security review 2026-11-05 #28).
+		providerMFA = false
+	}
 	trusted := !providerMFA && a.trustedSignIn(r, u.Name)
 	if old, err := r.Cookie(sessionCookieName); err == nil {
 		a.auth.Revoke(old.Value) // a new sign-in, a new session

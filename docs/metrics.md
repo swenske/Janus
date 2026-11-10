@@ -89,9 +89,10 @@ collectors - from a fixed list, each one known to work
 on a Janus node. The default ones: `cpu`, `diskstats`, `filefd`,
 `filesystem`, `loadavg`, `meminfo`, `netdev`, `netstat`, `os`,
 `pressure`, `sockstat`, `stat`, `time`, `timex`, `uname`, `vmstat`. More
-can be turned on: `arp`, `conntrack`, `cpufreq`, `dmi`, `entropy`,
-`interrupts`, `netclass`, `nvme`, `softirqs`, `softnet`,
-`thermal_zone`, `udp_queues`.
+can be turned on: `arp`, `conntrack`, `dmi`, `entropy`, `interrupts`,
+`netclass`, `softirqs`, `softnet`, `udp_queues` (`nvme`, `cpufreq` and
+`thermal_zone` no longer: the kernel is a virtual machine's, without
+them, and settings that named one keep the rest).
 
 ```sh
 janusctl system node-exporter                                  # show
@@ -455,11 +456,12 @@ the nodes' dashboard; each links to the other (**Janus dashboards**).
 With the Controller [managing the nodes' Consul agents](guide/consul-controller.md),
 every node registers each exporter it runs, where it really listens: this
 one as `janus-exporter`, `node-exporter` while that extension's service
-runs, `haproxy-exporter` for each frontend serving HAProxy's own - all
-tagged `prometheus`, with meta `metrics_path` and `scheme`. One
-Prometheus job with `consul_sd_configs` filtered on the tag scrapes them
-all, instead of a static list - and the URLs the nodes route,
-`haproxy-url`, go to the blackbox exporter.
+runs, `haproxy-<scope>-exporter` (its cluster, or the node alone) for
+each frontend serving HAProxy's own - all tagged `prometheus`, with meta
+`metrics_path` and `scheme`. One Prometheus job with `consul_sd_configs`
+filtered on the tag scrapes them all, instead of a static list - and the
+URLs the nodes route (`haproxy-<scope>-url`, tags `haproxy` and `url`) go
+to the blackbox exporter.
 The example: [examples/prometheus/consul.yml](../examples/prometheus/consul.yml),
 shown and explained in [the guide](guide/consul-controller.md#prometheus-the-exporters-and-the-urls).
 
