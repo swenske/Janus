@@ -3,7 +3,8 @@
 `ci.yml` runs on GitHub-hosted runners (it must accept fork pull
 requests). Everything that builds or boots images - `image-build.yml`,
 `schematic-build.yml`, `site-deploy.yml` - runs on this project's own
-self-hosted runners, labeled `self-hosted, docker, janus`.
+self-hosted runners, labeled `self-hosted, docker, janus`, and no pull
+request ever runs on them (see "No pull request on these runners").
 
 ## How image-build runs
 
@@ -47,6 +48,44 @@ self-hosted runners, labeled `self-hosted, docker, janus`.
 A full run takes about 26 minutes (run 39236900731, 2026-10-19), the
 longest job 20; 70 and more when a machine's Docker cache lost the kernel
 or a toolchain and a job rebuilds them (see "Disk" below).
+
+## No pull request on these runners
+
+A pull request runs the workflow files of its own head, not `main`'s:
+anyone's fork could point `ci.yml`'s `runs-on` at `[self-hosted,
+janus]` and run its own code on these machines, where the runner's user
+has password-less sudo, the Docker socket, KVM, the lab's network and
+the key that publishes on apt.sw-servers.net. Two locks, so that one
+mistake isn't enough:
+
+- **GitHub asks before running an outsider's workflows**: Settings →
+  Actions → General → "Approval for running fork pull request workflows
+  from contributors" is *Require approval for all external contributors*
+  (since 2026-11-10 - first-time contributors only before). `gh api
+  repos/swenske/Janus/actions/permissions/fork-pr-contributor-approval`
+  shows it.
+- **The runners refuse a pull request's job anyway**, before its first
+  step: a job-started hook, `hack/runner-job-started.sh`, installed
+  root-owned as `/opt/runner-hooks/job-started.sh` and named by each
+  instance's `.env` (`ACTIONS_RUNNER_HOOK_JOB_STARTED`). It lets through
+  this repository's `push` and `workflow_dispatch` jobs only - the
+  triggers of every self-hosted workflow - and fails any other one in
+  "Set up runner", saying why. A new trigger on a self-hosted workflow
+  needs the hook changed first, on every machine. Proven on 2026-11-10
+  with a throwaway workflow (#628): its job ran from a push and was
+  refused from the pull request.
+
+Installing or updating the hook on a machine:
+
+```sh
+scp hack/runner-job-started.sh janus-runnerNN:/tmp/
+ssh janus-runnerNN 'sudo install -D -o root -g root -m 0755 \
+  /tmp/runner-job-started.sh /opt/runner-hooks/job-started.sh'
+```
+
+The runner reads `.env` when it starts: after adding the line to an
+instance, restart its service once it is idle (`pgrep -x Runner.Worker`
+finds nothing).
 
 ## Runner machines
 
@@ -239,8 +278,12 @@ against the release) into `/opt/actions-runner`, `/opt/actions-runner-2`...:
 sudo -u actions-runner ./config.sh --unattended --url https://github.com/swenske/Janus \
   --token <registration token> --name janus-runnerNN[-i] --labels docker,janus --work _work
 printf 'LANG=C\nJANUS_TEST_PORT_OFFSET=%d\nACTIONS_RUNNER_ACTION_ARCHIVE_CACHE=/opt/actionarchivecache\n' <offset> > .env
+echo ACTIONS_RUNNER_HOOK_JOB_STARTED=/opt/runner-hooks/job-started.sh >> .env
 sudo ./svc.sh install actions-runner && sudo ./svc.sh start
 ```
+
+Install the job-started hook before starting the services (see "No pull
+request on these runners").
 
 A registration token comes from `gh api -X POST
 repos/swenske/Janus/actions/runners/registration-token -q .token`.
