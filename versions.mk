@@ -158,7 +158,7 @@ OPENTOFU_SHA256_AMD64 := b34b327cc1ef07178207b6f2cd1f5276537d3e5b7be316500f6dac5
 # Pebble, Let's Encrypt's ACME test server, and its DNS test server: the
 # CA hack/qemu-acme-test.sh issues certificates from (go install'ed at
 # this tag - never shipped in an image).
-PEBBLE_VERSION := v2.10.1
+PEBBLE_VERSION := v2.10.3
 
 # MikroTik RouterOS, its Cloud Hosted Router image: the router
 # hack/routeros-hook-test.sh boots under QEMU for a cluster's RouterOS
