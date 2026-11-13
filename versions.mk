@@ -143,9 +143,9 @@ RPI5_UEFI_SHA256  := c4fbbec9cd0d1115c9adab884923061b960de42b4ca6d65ba5f08cb6b46
 # for janus-controller-updater (dashboard/updater), which updates the
 # Controller with it - checked against the release's own .sha256 assets
 # (github.com/docker/compose/releases).
-DOCKER_COMPOSE_VERSION      := v5.7.0
-DOCKER_COMPOSE_SHA256_AMD64 := 7758048ad38e580f22559603312874fec8bb638d021a9e64182385fc17cc12a2
-DOCKER_COMPOSE_SHA256_ARM64 := 15861535d14e26555736b49376c95e14bfd94285366c8446bfac7156a972e76f
+DOCKER_COMPOSE_VERSION      := v5.7.1
+DOCKER_COMPOSE_SHA256_AMD64 := af426722a8af5de812fcee30cc1c39f0639f5f723cbadefb25e5d4db054064cf
+DOCKER_COMPOSE_SHA256_ARM64 := f2f49f903240895fa764c0dca3a14548b754ad9426f6b609ccaf55ec5a3aa2a5
 
 # OpenTofu, which hack/terraform-provider-test.sh drives the Janus
 # Terraform provider (terraform-provider-janus) with - never shipped.
