@@ -1372,6 +1372,40 @@ governor, scaling or pstate line, and after a CPU hot-add; with
 `/sys/devices/system/cpu/cpufreq`'s content. Expected: the warning
 gone, no new line, the boot stages unchanged.
 
+### The Read-only switch
+
+Since v2026.11.13 (#636), in the pinned Chromium against the lab's
+Controller, the admin on the default preferences:
+
+- **the pages**: the Controller's tabs and a node's pages (HAProxy's
+  tabs, power, update, network, kernel parameters, access, the modules'
+  editors, the tools), each opened read-only in a fresh tab, then all
+  again after one click on the switch - the switch's label and the
+  visible buttons listed per page, light and dark, with console and
+  page errors, failed requests and axe; the same list taken on the
+  release first: in Editing the buttons must be the release's, read-only
+  only what reads (Validate, the editors' Check, the connectivity test,
+  the capture, the diagnostic bundle, a cluster's Check now) - a
+  cluster's page while the cluster exists;
+- **Open** from the node list in Editing: the new tab's first address
+  (`?edit=1`), its address once loaded, its switch; and from a
+  read-only list;
+- **Settings › Your pages**: read-write (the delay greyed out), kept
+  after a reload and in another browser context, then back with a
+  short delay;
+- **the delay** with Playwright's clock: idle (just before and after
+  it, the toast), a confirmation open, a kernel parameter on trial on a
+  test machine (cancelled after), and an update followed through the
+  node page with the clock moved past the delay while the slot is
+  written - the page must stay in Editing and follow the update to the
+  end;
+- **roles**: a throwaway reader (no switch) and operator (the switch,
+  their actions in Editing).
+
+The account's preferences are put back and the accounts deleted
+afterwards. Scripts behind a browser that click actions turn the switch
+to Editing first (or set the account's `pages_open`).
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -1669,3 +1703,13 @@ ran:
   asked every 5 s; `sitecheck.mjs`: the factory's public site in both
   themes; `serlog` with `SERFILE=`: a console log put together by hand
   when the host's log daemon rotated it (v2026.11.10).
+- `rocheck NAME MODE` (`rocheck.mjs`; `JAR=` another account's
+  cookies): the Read-only switch - `pages` (`PAGES` JSON, `THEMES`: the
+  switch and the visible buttons per page, read-only then Editing),
+  `open` (`NODE_NAME`), `prefs` (`AFTER`), `timeout` (`NODE`, `AFTER`,
+  `TRIAL=sysctl` with `SYSCTL` and `VALUE`), `role`; `uphold`
+  (`uphold.mjs`): `upage` with Playwright's clock moved past the delay
+  right after the confirmation; `abrun81 N` / `absum81.py`: `cpuab`
+  alternating versions on node 01 by rollbacks, and their means;
+  `rbench-box`: `rbench-short` from the build box while the runner is
+  busy (v2026.11.13).
