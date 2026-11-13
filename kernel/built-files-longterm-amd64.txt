@@ -1486,6 +1486,7 @@ drivers/video/fbdev/core/fb_procfs.c
 drivers/video/fbdev/core/fbcmap.c
 drivers/video/fbdev/core/fbcon.c
 drivers/video/fbdev/core/fbcon.h
+drivers/video/fbdev/core/fbcon_rotate.h
 drivers/video/fbdev/core/fbcvt.c
 drivers/video/fbdev/core/fbmem.c
 drivers/video/fbdev/core/fbmon.c
