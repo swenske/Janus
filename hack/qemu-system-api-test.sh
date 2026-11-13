@@ -114,6 +114,10 @@ expect "Mounts shows the dm-verity root read-only" '^/dev/root \(squashfs\) +/ .
 expect "Mounts shows STATE" '/dev/vda6 \(ext4\) +/etc/\.state ' ctl system mounts
 expect "DiskUsage" '[0-9.]+(B|KiB)'$'\t''/etc/haproxy$' ctl system du /etc/haproxy
 expect "List" 'haproxy\.cfg$' ctl system ls /etc/haproxy
+# init's and shutdown's executables listed with their mode and size like the
+# rest - no "permission denied", no AVC (#640; the denials check below).
+expect "List /sbin stats init" '^-r[-rwx]{8} +[0-9]+ +init$' ctl system ls /sbin
+expect "List /sbin stats shutdown" '^-r[-rwx]{8} +[0-9]+ +shutdown$' ctl system ls /sbin
 expect "Read" '^frontend ' ctl system cat /etc/haproxy/haproxy.cfg
 ctl system cp -o "$WORKDIR/etc-haproxy.tar" /etc/haproxy || fail "Copy failed"
 grep -qx 'haproxy/haproxy.cfg' <<<"$(tar tf "$WORKDIR/etc-haproxy.tar")" || fail "Copy's tar doesn't hold haproxy/haproxy.cfg: $(tar tf "$WORKDIR/etc-haproxy.tar")"
