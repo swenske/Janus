@@ -2,7 +2,8 @@ import { ArrowUpRight, CheckCircle2, Copy, FlaskConical, Loader2, Rocket, Triang
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Card, useConfirm, useToast } from './shared/ui.jsx'
 import { backgroundHeaders } from './call.js'
-import { useCan } from './me.jsx'
+import { useAct, useCan } from './me.jsx'
+import { useHold } from './shared/holds.js'
 import { SecurityBadge } from './SecurityBadge.jsx'
 import { securityText, securityTone } from './severity.js'
 import { fmtDate, fmtDateTime } from './shared/units.js'
@@ -52,6 +53,8 @@ function JobLog({ job }) {
 // Controller's cache of its releases.
 export default function ControllerUpdate({ checkNow = 0 }) {
   const can = useCan()
+  // An install is offered to an admin whose page isn't read-only (#527).
+  const act = useAct()
   const [info, setInfo] = useState(null)
   // 'starting' from the click until the updater reports the job;
   // 'restarting' while the Controller doesn't answer.
@@ -67,6 +70,8 @@ export default function ControllerUpdate({ checkNow = 0 }) {
 
   const job = info?.updater?.job
   const running = phase !== null || job?.state === 'running'
+  // An update under way: the page stays in edit mode until it's over.
+  useHold(running)
 
   const load = useCallback(async (fresh = false) => {
     // During an update, ask whether this session still exists first: the
@@ -275,14 +280,18 @@ export default function ControllerUpdate({ checkNow = 0 }) {
         {!can('admin') ? (
           <div className="muted small">An admin can update it from here.</div>
         ) : updater.reachable && updater.ready ? (
-          <div className="row">
-            <button className="primary" onClick={() => start(latest)}>
-              <Rocket size={15} /> Update to {latest.version}
-            </button>
-            <span className="muted small">
-              Compose project <span className="mono">{updater.project}</span>, service <span className="mono">{updater.service}</span>
-            </span>
-          </div>
+          act('admin') ? (
+            <div className="row">
+              <button className="primary" onClick={() => start(latest)}>
+                <Rocket size={15} /> Update to {latest.version}
+              </button>
+              <span className="muted small">
+                Compose project <span className="mono">{updater.project}</span>, service <span className="mono">{updater.service}</span>
+              </span>
+            </div>
+          ) : (
+            <div className="muted small">Read-only: turn editing on (the header&apos;s switch) to update it from here.</div>
+          )
         ) : (
           <>
             {updater.configured && (
@@ -335,7 +344,7 @@ export default function ControllerUpdate({ checkNow = 0 }) {
             )}
           </>
         )}
-        {can('admin') && <PrereleaseOffer info={info} onInstall={updater.reachable && updater.ready ? (rel) => start(rel, true) : null} />}
+        {can('admin') && <PrereleaseOffer info={info} onInstall={act('admin') && updater.reachable && updater.ready ? (rel) => start(rel, true) : null} />}
       </Card>,
     )
   } else if (info.prerelease && can('admin')) {
@@ -343,7 +352,7 @@ export default function ControllerUpdate({ checkNow = 0 }) {
     // for testing, not something this Controller needs.
     blocks.push(
       <div key="prerelease" className="controller-update">
-        <PrereleaseOffer info={info} onInstall={updater.reachable && updater.ready ? (rel) => start(rel, true) : null} />
+        <PrereleaseOffer info={info} onInstall={act('admin') && updater.reachable && updater.ready ? (rel) => start(rel, true) : null} />
       </div>,
     )
   }

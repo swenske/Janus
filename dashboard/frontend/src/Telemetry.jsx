@@ -4,11 +4,15 @@ import { call, postJSON } from './call.js'
 import { fmtDateTime } from './shared/units.js'
 import { Badge, Card, ErrorBox, useAction, useConfirm } from './shared/ui.jsx'
 import { TELEMETRY_WHY } from './telemetry.js'
+import { useReadOnly } from './me.jsx'
 
 // Telemetry is the Settings card of the usage report (/api/telemetry,
 // admins): on or off, its ID - made again on request, which asks the
 // receiver to forget the old one's reports - and exactly what it sends.
 export default function Telemetry() {
+  // Read-only (the header's switch, #527): the report and its state, no
+  // switch, new ID or sending - the card's badge says on or off.
+  const readOnly = useReadOnly()
   const [view, setView] = useState(null)
   const [error, setError] = useState(null)
   const [busy, run] = useAction()
@@ -43,18 +47,22 @@ export default function Telemetry() {
               Off: this Controller&apos;s environment turns it off (<span className="mono">JANUS_CONTROLLER_TELEMETRY=off</span>).
             </div>
           ) : (
-            <label className="check">
-              <input type="checkbox" checked={view.enabled} disabled={busy} onChange={(e) => toggle(e.target.checked)} />
-              <span>Send the usage report once a day</span>
-            </label>
+            !readOnly && (
+              <label className="check">
+                <input type="checkbox" checked={view.enabled} disabled={busy} onChange={(e) => toggle(e.target.checked)} />
+                <span>Send the usage report once a day</span>
+              </label>
+            )
           )}
           {view.install_id && (
             <div className="row">
               <span className="muted small">ID</span>
               <span className="mono small">{view.install_id}</span>
-              <button className="ghost small" disabled={busy} onClick={regenerate} title="Make a new ID">
-                <RefreshCw size={13} /> New ID
-              </button>
+              {!readOnly && (
+                <button className="ghost small" disabled={busy} onClick={regenerate} title="Make a new ID">
+                  <RefreshCw size={13} /> New ID
+                </button>
+              )}
             </div>
           )}
           {view.enabled && (
@@ -68,7 +76,7 @@ export default function Telemetry() {
             <summary>Exactly what is sent, to {view.url}</summary>
             <pre className="mono small">{JSON.stringify(view.report, null, 2)}</pre>
           </details>
-          {view.enabled && (
+          {view.enabled && !readOnly && (
             <div>
               <button className="small" disabled={busy} onClick={send}>
                 <Send size={13} /> Send now

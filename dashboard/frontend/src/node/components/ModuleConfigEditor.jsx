@@ -30,12 +30,13 @@ export default function ModuleConfigEditor(props) {
   return (
     <>
       {domain && <ClusterLockNotice domain={domain} />}
-      <ModuleConfig {...props} canApply={may(props.applyMethod)} />
+      {/* Check is the apply RPC's validate-only call: kept while read-only. */}
+      <ModuleConfig {...props} canApply={may(props.applyMethod)} canCheck={may(props.applyMethod, 'validate')} />
     </>
   )
 }
 
-function ModuleConfig({ base, file, daemon, starter, applyNote, onApplied, extraBody, extraDirty, extraSummary, canApply }) {
+function ModuleConfig({ base, file, daemon, starter, applyNote, onApplied, extraBody, extraDirty, extraSummary, canApply, canCheck }) {
   const [saved, setSaved] = useState(null) // { config, is_default }
   const [draft, setDraft] = useState('')
   const [loadError, setLoadError] = useState(null)
@@ -134,15 +135,15 @@ function ModuleConfig({ base, file, daemon, starter, applyNote, onApplied, extra
           }}
         />
         <div className="row" style={{ marginTop: '0.8rem', flexWrap: 'wrap' }}>
+          {canCheck && (
+            <button disabled={busy} onClick={doCheck}>
+              <CheckCircle2 size={15} /> Check
+            </button>
+          )}
           {canApply && (
-            <>
-              <button disabled={busy} onClick={doCheck}>
-                <CheckCircle2 size={15} /> Check
-              </button>
-              <button className="primary" disabled={busy || (!dirty && !saved.is_default && !extraDirty) || !draft.trim()} onClick={() => apply(draft)}>
-                <Upload size={15} /> Apply…
-              </button>
-            </>
+            <button className="primary" disabled={busy || (!dirty && !saved.is_default && !extraDirty) || !draft.trim()} onClick={() => apply(draft)}>
+              <Upload size={15} /> Apply…
+            </button>
           )}
           <button disabled={busy || !dirty} onClick={() => setDraft(original || starter)}>
             <RotateCcw size={15} /> Revert

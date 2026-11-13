@@ -2,7 +2,7 @@ import { Clock, Copy, KeyRound, KeySquare, Link2, Plus, RotateCcw, Tags, Trash2,
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { call, postJSON } from './call.js'
-import { DOMAINS, labelString, parseLabels, ROLES, useMe } from './me.jsx'
+import { DOMAINS, labelString, parseLabels, ROLES, useMe, useReadOnly } from './me.jsx'
 import { MFABadge } from './MFA.jsx'
 import { SSOBadge } from './SSO.jsx'
 import { lazyView } from './shared/lazy.jsx'
@@ -197,11 +197,28 @@ function SessionPolicy() {
   const [policy, setPolicy] = useState(null)
   const [error, setError] = useState(null)
   const [busy, run] = useAction()
+  const readOnly = useReadOnly()
   useEffect(() => {
     call('/api/settings').then(setPolicy, setError)
   }, [])
   if (error) return <ErrorBox error={error} />
   if (!policy) return null
+  // Read-only (#527): the policy as it is, nothing to save.
+  if (readOnly)
+    return (
+      <Card title="Sessions" icon={Clock}>
+        <dl className="kv small">
+          <dt>Ends after idle</dt>
+          <dd>{policy.session_idle_minutes} min</dd>
+          <dt>Ends after sign-in at most</dt>
+          <dd>{policy.session_max_hours} h</dd>
+          <dt>A second factor is needed by</dt>
+          <dd>{policy.mfa_required}</dd>
+          <dt>Trust a browser for at most</dt>
+          <dd>{Number(policy.trust_browser_hours) ? `${policy.trust_browser_hours} h` : 'never - the second factor is asked at every sign-in'}</dd>
+        </dl>
+      </Card>
+    )
   const save = async (e) => {
     e.preventDefault()
     const p = await run(
@@ -272,6 +289,8 @@ export default function UsersPage() {
   const [grantsOf, setGrantsOf] = useState(null)
   const [busy, run] = useAction()
   const confirm = useConfirm()
+  // Read-only (#527): the accounts as they are, nothing that changes one.
+  const readOnly = useReadOnly()
 
   const load = useCallback(() => {
     call('/api/users').then((u) => {
@@ -384,7 +403,7 @@ export default function UsersPage() {
         Who may sign in to this Controller. A role applies on the Controller and on the nodes it reaches for the account: each node logs who acted.
       </p>
       {given && <GivenPassword given={given} onClose={() => setGiven(null)} />}
-      {grantsOf && (
+      {grantsOf && !readOnly && (
         <GrantsEditor
           user={grantsOf}
           onClose={() => setGrantsOf(null)}
@@ -394,12 +413,14 @@ export default function UsersPage() {
           }}
         />
       )}
-      <NewAccount
-        onCreated={(u) => {
-          setGiven({ name: u.name, password: u.password })
-          load()
-        }}
-      />
+      {!readOnly && (
+        <NewAccount
+          onCreated={(u) => {
+            setGiven({ name: u.name, password: u.password })
+            load()
+          }}
+        />
+      )}
       <ErrorBox error={error} />
       {users && (
         <Card title="Accounts" icon={Users}>
@@ -435,6 +456,8 @@ export default function UsersPage() {
                         <span title={`What ${u.sso.provider}'s rules give its groups: ${u.sso.groups.join(', ') || 'none'}`}>
                           <Badge tone={roleTone(u.role)}>{u.role || 'none'}</Badge>
                         </span>
+                      ) : readOnly ? (
+                        <Badge tone={roleTone(u.role)}>{u.role || 'none'}</Badge>
                       ) : (
                       <select
                         value={u.role || 'none'}
@@ -456,7 +479,7 @@ export default function UsersPage() {
                           {grantSummary(g)}
                         </div>
                       ))}
-                      {!u.sso && (
+                      {!u.sso && !readOnly && (
                         <button className="ghost small" onClick={() => setGrantsOf(u)} disabled={busy} title="Roles on the nodes whose labels match">
                           <Tags size={13} /> {u.grants.length ? 'Edit' : 'Grants'}
                         </button>
@@ -476,15 +499,19 @@ export default function UsersPage() {
                       {u.ssh_keys?.length > 0 ? (
                         <span title={u.ssh_keys.map((k) => `${k.name} - ${k.fingerprint}`).join('\n')}>
                           <KeySquare size={12} /> {u.ssh_keys.length}{' '}
-                          <button className="ghost small danger" onClick={() => revokeKeys(u)} disabled={busy} title="A lost laptop: janusctl signs in with none of them">
-                            Revoke
-                          </button>
+                          {!readOnly && (
+                            <button className="ghost small danger" onClick={() => revokeKeys(u)} disabled={busy} title="A lost laptop: janusctl signs in with none of them">
+                              Revoke
+                            </button>
+                          )}
                         </span>
                       ) : (
                         <span className="muted">–</span>
                       )}
                     </td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {!readOnly && (
+                      <>
                       {u.has_password && (
                         <button className="ghost small" onClick={() => reset(u)} disabled={busy} title="A new password to hand over">
                           <RotateCcw size={14} /> Reset password
@@ -506,6 +533,8 @@ export default function UsersPage() {
                       <button className="ghost small danger" onClick={() => remove(u)} disabled={busy}>
                         <Trash2 size={14} /> Delete
                       </button>
+                      </>
+                      )}
                     </td>
                   </tr>
                 ))}

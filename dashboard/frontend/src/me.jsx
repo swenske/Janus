@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react'
+import { useEditing } from './shared/editing.js'
 
 // Who the page is signed in as, and what that account's role lets it do -
 // the Controller checks it on every request anyway: this only hides what
@@ -33,10 +34,34 @@ export function atLeast(role, need) {
 }
 
 // useCan answers whether the account may do what needs a role over
-// everything.
+// everything - what it may see: tabs, cards. An action asks useAct.
 export function useCan() {
   const me = useMe()
   return (need) => atLeast(me.role, need)
+}
+
+// changesAnything reports whether the account may change anything from
+// the pages: an operator or an admin, or a grant above reader - else the
+// Read-only switch (#527) has nothing to hide and isn't shown.
+export function changesAnything(me) {
+  return atLeast(me.role, 'operator') || (me.grants || []).some((g) => atLeast(g.role, 'operator'))
+}
+
+// useReadOnly reports whether the page is read-only: the header's switch
+// is on, for an account that may change something.
+export function useReadOnly() {
+  const me = useMe()
+  const { editing } = useEditing()
+  return changesAnything(me) && !editing
+}
+
+// useAct answers whether the page offers an action that needs a role
+// over everything: the account has it, and the page isn't read-only.
+// Hidden then, not greyed out (docs/controller-ui.md "Read-only mode").
+export function useAct() {
+  const me = useMe()
+  const readOnly = useReadOnly()
+  return (need) => !readOnly && atLeast(me.role, need)
 }
 
 // labelString is labels as "key=value, ..." in key order.

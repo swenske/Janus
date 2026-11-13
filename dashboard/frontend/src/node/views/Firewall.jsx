@@ -9,6 +9,7 @@ import { useMay } from '../may.js'
 import Module from './Module.jsx'
 import { fmtTime } from '../../shared/units.js'
 import { ClusterLockNotice } from '../components/ClusterLock.jsx'
+import { useHold } from '../../shared/holds.js'
 
 // Its page on the docs site, by the file's permalink.
 const DOCS = 'https://janus.sw-servers.net/docs/firewall.md'
@@ -43,6 +44,8 @@ export default function Firewall() {
   const status = usePoll('/api/network/firewall', { every: 5000 })
   const [tab, setTab] = useState('ruleset')
   const st = status.data
+  // A ruleset on trial: the page stays in edit mode until it's settled.
+  useHold(!!st?.trial_pending)
   const left = useCountdown(st?.trial_pending ? st.trial_revert_at_unix : 0)
   const [busy, run] = useAction()
   const may = useMay()
@@ -126,7 +129,10 @@ function RulesetEditor({ onApplied }) {
   const [result, setResult] = useState(null)
   const [busy, run] = useAction()
   const confirm = useConfirm()
-  const canApply = useMay()('NetworkService/FirewallApplyRuleset')
+  const may = useMay()
+  const canApply = may('NetworkService/FirewallApplyRuleset')
+  // Check is the apply RPC's validate-only call: kept while read-only.
+  const canCheck = may('NetworkService/FirewallApplyRuleset', 'validate')
   const toast = useToast()
 
   const load = async () => {
@@ -232,11 +238,13 @@ function RulesetEditor({ onApplied }) {
           }}
         />
         <div className="row" style={{ marginTop: '0.8rem', flexWrap: 'wrap' }}>
+          {canCheck && (
+            <button disabled={busy} onClick={doCheck}>
+              <CheckCircle2 size={15} /> Check
+            </button>
+          )}
           {canApply && (
             <>
-              <button disabled={busy} onClick={doCheck}>
-                <CheckCircle2 size={15} /> Check
-              </button>
               <button className="primary" disabled={busy || (!dirty && !saved.is_default) || !draft.trim()} onClick={() => apply(draft, 'Apply this ruleset?')}>
                 <Upload size={15} /> Apply…
               </button>

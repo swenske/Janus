@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { call, postJSON } from './call.js'
 import { Badge, Card, ErrorBox, useAction, useConfirm } from './shared/ui.jsx'
 import { fmtDate } from './shared/units.js'
+import { useReadOnly } from './me.jsx'
 
 // The certificate the Controller's page is served with
 // (dashboard/backend/controller_tls.go): its own self-signed identity by
@@ -98,6 +99,10 @@ function Identity({ identity }) {
 }
 
 export default function HTTPSCertificate() {
+  // Read-only (the header's switch, #527): no Replace or Back to
+  // self-signed; a form left open keeps its text and its Check - a
+  // validation, nothing served -, not its "Serve it".
+  const readOnly = useReadOnly()
   const [info, setInfo] = useState(null)
   const [error, setError] = useState(null)
   const [open, setOpen] = useState(false)
@@ -212,7 +217,7 @@ export default function HTTPSCertificate() {
                 <button type="button" onClick={() => (setEditing(false), setBundle(''), setCandidate(null))}>
                   Cancel
                 </button>
-                {candidate ? (
+                {candidate && !readOnly ? (
                   <button type="button" className="primary" onClick={serve} disabled={busy}>
                     <Upload size={15} /> Serve it
                   </button>
@@ -224,16 +229,18 @@ export default function HTTPSCertificate() {
               </div>
             </form>
           ) : (
-            <div className="row">
-              <button className="small" onClick={() => setEditing(true)}>
-                <Upload size={14} /> {info.source === 'uploaded' ? 'Replace it…' : 'Use a certificate of your own…'}
-              </button>
-              {info.source === 'uploaded' && (
-                <button className="small ghost" onClick={revert} disabled={busy}>
-                  <RotateCcw size={14} /> Back to self-signed
+            !readOnly && (
+              <div className="row">
+                <button className="small" onClick={() => setEditing(true)}>
+                  <Upload size={14} /> {info.source === 'uploaded' ? 'Replace it…' : 'Use a certificate of your own…'}
                 </button>
-              )}
-            </div>
+                {info.source === 'uploaded' && (
+                  <button className="small ghost" onClick={revert} disabled={busy}>
+                    <RotateCcw size={14} /> Back to self-signed
+                  </button>
+                )}
+              </div>
+            )
           )}
           <Identity identity={info.identity} />
           <div className="muted small">

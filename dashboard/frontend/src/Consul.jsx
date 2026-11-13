@@ -5,6 +5,7 @@ import { counts, dirty as isDirty, draftOf, memberTone, never, settingsOf, state
 import { UnsavedBar } from './shared/LogTargets.jsx'
 import { Badge, Card, ErrorBox, Loading, useAction, useToast } from './shared/ui.jsx'
 import { fmtDateTime } from './shared/units.js'
+import { useReadOnly } from './me.jsx'
 
 // Consul (admin): the Consul server the Controller gives its nodes'
 // agents to - its token mints one token per node, the layer it pushes
@@ -33,6 +34,10 @@ function Field({ label, children, grow, className = '' }) {
 }
 
 export default function ConsulPage() {
+  // Read-only (the header's switch, #527): the settings stay editable in
+  // the page for their Test - a diagnosis, nothing saved -, and "Check the
+  // nodes now" stays (the reconcile reports, never overwrites); Save goes.
+  const readOnly = useReadOnly()
   const [view, setView] = useState(null)
   const [nodes, setNodes] = useState(null)
   const [draft, setDraft] = useState(null)
@@ -105,9 +110,11 @@ export default function ConsulPage() {
           <a className="small" href={DOCS} target="_blank" rel="noreferrer">
             Guide <ExternalLink size={11} />
           </a>
-          <button className="primary" disabled={busy || !changed} onClick={save}>
-            Save
-          </button>
+          {!readOnly && (
+            <button className="primary" disabled={busy || !changed} onClick={save}>
+              Save
+            </button>
+          )}
         </div>
       </div>
       <p className="muted" style={{ margin: 0 }}>
@@ -207,7 +214,7 @@ agent_prefix ""   { policy = "read" }`}</pre>
         </fieldset>
       </Card>
 
-      {changed && <UnsavedBar onSave={save} onDiscard={() => setDraft(draftOf(saved))} busy={busy} />}
+      {changed && !readOnly && <UnsavedBar onSave={save} onDiscard={() => setDraft(draftOf(saved))} busy={busy} />}
 
       <Card
         title="Read from Consul"

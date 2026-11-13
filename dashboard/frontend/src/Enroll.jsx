@@ -1,7 +1,7 @@
 import { Copy, Ticket, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { call, postJSON } from './call.js'
-import { labelString, parseLabels } from './me.jsx'
+import { labelString, parseLabels, useReadOnly } from './me.jsx'
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
 import { fmtDateTime } from './shared/units.js'
 
@@ -71,6 +71,8 @@ export default function EnrollTokens({ focus }) {
   const [created, setCreated] = useState(null)
   const [busy, run] = useAction()
   const confirm = useConfirm()
+  // Read-only (#527): the tokens as they are, none created or revoked.
+  const readOnly = useReadOnly()
   const load = useCallback(() => {
     call('/api/enroll-tokens').then(
       (t) => {
@@ -111,6 +113,7 @@ export default function EnrollTokens({ focus }) {
         <a href="#/tokens">API tokens</a>.
       </p>
       {created && <Created token={created} onClose={() => setCreated(null)} />}
+      {!readOnly && (
       <form className="row" onSubmit={create} style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <label className="field grow">
           <span>Name</span>
@@ -138,6 +141,8 @@ export default function EnrollTokens({ focus }) {
           <Ticket size={15} /> Create
         </button>
       </form>
+      )}
+      {readOnly && tokens && tokens.length === 0 && <div className="muted small">No enrollment token.</div>}
       <ErrorBox error={error} />
       {tokens && tokens.length > 0 && (
         <div className="table-wrap" style={{ marginTop: '0.8rem' }}>
@@ -165,9 +170,11 @@ export default function EnrollTokens({ focus }) {
                   <td>{when(t.expires_at)}</td>
                   <td>{t.created_by}</td>
                   <td style={{ textAlign: 'right' }}>
-                    <button className="ghost small danger" onClick={() => revoke(t)} disabled={busy}>
-                      <Trash2 size={14} /> Revoke
-                    </button>
+                    {!readOnly && (
+                      <button className="ghost small danger" onClick={() => revoke(t)} disabled={busy}>
+                        <Trash2 size={14} /> Revoke
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

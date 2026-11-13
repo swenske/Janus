@@ -2,7 +2,7 @@ import { ChevronLeft, ExternalLink, FileText, History, KeyRound, Loader2, Networ
 import { useCallback, useEffect, useState } from 'react'
 import { call, postJSON } from './call.js'
 import { DOMAINS, STAGES, behindLatest, clusterNameError, domainsOf, health, memberDefaults, memberNameError, parseVars, pathError, releaseError, upgradeRows, varsText, versionChanges, when } from './clusters.js'
-import { useCan } from './me.jsx'
+import { useAct, useCan, useReadOnly } from './me.jsx'
 import { DiffView, Editor } from './shared/Editor.jsx'
 import { requirementError, toggleExtension } from './shared/requires.js'
 import { navigate } from './shared/route.js'
@@ -13,7 +13,9 @@ import { Badge, Card, ErrorBox, Loading, Tabs, useAction, useConfirm, useToast }
 // tables replicated between them, their secrets carried from member to
 // member, each member locked against changes made behind the cluster's
 // back (dashboard/backend: cluster*.go). Readers see them, admins change
-// them. #/clusters lists them, #/clusters/<id> is one.
+// them. #/clusters lists them, #/clusters/<id> is one. While the page is
+// read-only (the header's switch, #527) nothing here changes a cluster:
+// useAct() offers the actions, Check now and the journal stay.
 
 const DOCS = 'https://janus.sw-servers.net/docs/guide/clusters.md'
 const BUSY_EVERY = 2000
@@ -48,6 +50,17 @@ function usePolled(path, busyOf) {
   return [data, error, load]
 }
 
+// WhileEditing keeps a form that was open when the page went read-only:
+// hidden then, what was typed kept; nothing in the layout otherwise.
+function WhileEditing({ children }) {
+  const readOnly = useReadOnly()
+  return (
+    <div hidden={readOnly} style={readOnly ? undefined : { display: 'contents' }}>
+      {children}
+    </div>
+  )
+}
+
 export default function ClustersPage({ route, nodes }) {
   const id = route.split('/')[2] || ''
   return id ? <ClusterPage id={id} nodes={nodes || []} /> : <ClusterList nodes={nodes || []} />
@@ -73,7 +86,7 @@ function Guide() {
 // --- the list ---
 
 function ClusterList({ nodes }) {
-  const can = useCan()
+  const offer = useAct()
   const [clusters, error, load] = usePolled('/api/clusters', (cs) => cs.some((c) => c.busy))
   const [creating, setCreating] = useState(false)
   const latest = useLatestRelease()
@@ -85,7 +98,7 @@ function ClusterList({ nodes }) {
         <h1>Clusters</h1>
         <div className="row">
           <Guide />
-          {!creating && can('admin') && (
+          {!creating && offer('admin') && (
             <button className="primary" onClick={() => setCreating(true)}>
               <Plus size={15} /> New cluster
             </button>
@@ -98,17 +111,19 @@ function ClusterList({ nodes }) {
       </p>
       {error && <ErrorBox error={error} />}
       {creating && (
-        <CreateCluster
-          nodes={nodes.filter((n) => !taken.has(n.id))}
-          onCancel={() => setCreating(false)}
-          onCreated={(c) => {
-            setCreating(false)
-            load(false)
-            navigate(`/clusters/${c.id}`)
-          }}
-        />
+        <WhileEditing>
+          <CreateCluster
+            nodes={nodes.filter((n) => !taken.has(n.id))}
+            onCancel={() => setCreating(false)}
+            onCreated={(c) => {
+              setCreating(false)
+              load(false)
+              navigate(`/clusters/${c.id}`)
+            }}
+          />
+        </WhileEditing>
       )}
-      {clusters.length === 0 && !creating && <div className="card empty">No cluster yet.{can('admin') ? ' Make one from nodes that trust the fleet and run the same image.' : ''}</div>}
+      {clusters.length === 0 && !creating && <div className="card empty">No cluster yet.{offer('admin') ? ' Make one from nodes that trust the fleet and run the same image.' : ''}</div>}
       <div className="node-grid">
         {clusters.map((c) => (
           <a key={c.id} className="card cluster-card" href={`#/clusters/${c.id}`}>
@@ -409,6 +424,7 @@ function CreateCluster({ nodes, onCancel, onCreated }) {
 
 function ClusterPage({ id, nodes }) {
   const can = useCan()
+  const offer = useAct()
   const confirm = useConfirm()
   const [busyAction, run] = useAction()
   const [cluster, error, load] = usePolled(`/api/clusters/${id}`, (c) => c.busy)
@@ -466,11 +482,14 @@ function ClusterPage({ id, nodes }) {
         </div>
         <div className="row">
           <Guide />
+          {/* Check now only reports drift - kept while read-only. */}
           {can('admin') && (
+            <button className="small" disabled={busyAction || cluster.busy} onClick={() => run(() => postJSON(`/api/clusters/${id}/check`, {}).then(() => load(false)), 'Every member looked at.')}>
+              <RefreshCw size={14} /> Check now
+            </button>
+          )}
+          {offer('admin') && (
             <>
-              <button className="small" disabled={busyAction || cluster.busy} onClick={() => run(() => postJSON(`/api/clusters/${id}/check`, {}).then(() => load(false)), 'Every member looked at.')}>
-                <RefreshCw size={14} /> Check now
-              </button>
               <button className="small" disabled={busyAction || cluster.busy || cluster.members.length < 2} onClick={() => setUpdating(!updating)} title="Update the members in place, one at a time">
                 <Rocket size={14} /> Update
               </button>
@@ -530,7 +549,11 @@ function ClusterPage({ id, nodes }) {
           </ul>
         </div>
       )}
-      {updating && <UpdateCluster cluster={cluster} latest={latest} onDone={() => setUpdating(false)} reload={() => load(false)} />}
+      {updating && (
+        <WhileEditing>
+          <UpdateCluster cluster={cluster} latest={latest} onDone={() => setUpdating(false)} reload={() => load(false)} />
+        </WhileEditing>
+      )}
       <Tabs
         tabs={[
           { id: 'members', label: 'Members', icon: Users },
@@ -559,6 +582,7 @@ function BackLink() {
 
 function Members({ cluster, nodes, act, busy, reload }) {
   const can = useCan()
+  const offer = useAct()
   const confirm = useConfirm()
   const toast = useToast()
   const [, run] = useAction()
@@ -615,7 +639,7 @@ function Members({ cluster, nodes, act, busy, reload }) {
               <th>Stick tables</th>
               <th>Certificate</th>
               <th>State</th>
-              {can('admin') && <th />}
+              {offer('admin') && <th />}
             </tr>
           </thead>
           <tbody>
@@ -651,7 +675,7 @@ function Members({ cluster, nodes, act, busy, reload }) {
                     </div>
                     {s.error && <div className="small muted">{s.error}</div>}
                   </td>
-                  {can('admin') && (
+                  {offer('admin') && (
                     <td>
                       <div className="row">
                         <button className="small" disabled={disabled} onClick={() => drain(m)}>
@@ -675,18 +699,30 @@ function Members({ cluster, nodes, act, busy, reload }) {
           </tbody>
         </table>
       </div>
-      {vars && <Variables cluster={cluster} member={cluster.members.find((m) => m.name === vars)} onDone={() => setVars(null)} reload={reload} />}
-      {recycling && <Recycle cluster={cluster} member={cluster.members.find((m) => m.name === recycling)} nodes={nodes} onDone={() => setRecycling(null)} reload={reload} />}
+      {vars && (
+        <WhileEditing>
+          <Variables cluster={cluster} member={cluster.members.find((m) => m.name === vars)} onDone={() => setVars(null)} reload={reload} />
+        </WhileEditing>
+      )}
+      {recycling && (
+        <WhileEditing>
+          <Recycle cluster={cluster} member={cluster.members.find((m) => m.name === recycling)} nodes={nodes} onDone={() => setRecycling(null)} reload={reload} />
+        </WhileEditing>
+      )}
       {can('admin') &&
         (adding ? (
-          <AddMember cluster={cluster} nodes={nodes} onDone={() => setAdding(false)} reload={reload} />
+          <WhileEditing>
+            <AddMember cluster={cluster} nodes={nodes} onDone={() => setAdding(false)} reload={reload} />
+          </WhileEditing>
         ) : (
-          <div className="row">
-            <button disabled={disabled} onClick={() => setAdding(true)}>
-              <Plus size={15} /> Add a member
-            </button>
-            <SecretsFrom cluster={cluster} disabled={disabled} reload={reload} toast={toast} />
-          </div>
+          offer('admin') && (
+            <div className="row">
+              <button disabled={disabled} onClick={() => setAdding(true)}>
+                <Plus size={15} /> Add a member
+              </button>
+              <SecretsFrom cluster={cluster} disabled={disabled} reload={reload} toast={toast} />
+            </div>
+          )
         ))}
       {cluster.placement && <Scaling cluster={cluster} disabled={disabled} reload={reload} />}
       <Balancer cluster={cluster} disabled={disabled} reload={reload} />
@@ -700,7 +736,7 @@ function Members({ cluster, nodes, act, busy, reload }) {
 // only reads, the members announcing them over BGP (read only)
 // (docs/guide/clusters.md "A balancer in front", "RouterOS").
 function Balancer({ cluster, disabled, reload }) {
-  const can = useCan()
+  const offer = useAct()
   const toast = useToast()
   const confirm = useConfirm()
   const [busy, run] = useAction()
@@ -779,7 +815,7 @@ function Balancer({ cluster, disabled, reload }) {
     }
   }
   const trust = b?.fingerprint ? 'its certificate pinned' : b?.ca_cert ? 'its own CA trusted' : 'the system’s CAs trusted'
-  if (!b && !can('admin')) return null
+  if (!b && !offer('admin')) return null
   return (
     <Card title="Balancer in front" icon={Split}>
       <div className="stack">
@@ -840,7 +876,7 @@ function Balancer({ cluster, disabled, reload }) {
             or removed and once one is in service. Or a RouterOS router, its routes kept by the Controller itself.
           </p>
         )}
-        {can('admin') &&
+        {offer('admin') &&
           (editing ? (
             <>
               <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -988,7 +1024,7 @@ function RouterSays({ cluster }) {
 // Scaling: a cluster made on hypervisors gains and loses members - set
 // by hand, or by its auto-scaling (docs/guide/clusters.md "Scaling").
 function Scaling({ cluster, disabled, reload }) {
-  const can = useCan()
+  const offer = useAct()
   const toast = useToast()
   const [busy, run] = useAction()
   const as = cluster.autoscale
@@ -1045,7 +1081,12 @@ function Scaling({ cluster, disabled, reload }) {
             )}
           </dl>
         )}
-        {can('admin') && (
+        {(!as || as.mode === 'off') && !offer('admin') && (
+          <p className="small muted">
+            Auto-scaling off: {cluster.members.length} member{cluster.members.length === 1 ? '' : 's'}.
+          </p>
+        )}
+        {offer('admin') && (
           <>
             <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
               <label className="field">
@@ -1607,6 +1648,7 @@ function Recycle({ cluster, member, nodes, onDone, reload }) {
 
 function Configuration({ cluster, reload }) {
   const can = useCan()
+  const offer = useAct()
   const confirm = useConfirm()
   const toast = useToast()
   const [busy, run] = useAction()
@@ -1722,28 +1764,35 @@ function Configuration({ cluster, reload }) {
         icon={FileText}
         className="data-title"
         actions={
-          can('admin') &&
-          (draft ? (
-            <>
-              <button className="small primary" disabled={busy} onClick={save}>
-                Save as a new version
-              </button>
-              <button className="small" onClick={() => setDraft(null)}>
-                Cancel
-              </button>
-            </>
-          ) : (
-            <>
-              <button className="small" disabled={busy} onClick={edit}>
-                <Pencil size={13} /> Edit
-              </button>
-              {version && (
-                <button className="small primary" disabled={busy || cluster.busy} onClick={apply}>
-                  Apply v{version.version}…
+          // A draft stays editable while the page is read-only - only its
+          // Save goes; Cancel drops it, which changes nothing.
+          draft ? (
+            can('admin') && (
+              <>
+                {offer('admin') && (
+                  <button className="small primary" disabled={busy} onClick={save}>
+                    Save as a new version
+                  </button>
+                )}
+                <button className="small" onClick={() => setDraft(null)}>
+                  Cancel
                 </button>
-              )}
-            </>
-          ))
+              </>
+            )
+          ) : (
+            offer('admin') && (
+              <>
+                <button className="small" disabled={busy} onClick={edit}>
+                  <Pencil size={13} /> Edit
+                </button>
+                {version && (
+                  <button className="small primary" disabled={busy || cluster.busy} onClick={apply}>
+                    Apply v{version.version}…
+                  </button>
+                )}
+              </>
+            )
+          )
         }
       >
         <ErrorBox error={error} />
@@ -1818,7 +1867,7 @@ function Configuration({ cluster, reload }) {
 // --- certificates ---
 
 function Certificates({ cluster, act, busy, reload }) {
-  const can = useCan()
+  const offer = useAct()
   const [name, setName] = useState('')
   const [pem, setPem] = useState('')
   const [crtList, setCrtList] = useState('')
@@ -1839,7 +1888,7 @@ function Certificates({ cluster, act, busy, reload }) {
         never through this Controller. The ring rotates every day{cluster.tickets_rotated ? ` (last ${when(cluster.tickets_rotated)})` : ''}, and is
         renewed - every key replaced - when a member leaves: it can neither read nor forge the tickets of the members that stay.
       </p>
-      {can('admin') && (
+      {offer('admin') && (
         <>
           <Card title="Certificate for every member" icon={Upload}>
             <form className="stack" onSubmit={upload}>

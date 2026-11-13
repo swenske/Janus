@@ -62,6 +62,23 @@ func TestPreferencesAPI(t *testing.T) {
 	if v = get(olga); v.TimeZone != "local" || v.RateUnit != "bytes" {
 		t.Errorf("olga's defaults: %+v", v)
 	}
+	// The Read-only switch's: read-only and 15 min by default, "never"
+	// (0) kept, the delays offered among the choices.
+	if v.PagesOpen != "read_only" || *v.ReadOnlyAfterMinutes != 15 || *v.Defaults.ReadOnlyAfterMinutes != 15 || len(v.Choices["read_only_after"]) == 0 {
+		t.Errorf("read-only defaults: %+v", v)
+	}
+	if code, body := a.req(t, "PUT", "/api/me/preferences", olga, map[string]any{"pages_open": "read_write", "read_only_after_minutes": 0}); code != http.StatusOK {
+		t.Fatalf("read-write, never: %d %s", code, body)
+	}
+	if v = get(olga); v.PagesOpen != "read_write" || *v.ReadOnlyAfterMinutes != 0 || *v.Chosen.ReadOnlyAfterMinutes != 0 {
+		t.Errorf("read-write, never: %+v", v)
+	}
+	if code, _ := a.req(t, "PUT", "/api/me/preferences", olga, map[string]any{"read_only_after_minutes": 7}); code != http.StatusBadRequest {
+		t.Errorf("a 7 min delay: %d", code)
+	}
+	if code, _ := a.req(t, "PUT", "/api/me/preferences", olga, map[string]any{}); code != http.StatusOK {
+		t.Fatal("olga's reset")
+	}
 	// An admin's floors: the choices start there, an account below them
 	// follows them, a choice below them is refused - and only an admin
 	// sets them.

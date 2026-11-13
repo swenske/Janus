@@ -15,6 +15,7 @@ import { securityText, securityTone } from '../../severity.js'
 import { SupportBadge } from '../../SupportBadge.jsx'
 import { variantNote } from '../../variants.js'
 import { UpdateBadge } from './UpdateBadge.jsx'
+import { useHold } from '../../shared/holds.js'
 
 const FILES = [
   { field: 'rootfs_squashfs', label: 'rootfs.squashfs' },
@@ -74,6 +75,9 @@ export default function Update({ route = '' }) {
   const confirm = useConfirm()
   const toast = useToast()
   const canUpgrade = useMay()('LifecycleService/Upgrade')
+  // An upgrade under way - its stream, the reboot followed: the page
+  // stays in edit mode until it's over.
+  useHold(!!following)
 
   const v = overview.data?.version
   const uc = check.data

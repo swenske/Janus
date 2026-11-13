@@ -3,6 +3,12 @@ import { call, postJSON } from './call.js'
 import { DEFAULT_PREFERENCES, PreferencesContext, withChoice } from './preferences.js'
 import { setDisplay } from './shared/units.js'
 
+// merged is the Controller's answer over the defaults - its choices too,
+// key by key.
+function merged(p) {
+  return { ...DEFAULT_PREFERENCES, ...p, choices: { ...DEFAULT_PREFERENCES.choices, ...p.choices } }
+}
+
 // PreferencesProvider loads the account's preferences once signed in, and
 // saves a change at once.
 export default function PreferencesProvider({ children }) {
@@ -12,7 +18,7 @@ export default function PreferencesProvider({ children }) {
   const reload = useCallback(
     () =>
       call('/api/me/preferences', { background: true })
-        .then((p) => p && setPrefs({ ...DEFAULT_PREFERENCES, ...p }))
+        .then((p) => p && setPrefs(merged(p)))
         .catch(() => {})
         .finally(() => setLoaded(true)),
     [],
@@ -22,7 +28,7 @@ export default function PreferencesProvider({ children }) {
   }, [reload])
   const put = useCallback(async (body) => {
     const p = await postJSON('/api/me/preferences', body, 'PUT')
-    if (p) setPrefs({ ...DEFAULT_PREFERENCES, ...p })
+    if (p) setPrefs(merged(p))
     return p
   }, [])
   // A change shows at once; the Controller's answer replaces it - or, if

@@ -24,8 +24,14 @@ const browser = await chromium.launch()
 async function context(opts = {}, palette = 'janus', mode = 'light') {
   const ctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1440, height: 900 }, colorScheme: mode, reducedMotion: 'reduce', ...opts })
   await ctx.addInitScript(([p, m]) => {
-    localStorage.setItem('janus-palette', p)
-    localStorage.setItem('janus-theme', m)
+    // A new tab's about:blank has no storage of its own (window.open's
+    // noopener): nothing to set there.
+    try {
+      localStorage.setItem('janus-palette', p)
+      localStorage.setItem('janus-theme', m)
+    } catch {
+      // not this document
+    }
   }, [palette, mode])
   return ctx
 }
@@ -68,6 +74,15 @@ async function axe(page, where) {
   for (const v of res.violations) {
     if (v.impact === 'serious' || v.impact === 'critical') problems.push(`${where}: axe ${v.impact} ${v.id} - ${v.nodes.map((n) => n.target.join(' ')).slice(0, 4).join(', ')}`)
   }
+}
+
+// The pages as setup.mjs left them - read-write -, even after a check that
+// stopped in its read-only part (below).
+{
+  const ctx = await context()
+  await signIn(ctx)
+  await ctx.request.put(`${CONTROLLER}/api/me/preferences`, { data: { pages_open: 'read_write' } })
+  await ctx.close()
 }
 
 let edge1
@@ -263,7 +278,7 @@ for (const palette of PALETTES) {
   if (versions !== 2 || !change.includes('timeout client 45s')) problems.push(`cluster configuration: ${versions} versions, the change to apply: ${JSON.stringify(change.slice(0, 200))}`)
   await look('cluster-apply')
   await page.getByRole('button', { name: 'Cancel' }).click()
-  await page.getByRole('button', { name: 'Edit' }).click()
+  await page.getByRole('button', { name: 'Edit', exact: true }).click()
   await page.waitForSelector('.editor textarea')
   await look('cluster-edit')
   await page.getByRole('button', { name: 'Cancel' }).click()
@@ -366,7 +381,8 @@ for (const reducedMotion of ['reduce', 'no-preference']) {
   await signIn(ctx)
   const page = await ctx.newPage()
   watch(page, () => 'settings and lists')
-  const prefs = (body) => ctx.request.put(`${CONTROLLER}/api/me/preferences`, { data: body })
+  // Each PUT replaces them all: the pages stay read-write (setup.mjs).
+  const prefs = (body) => ctx.request.put(`${CONTROLLER}/api/me/preferences`, { data: { pages_open: 'read_write', ...body } })
   const counted = (path) => {
     let n = 0
     const on = (r) => {
@@ -560,6 +576,138 @@ for (const reducedMotion of ['reduce', 'no-preference']) {
     localStorage.removeItem('janus-machines-view')
   })
   await ctx.close()
+}
+
+// Read-only mode (#527, docs/controller-ui.md "Read-only mode"): pages
+// opening read-only show no action - the main page's tabs and a node's
+// pages (edge-3: in no cluster, nothing locked) -, diagnosis and Validate
+// stay; the switch turns editing on, a node page opened from the main
+// one follows it, and editing ends by itself after the delay without
+// activity - not while a confirmation is open. axe in both modes.
+{
+  const ACTIONS = /^(apply|reload|restart|reboot|shut ?down|power off|upgrade|install|remove|destroy|delete|revoke|approve|reject|add node|add hypervisor|add a|create|new |save|rotate|renew|release|drain|undrain|order|run a backup|back up now|disable|enable|start$|stop$|edit|upload|import$|clear|kill|set |use this|update to|prepare|confirm|trust|recycle|replace)/i
+  const ctx = await context()
+  await signIn(ctx)
+  const put = (body) => ctx.request.put(`${CONTROLLER}/api/me/preferences`, { data: body })
+  await put({ pages_open: 'read_only', read_only_after_minutes: 5 })
+  try {
+    const edge3 = (await (await ctx.request.get(`${CONTROLLER}/api/nodes`)).json()).find((n) => n.name === 'edge-3').id
+    const page = await ctx.newPage()
+    let at = ''
+    watch(page, () => `read-only ${at}`)
+    const offered = async () =>
+      (await page.locator('main button:visible, main [role="button"]:visible, main a.button:visible').allTextContents())
+        .map((t) => t.trim().replace(/\s+/g, ' '))
+        .filter((t) => ACTIONS.test(t))
+    const switchState = async () => {
+      const b = page.locator('button.read-only-switch')
+      return (await b.count()) ? `${(await b.textContent()).trim()}/${await b.getAttribute('aria-pressed')}` : 'none'
+    }
+    const pages = [
+      ['nodes', '/'],
+      ['clusters', '/#/clusters'],
+      ['cluster', `/#/clusters/${edge}`],
+      ['hypervisors', '/#/hypervisors'],
+      ['tokens', '/#/tokens'],
+      ['settings', '/#/settings'],
+      ['accounts', '/#/accounts'],
+      ['log-forwarding', '/#/log-forwarding'],
+      ['letsencrypt', '/#/letsencrypt'],
+      ['consul', '/#/consul'],
+      ['backups', '/#/backups'],
+      ...['/', '/haproxy', '/haproxy/config', '/haproxy/maps', '/haproxy/certificates', '/system/network', '/system/sysctl', '/system/services', '/system/update', '/system/access', '/system/power', '/tools/probe', '/tools/capture', '/apps/janus-exporter'].map((p) => [
+        `node${p.replace(/\//g, '-') || '-'}`,
+        `/nodes/${edge3}/#${p}`,
+      ]),
+    ]
+    for (const [name, url] of pages) {
+      at = name
+      await page.goto(`${CONTROLLER}${url}`)
+      await settle(page)
+      const state = await switchState()
+      const shown = await offered()
+      // The account's own items stay: Settings' Reset to the defaults.
+      const left = shown.filter((t) => !(name === 'settings' && /^reset to the defaults/i.test(t)))
+      if (state !== 'Read-only/false' || left.length) problems.push(`read-only ${name}: switch ${state}, actions offered ${JSON.stringify(left)}`)
+      await page.screenshot({ path: `${OUT}/read-only-${name}.png`, fullPage: true })
+    }
+    // Diagnosis and Validate stay.
+    for (const [name, url, label] of [
+      ['validate', `/nodes/${edge3}/#/haproxy/config`, /^Validate/],
+      ['probe', `/nodes/${edge3}/#/tools/probe`, /^(Run|Test|Probe)/],
+      ['capture', `/nodes/${edge3}/#/tools/capture`, /^(Start|Capture)/],
+      ['check now', `/#/clusters/${edge}`, /^Check now/],
+    ]) {
+      at = name
+      await page.goto(`${CONTROLLER}${url}`)
+      await settle(page)
+      if (!(await page.getByRole('button', { name: label }).count())) problems.push(`read-only ${name}: no ${label} button`)
+    }
+    for (const mode of MODES) {
+      const c = await context({}, 'janus', mode)
+      await signIn(c)
+      const p = await c.newPage()
+      await p.goto(`${CONTROLLER}/nodes/${edge3}/#/haproxy`)
+      await settle(p)
+      await axe(p, `read-only ${mode}`)
+      await c.close()
+    }
+    // Editing: the actions come back, and a node page opened from the main
+    // page - a new tab - is in edit mode too.
+    at = 'editing'
+    await page.goto(`${CONTROLLER}/`)
+    await settle(page)
+    await page.click('button.read-only-switch')
+    const addNode = await page.getByRole('button', { name: /^Add node/ }).count()
+    const [tab] = await Promise.all([ctx.waitForEvent('page'), page.locator('.node-card', { hasText: 'edge-3' }).getByRole('button', { name: /^Open/ }).click()])
+    watch(tab, () => 'read-only opened node page')
+    await settle(tab)
+    const opened = (await tab.locator('button.read-only-switch').textContent()).trim()
+    const carried = new URL(tab.url()).searchParams.has('edit')
+    await tab.goto(`${CONTROLLER}/nodes/${edge3}/#/haproxy`)
+    await settle(tab)
+    const reload = await tab.getByRole('button', { name: /^Reload/ }).count()
+    if (await switchState() !== 'Editing/true' || !addNode || opened !== 'Editing' || carried || !reload)
+      problems.push(`editing: switch ${await switchState()}, Add node ${addNode}, the node page opened ${opened} (address kept: ${carried}), Reload ${reload}`)
+    await tab.close()
+    // Back to read-only after 5 min without activity - not while a
+    // confirmation is open (the clock moved by Playwright).
+    {
+      const c = await context()
+      await signIn(c)
+      const p = await c.newPage()
+      watch(p, () => 'read-only delay')
+      await p.clock.install()
+      await p.goto(`${CONTROLLER}/nodes/${edge3}/#/haproxy`)
+      await settle(p)
+      await p.click('button.read-only-switch')
+      // Stop asks first: its confirmation stays open over the delay, then
+      // Cancel - HAProxy keeps running.
+      await p.getByRole('button', { name: /^Stop/ }).first().click({ timeout: 10000 }).catch(() => {})
+      const dialog = await p.locator('[role="dialog"]').count()
+      await p.clock.fastForward('06:00')
+      await p.waitForTimeout(500)
+      const during = (await p.locator('button.read-only-switch').textContent()).trim()
+      await p.locator('[role="dialog"]').getByRole('button', { name: 'Cancel' }).click({ timeout: 10000 }).catch(() => {})
+      await p.clock.fastForward('04:00')
+      await p.waitForTimeout(500)
+      const soon = (await p.locator('button.read-only-switch').textContent()).trim()
+      await p.clock.fastForward('02:00')
+      await p.waitForTimeout(500)
+      const after = (await p.locator('button.read-only-switch').textContent()).trim()
+      const said = await p.locator('.toast', { hasText: 'Back to read-only after 5 min without activity' }).count()
+      const reloadAfter = await p.getByRole('button', { name: /^Reload/ }).count()
+      if (!dialog || during !== 'Editing' || soon !== 'Editing' || after !== 'Read-only' || !said || reloadAfter)
+        problems.push(`read-only delay: dialog ${dialog}, during it ${during}, 4 min after ${soon}, 6 min after ${after} (said ${said}, Reload ${reloadAfter})`)
+      await p.screenshot({ path: `${OUT}/read-only-back.png` })
+      await c.close()
+    }
+  } catch (err) {
+    problems.push(`read-only: ${err.message.split('\n')[0]}`)
+  } finally {
+    await put({ pages_open: 'read_write' })
+    await ctx.close()
+  }
 }
 
 await browser.close()

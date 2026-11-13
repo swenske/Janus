@@ -165,6 +165,10 @@ try {
   const admin = await context(null)
   let r = await api(admin, 'POST', '/api/auth/setup', { name: 'root', password: ROOT_PASSWORD, mfa_required: 'nobody' })
   check(r.status === 204, `setup: ${r.status} ${r.text}`)
+  // root's pages read-write: the provider's Edit below (the Read-only
+  // switch, docs/controller-ui.md "Read-only mode").
+  r = await api(admin, 'PUT', '/api/me/preferences', { pages_open: 'read_write' })
+  check(r.status === 200, `root's pages: ${r.status} ${r.text}`)
   r = await api(admin, 'POST', '/api/users', { name: 'olga', role: 'operator', password: 'olga-given-password' })
   check(r.status === 201, `olga: ${r.status} ${r.text}`)
   const olga = await context()

@@ -3,12 +3,17 @@ import { useCallback, useEffect, useState } from 'react'
 import { call, postJSON } from './call.js'
 import { fmtDateTime } from './shared/units.js'
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
+import { useReadOnly } from './me.jsx'
 
 // HighAvailability is the Settings card of the warm standby (/api/ha,
 // admins; docs/guide/controller-standby.md): pairing a standby with a
 // token shown once, what the standby last copied, the witness, the
 // switchover to it, and forgetting it.
 export default function HighAvailability() {
+  // Read-only (the header's switch, #527): the standby and its copies, no
+  // pairing, switchover or removal. A pairing token just made stays shown:
+  // it is shown once.
+  const readOnly = useReadOnly()
   const [view, setView] = useState(null)
   const [error, setError] = useState(null)
   const [token, setToken] = useState(null)
@@ -134,23 +139,27 @@ export default function HighAvailability() {
               {view.last_copy && staleCopy(view.last_copy.at) && (
                 <div className="notice warn small">The standby hasn&apos;t copied this Controller for more than 5 minutes: is it running? Its page says why.</div>
               )}
-              <div className="row">
-                <button className="small" disabled={busy} onClick={switchover}>
-                  <ArrowLeftRight size={13} /> Switch over…
-                </button>
-                <button className="ghost small danger" disabled={busy} onClick={remove}>
-                  <Trash2 size={13} /> Remove the standby…
-                </button>
-              </div>
+              {!readOnly && (
+                <div className="row">
+                  <button className="small" disabled={busy} onClick={switchover}>
+                    <ArrowLeftRight size={13} /> Switch over…
+                  </button>
+                  <button className="ghost small danger" disabled={busy} onClick={remove}>
+                    <Trash2 size={13} /> Remove the standby…
+                  </button>
+                </div>
+              )}
             </>
           ) : token ? (
             <PairingToken token={token} onClose={() => setToken(null)} />
           ) : (
-            <div>
-              <button className="small" disabled={busy} onClick={pair}>
-                <Plus size={13} /> Add a standby
-              </button>
-            </div>
+            !readOnly && (
+              <div>
+                <button className="small" disabled={busy} onClick={pair}>
+                  <Plus size={13} /> Add a standby
+                </button>
+              </div>
+            )
           )}
         </div>
       )}

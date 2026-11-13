@@ -367,7 +367,11 @@ while a machine moves), the **Node figures** (off: no
 page ten minutes later) and their **Node charts** (off: the figures
 alone - and a node's Traffic flow without particles; greyed while the
 figures are off), **Times** in the browser's zone or in UTC, **Traffic**
-in bytes (KiB/s) or bits (Mbit/s) a second, **Reset to the defaults**.
+in bytes (KiB/s) or bits (Mbit/s) a second, **Pages open** read-only
+or read-write and **Back to read-only after** (the Read-only switch's,
+[Read-only mode](#read-only-mode); shown to an account that may change
+something, the delay greyed while pages open read-write), **Reset to the
+defaults**.
 They're the account's, kept on the Controller (`GET`/`PUT
 /api/me/preferences`, a session's, `internal/auth/preferences.go`;
 `preferences.js` + `PreferencesProvider.jsx`), so they follow it to any
@@ -1184,8 +1188,68 @@ turn, and the step waited for is written under it.
   `prefers-reduced-motion`, the faces stay still and the bar jumps.
 - A page whose first load gets a new slow call: give it a step.
 
+### Read-only mode
+
+The **Read-only** switch (`shared/readOnly.jsx`, #527) sits left of the
+Refresh button in both headers. While it's on, the pages show nothing
+that changes a node, a cluster, a machine, a hypervisor or the
+Controller itself - **hidden, not greyed out**: the point is a lighter
+page and no wrong click. One click turns it to **Editing** (pencil, the
+accent's tint); the page then offers what the account's role allows, as
+it always did. It's a convenience of the pages, **never a permission**:
+RBAC still decides on the Controller and on the node, and API tokens,
+janusctl and Terraform don't see it.
+
+- **What reads stays**, diagnosis included: the connectivity test,
+  packet capture, the diagnostic bundle, **Check now** (a cluster's
+  reconcile, the Consul page's check) and every **Validate/Check** of an
+  editor - the editors stay editable in the browser, only Apply goes.
+  The account's own items stay too: its password, second factors, SSH
+  keys, trusted browsers, linked identities and Settings › Your pages.
+- **Node pages**: `may` (`node/may.js` `mayFor`) answers false for any
+  RPC that changes the node while read-only. The Controller's `/api/me`
+  gives `may` and `reads` - those of them that only read
+  (`internal/rbac` `Effect`, `read`/`change` per RPC, a test fails on a
+  new RPC without one: `TestEffectsCoverEveryRPC`; roles don't say it -
+  Logs is an operator's yet reads, PacketCapture reads yet no reader
+  opens it). Validate is the apply RPC with `validate_only` for most
+  modules: an editor asks `may(method, 'validate')` for its Check
+  button, which ignores the switch. HAProxy's own `ValidateConfig` is a
+  read. Every view gated by `may` follows with no code of its own.
+- **Main page**: `useAct()` (`me.jsx`) gates the actions -
+  `act('admin')` is the account's role *and* edit mode -, `useReadOnly()`
+  the ungated ones of the admin tabs; `useCan()` still decides which
+  tabs and cards show (Accounts, Audit... stay, their actions go).
+- **No switch** for an account that can only read (a reader with no
+  grant above that, `changesAnything`; on a node page, an account with no
+  RPC that changes the node: `changesSomething`): there's nothing to hide.
+- **State**: the tab's (`sessionStorage`, wrapped in try/catch), so a page
+  and the next one in the tab agree; a node page opens in a new tab
+  (`noopener`: no copy of sessionStorage) and gets it through its address
+  (`?edit=1`, taken off at once - `carryEditing`). A new tab, a sign-in
+  or a sign-out (`forgetReadOnly`) start from the account's preference.
+- **Preferences** (Settings › Your pages, `pages_open` and
+  `read_only_after_minutes`): pages open **read-only** (default) or
+  **read-write**; in edit mode the page goes **back to read-only after**
+  5, 15 (default), 30 or 60 minutes without activity, or never - not at
+  all while pages open read-write (never put back behind the account's
+  back). Activity is `shared/activity.js`'s (`lastEventAt`), kept with
+  the state so the count follows the tab across its pages, checked
+  every 15 s and whenever the page shows again (a sleeping laptop's
+  timers stop: a tab left open overnight is read-only when looked at).
+  A toast says it happened.
+- **Never in the middle of an action** (`shared/holds.js`): an open
+  confirmation (`ConfirmProvider`), a request running (`useAction`), a
+  trial waiting for its Confirm (firewall, sysctl), an upgrade followed
+  (`Update.jsx`) hold the edit mode; the delay counts from their end.
+  Text typed in an editor stays: read-only only hides its Apply.
+
 ### Interaction rules
 
+- **Read-only first**: a new action that changes something is gated by
+  `may` (node page) or `useAct`/`useReadOnly` (main page) - hidden while
+  the page is read-only ([Read-only mode](#read-only-mode)); a
+  validate-only or diagnosis button isn't.
 - **Anything that disrupts traffic or the node asks first** (`useConfirm`
   with `danger`), and says what will happen in plain words. Irreversible
   actions make the user type a word (reset: the node's hostname).

@@ -5,8 +5,18 @@
 
 const ACTIVE_FOR = 60 * 1000
 let lastActivity = Date.now()
+// lastEvent: the last time the user touched this page - 0 until they do
+// (the page opening counts for the session, not for the Read-only
+// switch's delay: shared/readOnly.jsx).
+let lastEvent = 0
 for (const ev of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart']) {
-  window.addEventListener(ev, () => (lastActivity = Date.now()), { passive: true, capture: true })
+  window.addEventListener(ev, () => (lastActivity = lastEvent = Date.now()), { passive: true, capture: true })
+}
+
+// lastEventAt is when the user last touched the page (pointer, keyboard,
+// wheel, touch), 0 if not since it opened.
+export function lastEventAt() {
+  return lastEvent
 }
 
 // backgroundHeaders are the headers of a request the page makes by itself.

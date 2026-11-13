@@ -3,8 +3,10 @@ import { useCallback, useEffect, useState } from 'react'
 import { call, postJSON } from './call.js'
 import { backupAlert } from './backupAlert.js'
 import { Step } from './Fleet.jsx'
+import { useReadOnly } from './me.jsx'
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
 import { fmtDateTime } from './shared/units.js'
+import { useHold } from './shared/holds.js'
 
 // Backups (admin): everything the Controller keeps, and its nodes'
 // configurations, encrypted to the backup kit and admins' keys, signed,
@@ -34,6 +36,7 @@ async function saveFile(path, fallback) {
 // KitCard makes the backup kit: the key that decrypts the backups, kept
 // by you - never by the Controller.
 function KitCard({ status, onChanged }) {
+  const readOnly = useReadOnly()
   const [passphrase, setPassphrase] = useState(null)
   const [saved, setSaved] = useState(false)
   const [kit, setKit] = useState('')
@@ -41,6 +44,8 @@ function KitCard({ status, onChanged }) {
   const [busy, run] = useAction()
   const toast = useToast()
   const confirm = useConfirm()
+  // The passphrase is shown once: the page stays in edit mode while it is.
+  useHold(!!passphrase)
   const waiting = status.kit_waiting
   const make = async () => {
     if (status.kit === 'ready') {
@@ -80,9 +85,11 @@ function KitCard({ status, onChanged }) {
         title="Backup kit"
         icon={KeyRound}
         actions={
-          <button className="small" onClick={make} disabled={busy}>
-            Make a new kit
-          </button>
+          !readOnly && (
+            <button className="small" onClick={make} disabled={busy}>
+              Make a new kit
+            </button>
+          )
         }
       >
         <div className="row">
@@ -92,6 +99,19 @@ function KitCard({ status, onChanged }) {
             them, not read them.
           </span>
         </div>
+      </Card>
+    )
+  // Read-only (#527): where the kit stands, none of its steps - unless
+  // its passphrase is on screen (shown once).
+  if (readOnly && !passphrase)
+    return (
+      <Card title="Backup kit" icon={KeyRound}>
+        <p className="muted" style={{ margin: 0 }}>
+          {waiting
+            ? 'A backup kit was made and waits to be confirmed: until it is, nothing is backed up.'
+            : 'No backup kit yet: the backups are encrypted to a key the Controller doesn\'t keep, in a kit you keep - nothing is backed up until it\'s made.'}{' '}
+          Making and confirming it are changes: turn editing on (the header&apos;s switch).
+        </p>
       </Card>
     )
   return (
@@ -171,6 +191,7 @@ function KitCard({ status, onChanged }) {
 }
 
 function SettingsCard({ status, onChanged }) {
+  const readOnly = useReadOnly()
   const [form, setForm] = useState(() => ({ ...status.settings, recipients: (status.settings.recipients || []).join('\n'), secret_key: '' }))
   const [busy, run] = useAction()
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
@@ -194,6 +215,37 @@ function SettingsCard({ status, onChanged }) {
       setForm({ ...form, secret_key: '' })
       onChanged()
     }, 'Backup settings saved')
+  }
+  // Read-only (#527): the settings as they are, nothing to save.
+  if (readOnly) {
+    const st = status.settings
+    return (
+      <Card title="Where and when" icon={Archive}>
+        <dl className="kv small">
+          <dt>S3 endpoint</dt>
+          <dd className="mono">{st.endpoint || '–'}</dd>
+          <dt>Region</dt>
+          <dd className="mono">{st.region || '–'}</dd>
+          <dt>Bucket · prefix</dt>
+          <dd className="mono">
+            {st.bucket || '–'}
+            {st.prefix ? ` · ${st.prefix}` : ''}
+          </dd>
+          <dt>Access key</dt>
+          <dd className="mono">{st.access_key || '–'}</dd>
+          <dt>Secret key</dt>
+          <dd>{status.has_secret ? 'kept' : 'none'}</dd>
+          <dt>Addresses</dt>
+          <dd>{st.path_style ? 'path-style' : 'virtual-hosted'}</dd>
+          <dt>Schedule</dt>
+          <dd>{st.enabled ? `every ${st.interval_hours} h` : 'off'}</dd>
+          <dt>Keep</dt>
+          <dd>{Number(st.keep) ? `the last ${st.keep}` : 'every backup'}</dd>
+          <dt>Admins&apos; keys</dt>
+          <dd>{st.recipients?.length || 'none'}</dd>
+        </dl>
+      </Card>
+    )
   }
   return (
     <Card title="Where and when" icon={Archive}>
@@ -271,6 +323,7 @@ function SettingsCard({ status, onChanged }) {
 }
 
 export default function BackupsPage() {
+  const readOnly = useReadOnly()
   const [status, setStatus] = useState(null)
   const [error, setError] = useState(null)
   const [busy, run] = useAction()
@@ -307,9 +360,11 @@ export default function BackupsPage() {
             >
               <Download size={15} /> Download a backup
             </button>
-            <button className="primary" disabled={busy || !status.settings.endpoint} onClick={() => run(() => postJSON('/api/backups/run').then(load), 'Backed up')}>
-              <Play size={15} /> Back up now
-            </button>
+            {!readOnly && (
+              <button className="primary" disabled={busy || !status.settings.endpoint} onClick={() => run(() => postJSON('/api/backups/run').then(load), 'Backed up')}>
+                <Play size={15} /> Back up now
+              </button>
+            )}
           </div>
         )}
       </div>
