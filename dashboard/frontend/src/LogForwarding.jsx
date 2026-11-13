@@ -4,6 +4,7 @@ import { call, postJSON } from './call.js'
 import LogTargets, { UnsavedBar } from './shared/LogTargets.jsx'
 import { CONTROLLER_SOURCES, NODE_DEFAULT_SOURCES, NODE_SOURCES, cleanTarget, withSources } from './shared/logTargets.js'
 import { Badge, Card, ErrorBox, useAction, useToast } from './shared/ui.jsx'
+import { useReadOnly } from './me.jsx'
 
 // Log forwarding (admin): where the Controller sends its own log and
 // audit, and the fleet's profiles - a label selector and the log targets
@@ -40,6 +41,10 @@ function parseLabels(s) {
 const nodeTone = { applied: 'ok', removed: 'warn', unsupported: 'warn', error: 'danger' }
 
 export default function LogForwardingPage() {
+  // Read-only (the header's switch, #527): the targets and the profiles
+  // as they are, each target's Test kept - a diagnosis -, nothing saved.
+  // A draft stays as it was, for when editing is back.
+  const readOnly = useReadOnly()
   const [view, setView] = useState(null)
   const [draft, setDraft] = useState(null)
   const [error, setError] = useState(null)
@@ -115,9 +120,11 @@ export default function LogForwardingPage() {
           <a href={DOCS} target="_blank" rel="noreferrer">
             Log forwarding <ExternalLink size={12} />
           </a>
-          <button className="primary" disabled={busy || !dirty} onClick={save}>
-            Save
-          </button>
+          {!readOnly && (
+            <button className="primary" disabled={busy || !dirty} onClick={save}>
+              Save
+            </button>
+          )}
         </div>
       </div>
       <p className="muted" style={{ margin: 0 }}>
@@ -139,6 +146,7 @@ export default function LogForwardingPage() {
             secrets={view.controller_secrets || {}}
             onTest={(t) => test({ target: t.name, config: cleanTarget(t) })}
             testing={testing}
+            disabled={readOnly}
           />
         </div>
       </Card>
@@ -147,12 +155,14 @@ export default function LogForwardingPage() {
         title="Fleet profiles"
         icon={Layers}
         actions={
-          <button
-            className="small"
-            onClick={() => setDraft({ ...draft, profiles: [...draft.profiles, { name: `profile-${draft.profiles.length + 1}`, selector: '', labels: '', access_logs_on_disk: '', targets: [] }] })}
-          >
-            <Plus size={14} /> Add a profile
-          </button>
+          !readOnly && (
+            <button
+              className="small"
+              onClick={() => setDraft({ ...draft, profiles: [...draft.profiles, { name: `profile-${draft.profiles.length + 1}`, selector: '', labels: '', access_logs_on_disk: '', targets: [] }] })}
+            >
+              <Plus size={14} /> Add a profile
+            </button>
+          )
         }
       >
         <div className="stack">
@@ -168,34 +178,38 @@ export default function LogForwardingPage() {
                 <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
                   <label className="field" style={{ width: '11rem' }}>
                     <span>Profile</span>
-                    <input className="mono" value={p.name} onChange={(e) => setProfile(i, { name: e.target.value })} />
+                    <input className="mono" value={p.name} readOnly={readOnly} onChange={(e) => setProfile(i, { name: e.target.value })} />
                   </label>
                   <label className="field grow">
                     <span>Nodes with the labels (key=value, comma-separated; empty: every node)</span>
-                    <input className="mono" value={p.selector} onChange={(e) => setProfile(i, { selector: e.target.value })} placeholder="team=web,env=prod" />
+                    <input className="mono" value={p.selector} readOnly={readOnly} onChange={(e) => setProfile(i, { selector: e.target.value })} placeholder="team=web,env=prod" />
                   </label>
                   <span className="grow" />
                   <Badge>
                     {members.length} node{members.length === 1 ? '' : 's'}
                   </Badge>
-                  <button className="small" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Up">
-                    <ArrowUp size={14} />
-                  </button>
-                  <button className="small" disabled={i === draft.profiles.length - 1} onClick={() => move(i, 1)} aria-label="Down">
-                    <ArrowDown size={14} />
-                  </button>
-                  <button className="small" onClick={() => setDraft({ ...draft, profiles: draft.profiles.filter((_, j) => j !== i) })}>
-                    <Trash2 size={14} /> Remove
-                  </button>
+                  {!readOnly && (
+                    <>
+                      <button className="small" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Up">
+                        <ArrowUp size={14} />
+                      </button>
+                      <button className="small" disabled={i === draft.profiles.length - 1} onClick={() => move(i, 1)} aria-label="Down">
+                        <ArrowDown size={14} />
+                      </button>
+                      <button className="small" onClick={() => setDraft({ ...draft, profiles: draft.profiles.filter((_, j) => j !== i) })}>
+                        <Trash2 size={14} /> Remove
+                      </button>
+                    </>
+                  )}
                 </div>
                 <div className="row" style={{ flexWrap: 'wrap' }}>
                   <label className="field grow">
                     <span>Labels added to every record (Elasticsearch&apos;s labels.*)</span>
-                    <input className="mono" value={p.labels} onChange={(e) => setProfile(i, { labels: e.target.value })} placeholder="env=prod" />
+                    <input className="mono" value={p.labels} readOnly={readOnly} onChange={(e) => setProfile(i, { labels: e.target.value })} placeholder="env=prod" />
                   </label>
                   <label className="field">
                     <span>HAProxy&apos;s access logs on the LOGS partition too</span>
-                    <select value={p.access_logs_on_disk || 'never'} onChange={(e) => setProfile(i, { access_logs_on_disk: e.target.value === 'never' ? '' : e.target.value })}>
+                    <select value={p.access_logs_on_disk || 'never'} disabled={readOnly} onChange={(e) => setProfile(i, { access_logs_on_disk: e.target.value === 'never' ? '' : e.target.value })}>
                       <option value="never">never (memory only)</option>
                       <option value="always">always (sent at least once)</option>
                     </select>
@@ -212,6 +226,7 @@ export default function LogForwardingPage() {
                   onTest={members.length ? (t) => test({ profile: p.name, target: t.name, node: members[0].id, config: cleanTarget(t) }) : null}
                   testing={testing}
                   testNote={members.length ? `Send one record from ${members[0].name} - as shown here` : ''}
+                  disabled={readOnly}
                 />
               </div>
             )
@@ -219,7 +234,7 @@ export default function LogForwardingPage() {
         </div>
       </Card>
 
-      {dirty && <UnsavedBar onSave={save} onDiscard={discard} busy={busy} />}
+      {dirty && !readOnly && <UnsavedBar onSave={save} onDiscard={discard} busy={busy} />}
 
       <Card title="Nodes" icon={Send}>
         {view.nodes.length === 0 ? (

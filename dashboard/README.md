@@ -559,6 +559,34 @@ prints a new password for that account - to change at the next sign-in
 it doesn't exist. The running
 Controller takes it at once.
 
+### Read-only pages
+
+The pages open **read-only**: the **Read-only** switch in the header,
+left of Refresh, hides everything that changes a node, a cluster, a
+machine or the Controller - no Apply, Reload, Reboot, Upgrade, server
+state, no settings to save. Most visits are to look; nothing on screen
+can then reload HAProxy or reboot a node by mistake. Click it to switch
+to **Editing**: the page offers whatever your role allows. The node
+pages opened from the Controller's page follow it.
+
+What only reads stays in read-only mode, diagnosis included: the
+connectivity test, packet capture, the diagnostic bundle, a cluster's
+**Check now**, and every editor's **Validate**/**Check** (you can edit a
+configuration and check it; Apply needs Editing). So do your own
+account's items - password, second factors, SSH keys - and Settings ›
+Your pages.
+
+In **Settings › Your pages**: **Pages open** read-only (the default) or
+read-write, and **Back to read-only after** 15 minutes without activity
+in edit mode (5, 30, 60 or never) - never during a confirmation, a trial
+waiting for its Confirm or an upgrade under way, and not at all if your
+pages open read-write. A reader has no switch: their pages change
+nothing anyway.
+
+The switch is a convenience of the pages, not a permission: your role
+and grants still decide what you may do, and API tokens, janusctl and
+Terraform aren't affected.
+
 ### janusctl
 
 `janusctl login` signs in to the Controller with an SSH key of your

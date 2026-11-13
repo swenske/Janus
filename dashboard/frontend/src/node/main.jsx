@@ -9,7 +9,8 @@ import App from './App.jsx'
 import { ConfirmProvider, ToastProvider } from '../shared/ui.jsx'
 import { SplashProvider } from '../shared/Splash.jsx'
 import { MetricsProvider, NodeStatusProvider, RefreshProvider } from './hooks.jsx'
-import { loadDisplay } from './display.js'
+import { accountPrefs, loadDisplay } from './display.js'
+import { ReadOnlyProvider } from '../shared/readOnly.jsx'
 
 // The account's time zone and rate unit first: every figure drawn follows them.
 loadDisplay().finally(() => createRoot(document.getElementById('root')).render(
@@ -21,7 +22,10 @@ loadDisplay().finally(() => createRoot(document.getElementById('root')).render(
             <NodeStatusProvider>
               {/* The node, the account's rights on it, its system, its first metrics (App.jsx). */}
               <SplashProvider steps={['node', 'me', 'overview', 'metrics']}>
-                <App />
+                {/* The Read-only switch (#527), from the account's preferences. */}
+                <ReadOnlyProvider prefs={accountPrefs} loaded>
+                  <App />
+                </ReadOnlyProvider>
               </SplashProvider>
             </NodeStatusProvider>
           </MetricsProvider>

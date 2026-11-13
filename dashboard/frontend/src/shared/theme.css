@@ -132,6 +132,10 @@ h3 { font-size: 0.95rem; }
 .small { font-size: 0.85em; }
 .nowrap { white-space: nowrap; }
 .grow { flex: 1; }
+/* hidden means hidden, whatever display a class gives (.row, .stack...):
+   the Read-only switch hides by it, so do role checks. */
+[hidden] { display: none !important; }
+
 .row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .stack { display: flex; flex-direction: column; gap: 0.75rem; }
 .spread { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }

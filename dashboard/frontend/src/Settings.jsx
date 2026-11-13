@@ -1,7 +1,7 @@
 import { Gauge, RotateCcw, SlidersHorizontal } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { call, postJSON } from './call.js'
-import { useCan } from './me.jsx'
+import { changesAnything, useAct, useCan, useMe } from './me.jsx'
 import { usePreferences } from './preferences.js'
 import HTTPSCertificate from './HTTPSCert.jsx'
 import Telemetry from './Telemetry.jsx'
@@ -15,6 +15,8 @@ import { Card, ErrorBox, useAction, useConfirm } from './shared/ui.jsx'
 // then, for an admin, the Controller's own settings.
 export default function SettingsPage() {
   const can = useCan()
+  const act = useAct()
+  const me = useMe()
   const { prefs, save, reset, loaded } = usePreferences()
   const [busy, run] = useAction()
   const confirm = useConfirm()
@@ -23,7 +25,7 @@ export default function SettingsPage() {
   const resetAll = async () => {
     const ok = await confirm({
       title: 'Back to the defaults?',
-      body: <p>Every refresh, figure, time and traffic choice of yours goes back to the Controller&apos;s default.</p>,
+      body: <p>Every refresh, figure, time, traffic and read-only choice of yours goes back to the Controller&apos;s default.</p>,
       action: 'Reset',
     })
     if (ok) run(reset, 'Back to the defaults')
@@ -77,6 +79,7 @@ export default function SettingsPage() {
               1.5 MiB a second reads {fmtRate(1.5 * 2 ** 20, bytes)}. HAProxy and the kernel count bytes; a link&apos;s speed and a router&apos;s graphs, bits.
             </small>
           </label>
+          {changesAnything(me) && <ReadOnlyFields prefs={prefs} loaded={loaded} set={set} />}
         </div>
         <div className="stack settings-checks">
           <label className="check">
@@ -101,13 +104,54 @@ export default function SettingsPage() {
       {can('admin') && (
         <>
           <h2 className="settings-section">This Controller</h2>
-          <RefreshFloors />
+          <RefreshFloors editable={act('admin')} />
           <HTTPSCertificate />
           <HighAvailability />
           <Telemetry />
         </>
       )}
     </div>
+  )
+}
+
+// ReadOnlyFields: how the pages open - read-only, the header's switch
+// turned on to change anything (#527), or read-write as they always were -
+// and how long an edit mode lasts without activity. Shown to an account
+// that may change something: a reader's pages have nothing to hide.
+function ReadOnlyFields({ prefs, loaded, set }) {
+  const readWrite = prefs.pages_open === 'read_write'
+  const after = prefs.read_only_after_minutes
+  return (
+    <>
+      <label className="field">
+        <span>Pages open</span>
+        <select disabled={!loaded} value={prefs.pages_open} onChange={(e) => set('pages_open', e.target.value)}>
+          <option value="read_only">Read-only{prefs.defaults?.pages_open === 'read_only' ? ' (default)' : ''}</option>
+          <option value="read_write">Read-write{prefs.defaults?.pages_open === 'read_write' ? ' (default)' : ''}</option>
+        </select>
+        <small className="muted">
+          Read-only: nothing that changes a node, a cluster or this Controller until you switch the header&apos;s <strong>Read-only</strong> to <strong>Editing</strong> -
+          diagnosis (connectivity test, capture, Check now, Validate) stays. A convenience of the pages: your role decides what you may do.
+        </small>
+      </label>
+      <label className="field" title={readWrite ? 'Pages that open read-write stay so' : ''}>
+        <span>Back to read-only after</span>
+        <select disabled={!loaded || readWrite} value={readWrite ? '' : after} onChange={(e) => set('read_only_after_minutes', Number(e.target.value))}>
+          {readWrite && <option value="">-</option>}
+          {(prefs.choices.read_only_after || []).map((m) => (
+            <option key={m} value={m}>
+              {m ? `${m} min without activity` : 'Never'}
+              {m === prefs.defaults?.read_only_after_minutes ? ' (default)' : ''}
+            </option>
+          ))}
+        </select>
+        <small className="muted">
+          {readWrite
+            ? 'No effect while pages open read-write: they are never put back into read-only behind your back.'
+            : 'Editing ends by itself once you leave the page untouched that long - never during a confirmation, a trial waiting for its Confirm or an upgrade under way.'}
+        </small>
+      </label>
+    </>
   )
 }
 
@@ -136,7 +180,7 @@ function RefreshField({ label, kind, prefKey, prefs, loaded, set, children }) {
 // RefreshFloors: the shortest refreshes any account may choose (an
 // admin's, /api/settings) - so many pages open at 5 s don't keep every
 // node and hypervisor busy. An account that chose faster follows them.
-function RefreshFloors() {
+function RefreshFloors({ editable }) {
   const { reload } = usePreferences()
   const [settings, setSettings] = useState(null)
   const [error, setError] = useState(null)
@@ -164,7 +208,7 @@ function RefreshFloors() {
         ].map(([kind, key, label]) => (
           <label className="field" key={kind}>
             <span>{label}</span>
-            <select disabled={!settings || busy} value={settings?.[key] || 0} onChange={(e) => set(key, Number(e.target.value))}>
+            <select disabled={!settings || busy || !editable} value={settings?.[key] || 0} onChange={(e) => set(key, Number(e.target.value))}>
               <option value={0}>{seconds(all[kind][0])} - no floor</option>
               {all[kind].slice(1).map((s) => (
                 <option key={s} value={s}>

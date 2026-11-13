@@ -4,7 +4,7 @@
 // first one painted, doesn't carry the Hypervisors page with them.
 import { Code, Cpu, Loader2, Lock, LockOpen, Play, PowerOff, RotateCcw, ShieldCheck, ShieldOff, SquareTerminal, Wrench } from 'lucide-react'
 import { call, postJSON } from './call.js'
-import { nodeCan, useCan, useMe } from './me.jsx'
+import { nodeCan, useAct, useMe, useReadOnly } from './me.jsx'
 import { Badge, stateTone, useAction, useConfirm } from './shared/ui.jsx'
 
 const PHASE_LABEL = {
@@ -155,7 +155,7 @@ function driftList(drift) {
 // Controller gives machines today - reported by its sync, applied only
 // when an admin asks (a cold restart).
 export function DriftNotice({ m, actions }) {
-  const can = useCan()
+  const act = useAct()
   if (!m.hardware_drift?.length) return null
   return (
     <div className="notice warn small lock-notice drift-notice">
@@ -170,7 +170,7 @@ export function DriftNotice({ m, actions }) {
         ))}
         . Applying them restarts it.
       </span>
-      {can('admin') && m.phase === 'ready' && m.node_id && (
+      {act('admin') && m.phase === 'ready' && m.node_id && (
         <button className="small" onClick={() => actions.applySettings(m)} disabled={actions.busy} title="Shut the node down cleanly, apply the settings, start it again">
           <Wrench size={14} /> Apply settings
         </button>
@@ -190,14 +190,16 @@ export function ManagedBadge({ m }) {
 }
 
 // PowerButtons: an operator over everything's, or over the machines
-// domain of the node it became (labels).
+// domain of the node it became (labels). While the page is read-only,
+// the console alone - it only reads.
 export function PowerButtons({ machine, vm, actions, labels }) {
   const me = useMe()
+  const readOnly = useReadOnly()
   if (!machine.vm_uuid || machine.phase === 'destroying' || !nodeCan(me, labels, 'operator', 'machines')) return null
   const off = vm?.power === 'off'
   return (
     <>
-      {off ? (
+      {readOnly ? null : off ? (
         <button className="small" onClick={() => actions.power(machine, 'start')} disabled={actions.busy} title="Start the virtual machine">
           <Play size={14} /> Start
         </button>
@@ -221,7 +223,7 @@ export function PowerButtons({ machine, vm, actions, labels }) {
 // LockNotice says a machine is managed as code, and whether its pages may
 // change it.
 export function LockNotice({ m, actions }) {
-  const can = useCan()
+  const act = useAct()
   if (!m.spec.managed_by) return null
   const by = m.spec.managed_by
   return m.spec.locked ? (
@@ -230,7 +232,7 @@ export function LockNotice({ m, actions }) {
       <span className="grow">
         Managed by <strong>{by}</strong> and locked: change it there. A change made on this Controller would be undone by its next run.
       </span>
-      {can('admin') && (
+      {act('admin') && (
         <button className="small ghost" onClick={() => actions.release(m)} disabled={actions.busy} title="Let its pages change it again">
           <LockOpen size={14} /> Release
         </button>

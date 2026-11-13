@@ -2,7 +2,7 @@ import { CheckCircle2, Copy, ExternalLink, FlaskConical, LogIn, Pencil, Plus, Tr
 import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { call, postJSON } from './call.js'
-import { DOMAINS, labelString, parseLabels, ROLES } from './me.jsx'
+import { DOMAINS, labelString, parseLabels, ROLES, useReadOnly } from './me.jsx'
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
 
 // Single sign-on (admin, on the Accounts page): the OpenID Connect
@@ -179,7 +179,7 @@ function RuleRows({ rules, onChange }) {
 }
 
 // ProviderForm edits a provider - new, or saved already - in a dialog.
-function ProviderForm({ initial, isNew, hasSecret, uris, presets, onClose, onSaved }) {
+function ProviderForm({ initial, isNew, hasSecret, uris, presets, onClose, onSaved, readOnly }) {
   const [f, setF] = useState(() => toForm(initial))
   const [error, setError] = useState(null)
   const [report, setReport] = useState(null)
@@ -208,6 +208,8 @@ function ProviderForm({ initial, isNew, hasSecret, uris, presets, onClose, onSav
   }
   const save = async (e) => {
     e.preventDefault()
+    // Enter in a field submits the form: not while the page is read-only.
+    if (readOnly) return
     let b
     try {
       b = body()
@@ -404,9 +406,11 @@ function ProviderForm({ initial, isNew, hasSecret, uris, presets, onClose, onSav
             <button type="button" onClick={onClose}>
               Cancel
             </button>
-            <button className="primary" type="submit" disabled={busy}>
-              Save
-            </button>
+            {!readOnly && (
+              <button className="primary" type="submit" disabled={busy}>
+                Save
+              </button>
+            )}
           </div>
         </form>
       </div>
@@ -417,6 +421,10 @@ function ProviderForm({ initial, isNew, hasSecret, uris, presets, onClose, onSav
 
 // SingleSignOn is the providers' card.
 export default function SingleSignOn({ onChanged }) {
+  // Read-only (the header's switch, #527): the providers, no Add, Edit or
+  // Remove; a form left open keeps its text and its Test - a sign-in's
+  // discovery, nothing saved -, not its Save.
+  const readOnly = useReadOnly()
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
   const [editing, setEditing] = useState(null) // {provider, isNew, hasSecret}
@@ -459,9 +467,11 @@ export default function SingleSignOn({ onChanged }) {
       title="Single sign-on"
       icon={LogIn}
       actions={
-        <button className="small" onClick={add}>
-          <Plus size={14} /> Add a provider
-        </button>
+        !readOnly && (
+          <button className="small" onClick={add}>
+            <Plus size={14} /> Add a provider
+          </button>
+        )
       }
     >
       <div className="stack" style={{ gap: '0.6rem' }}>
@@ -483,7 +493,7 @@ export default function SingleSignOn({ onChanged }) {
                   <th>Issuer</th>
                   <th>Rules</th>
                   <th>Second factor</th>
-                  <th />
+                  {!readOnly && <th />}
                 </tr>
               </thead>
               <tbody>
@@ -500,14 +510,16 @@ export default function SingleSignOn({ onChanged }) {
                       {p.default_role ? `, everyone ${p.default_role}` : ''}
                     </td>
                     <td className="small">{p.mfa === 'provider' ? "the provider's" : "the Controller's"}</td>
-                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      <button className="ghost small" onClick={() => setEditing({ provider: p, isNew: false, hasSecret: p.has_secret })} disabled={busy}>
-                        <Pencil size={13} /> Edit
-                      </button>
-                      <button className="ghost small danger" onClick={() => remove(p)} disabled={busy}>
-                        <Trash2 size={14} /> Remove
-                      </button>
-                    </td>
+                    {!readOnly && (
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <button className="ghost small" onClick={() => setEditing({ provider: p, isNew: false, hasSecret: p.has_secret })} disabled={busy}>
+                          <Pencil size={13} /> Edit
+                        </button>
+                        <button className="ghost small danger" onClick={() => remove(p)} disabled={busy}>
+                          <Trash2 size={14} /> Remove
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -522,6 +534,7 @@ export default function SingleSignOn({ onChanged }) {
           hasSecret={editing.hasSecret}
           uris={uris}
           presets={data.presets}
+          readOnly={readOnly}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null)

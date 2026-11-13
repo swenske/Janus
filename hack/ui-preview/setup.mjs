@@ -50,6 +50,10 @@ async function until(what, fn, seconds = 120) {
 }
 
 await call('POST', '/api/auth/setup', { password: PASSWORD, mfa_required: 'nobody' })
+// The pages as they were for the preview's accounts: read-write (the
+// Read-only switch, docs/controller-ui.md "Read-only mode") - check.mjs
+// walks read-only mode on its own.
+await call('PUT', '/api/me/preferences', { pages_open: 'read_write' })
 // The fleet first: a node is added by its pairing code into it.
 const fleet = await call('POST', '/api/fleet/setup')
 const kit = await call('GET', '/api/fleet/recovery-kit')
@@ -124,4 +128,5 @@ await call('POST', '/api/users', { name: 'lea', role: 'operator', password: 'lea
 jar.clear()
 await call('POST', '/api/auth/login', { name: 'lea', password: 'lea-first-password-1' })
 await call('POST', '/api/auth/password', { current_password: 'lea-first-password-1', new_password: VISITOR_PASSWORD })
+await call('PUT', '/api/me/preferences', { pages_open: 'read_write' })
 console.log(JSON.stringify({ token: token.token, nodes: ids }))

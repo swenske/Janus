@@ -1,7 +1,7 @@
 import { Copy, KeyRound, Plus, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { call, postJSON } from './call.js'
-import { atLeast, DOMAINS, labelString, parseLabels, ROLES, useCan, useMe } from './me.jsx'
+import { atLeast, DOMAINS, labelString, parseLabels, ROLES, useCan, useMe, useReadOnly } from './me.jsx'
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
 import { roleTone } from './Users.jsx'
 import { fmtDateTime } from './shared/units.js'
@@ -68,6 +68,8 @@ export default function TokensPage() {
   const [created, setCreated] = useState(null)
   const [busy, run] = useAction()
   const confirm = useConfirm()
+  // Read-only (#527): the tokens as they are, none created or revoked.
+  const readOnly = useReadOnly()
 
   const load = useCallback(() => {
     call('/api/tokens').then(
@@ -119,6 +121,7 @@ export default function TokensPage() {
         </p>
       )}
       {created && <NewToken token={created} onClose={() => setCreated(null)} />}
+      {!readOnly && (
       <Card title="New token" icon={Plus}>
         <form className="row" onSubmit={create} style={{ flexWrap: 'wrap' }}>
           <label className="field grow">
@@ -169,6 +172,7 @@ export default function TokensPage() {
           </div>
         </form>
       </Card>
+      )}
       <ErrorBox error={error} />
       {tokens && tokens.length === 0 && <div className="card empty">No token yet.</div>}
       {tokens && tokens.length > 0 && (
@@ -210,9 +214,11 @@ export default function TokensPage() {
                   <td>{t.expires_at ? when(t.expires_at) : 'never'}</td>
                   <td>{when(t.last_used_at)}</td>
                   <td style={{ textAlign: 'right' }}>
-                    <button className="ghost small danger" onClick={() => revoke(t)} disabled={busy}>
-                      <Trash2 size={14} /> Revoke
-                    </button>
+                    {!readOnly && (
+                      <button className="ghost small danger" onClick={() => revoke(t)} disabled={busy}>
+                        <Trash2 size={14} /> Revoke
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

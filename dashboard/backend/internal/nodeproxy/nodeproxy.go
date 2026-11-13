@@ -26,6 +26,7 @@ import (
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
+	"github.com/swenske/Janus/internal/rbac"
 	"github.com/swenske/Janus/internal/webstatic"
 )
 
@@ -65,10 +66,12 @@ func newHandler(node *store.Node, st *store.Store) (http.Handler, error) {
 	})
 	// Who the page acts for: the Controller's account, the node role the
 	// node gives it, and the RPCs that role may call ("Service/Method",
-	// internal/rbac) - the page shows only what it may do.
+	// internal/rbac) - the page shows only what it may do -, and those of
+	// them that only read: what it still offers while read-only (#527).
 	mux.HandleFunc("GET /api/me", func(w http.ResponseWriter, r *http.Request) {
 		u := userOf(r.Context())
-		writeJSONBody(w, http.StatusOK, map[string]any{"name": u.Name, "roles": nonNilStrings(u.Roles()), "may": nonNilStrings(u.May())})
+		may := u.May()
+		writeJSONBody(w, http.StatusOK, map[string]any{"name": u.Name, "roles": nonNilStrings(u.Roles()), "may": nonNilStrings(may), "reads": nonNilStrings(rbac.Reading(may))})
 	})
 	mux.HandleFunc("GET /api/node", func(w http.ResponseWriter, r *http.Request) {
 		writeJSONBody(w, http.StatusOK, map[string]string{"id": node.ID, "name": node.Name, "address": node.Addr(), "controller_version": ControllerVersion, "locked_by": LockedBy(node)})

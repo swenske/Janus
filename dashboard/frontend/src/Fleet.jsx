@@ -4,6 +4,8 @@ import { postJSON } from './call.js'
 import { fleetAlert, needsKit, renewalProgress } from './fleetAlert.js'
 import { Badge, Card, useAction, useConfirm, useToast } from './shared/ui.jsx'
 import { fmtDate } from './shared/units.js'
+import { useReadOnly } from './me.jsx'
+import { useHold } from './shared/holds.js'
 
 // The fleet's setup (dashboard/backend/fleet.go): create it, store the
 // recovery kit and its passphrase, give both back - only then does the
@@ -84,8 +86,25 @@ export function FleetSetup({ fleet, onChanged }) {
   const [busy, run] = useAction()
   const toast = useToast()
   const confirm = useConfirm()
+  const readOnly = useReadOnly()
+  // The passphrase is shown once: the page stays in edit mode while it is
+  // (the Read-only switch, #527).
+  useHold(!!passphrase)
   if (!fleet || fleet.state === 'ready') return null
   const pending = fleet.state === 'pending'
+  // Read-only, nothing under way: where the fleet stands, none of its steps.
+  if (readOnly && !passphrase)
+    return (
+      <Card title="Secure your fleet" icon={ShieldCheck} className="fleet-setup">
+        <p className="muted" style={{ margin: 0 }}>
+          {pending
+            ? 'A fleet was created and waits for its recovery kit to be given back: until then the Controller reaches the nodes with the credentials it got when they were added.'
+            : 'No fleet yet: the Controller reaches each node with the credential it got when the node was added.'}{' '}
+          Setting it up is a change: turn editing on (the header&apos;s switch).
+        </p>
+        <MasterKeyNotice fleet={fleet} />
+      </Card>
+    )
 
   const create = () =>
     run(async () => {
@@ -197,8 +216,9 @@ const day = (s) => (s ? fmtDate(s) : '–')
 
 // Renewal is the issuing CA's renewal: its notice when due, where a
 // renewal stands, and for an admin the kit's form - to renew, or to reach
-// the nodes only the kit does.
-function Renewal({ fleet, nodes, isAdmin, onChanged }) {
+// the nodes only the kit does. mayAct: the form is offered - an admin, the
+// page not read-only (#527).
+function Renewal({ fleet, nodes, mayAct, onChanged }) {
   const [open, setOpen] = useState(null) // 'renew' | 'rescue'
   const [busy, run] = useAction()
   const confirm = useConfirm()
@@ -244,7 +264,7 @@ function Renewal({ fleet, nodes, isAdmin, onChanged }) {
           with: {locked.map((l) => name(l.id)).join(', ')}.
         </div>
       )}
-      {isAdmin && open === null && (
+      {mayAct && open === null && (
         <div className="row">
           <button className="small" onClick={startRenew} disabled={busy || !!progress}>
             <RefreshCw size={14} /> Renew the issuing CA…
@@ -256,12 +276,12 @@ function Renewal({ fleet, nodes, isAdmin, onChanged }) {
           )}
         </div>
       )}
-      {isAdmin && open === 'renew' && (
+      {mayAct && open === 'renew' && (
         <KitForm busy={busy} action="Renew" icon={RefreshCw} onSubmit={send('renew', 'Issuing CA renewed - the nodes are brought to its bundle')} onCancel={() => setOpen(null)}>
           <div className="muted small">The recovery kit and its passphrase - the ones you stored when the fleet was set up.</div>
         </KitForm>
       )}
-      {isAdmin && open === 'rescue' && (
+      {mayAct && open === 'rescue' && (
         <KitForm busy={busy} action="Reach them" icon={KeyRound} onSubmit={send('rescue', 'The kit opens the way for an hour')} onCancel={() => setOpen(null)}>
           <div className="muted small">For an hour, the Controller reaches them with a certificate the root signs, and brings them to the fleet&apos;s bundle.</div>
         </KitForm>
@@ -270,8 +290,9 @@ function Renewal({ fleet, nodes, isAdmin, onChanged }) {
   )
 }
 
-// FleetCard is the fleet once ready.
-export function FleetCard({ fleet, nodes, isAdmin, onChanged }) {
+// FleetCard is the fleet once ready. mayAct: its actions are offered -
+// an admin's, unless the page is read-only (#527).
+export function FleetCard({ fleet, nodes, isAdmin, mayAct = isAdmin, onChanged }) {
   if (!fleet || fleet.state !== 'ready') return null
   const states = Object.values(fleet.nodes || {})
   const trusted = states.filter((s) => s.state === 'trusted').length
@@ -306,7 +327,7 @@ export function FleetCard({ fleet, nodes, isAdmin, onChanged }) {
           <dt>Set up</dt>
           <dd>{day(fleet.confirmed)}</dd>
         </dl>
-        <Renewal fleet={fleet} nodes={nodes} isAdmin={isAdmin} onChanged={onChanged} />
+        <Renewal fleet={fleet} nodes={nodes} mayAct={mayAct} onChanged={onChanged} />
         <MasterKeyNotice fleet={fleet} />
       </div>
     </Card>

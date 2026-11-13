@@ -12,9 +12,13 @@ export const DEFAULT_PREFERENCES = {
   node_charts: true,
   time_zone: 'local',
   rate_unit: 'bytes',
+  // The Read-only switch (shared/readOnly.jsx, #527): how pages open, and
+  // the minutes without activity before an edit mode ends (0 never).
+  pages_open: 'read_only',
+  read_only_after_minutes: 15,
   chosen: {},
   floors: { nodes: 0, hypervisors: 0 },
-  choices: { nodes: [5, 10, 15, 30, 60], hypervisors: [10, 15, 30, 60, 120] },
+  choices: { nodes: [5, 10, 15, 30, 60], hypervisors: [10, 15, 30, 60, 120], read_only_after: [0, 5, 15, 30, 60] },
 }
 
 // PreferencesContext: { prefs, save(key, value), reset(), reload(), loaded }.

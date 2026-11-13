@@ -39,7 +39,10 @@ import { useStoredView } from './shared/storedView.js'
 import { useNodeMetrics } from './nodeMetrics.js'
 import { usePreferences } from './preferences.js'
 import PreferencesProvider from './PreferencesProvider.jsx'
-import { labelString, MeContext, parseLabels, useCan, useMe } from './me.jsx'
+import { changesAnything, labelString, MeContext, parseLabels, useAct, useCan, useMe } from './me.jsx'
+import { ReadOnlyProvider, ReadOnlySwitch } from './shared/readOnly.jsx'
+import { carryEditing, forgetReadOnly } from './shared/editing.js'
+import { hold } from './shared/holds.js'
 import { effectiveLabels, inheritedRows } from './labels.js'
 import { EnrollMFA, MFAPanel, SecondFactorForm, TrustedBrowsers } from './MFA.jsx'
 import { SSHKeys } from './SSHKeys.jsx'
@@ -78,8 +81,9 @@ const RestoreForm = lazyView(() => import('./Restore.jsx').then((m) => ({ defaul
 
 // A node's page is on this origin too, under /nodes/<id>/ (dashboard/
 // backend/internal/nodeproxy): it acts for the signed-in account.
+// It opens in a new tab, in this tab's edit mode (shared/readOnly.jsx).
 function openNode(node) {
-  window.open(`/nodes/${node.id}/`, '_blank', 'noopener')
+  window.open(carryEditing(`/nodes/${node.id}/`), '_blank', 'noopener')
 }
 
 function uptime(bootUnix) {
@@ -102,7 +106,7 @@ function uptime(bootUnix) {
 // from its machine's hypervisor, read-only (changed on the hypervisor),
 // struck through where its own override them.
 function NodeLabels({ node, onChanged }) {
-  const can = useCan()
+  const act = useAct()
   const toast = useToast()
   const [editing, setEditing] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -135,7 +139,7 @@ function NodeLabels({ node, onChanged }) {
     )
   const keys = Object.keys(l).sort()
   const inherited = inheritedRows(node)
-  if (!keys.length && !inherited.length && !can('admin')) return null
+  if (!keys.length && !inherited.length && !act('admin')) return null
   return (
     <div className="row node-labels" style={{ gap: '0.3rem', flexWrap: 'wrap' }}>
       {keys.map((k) => (
@@ -145,7 +149,7 @@ function NodeLabels({ node, onChanged }) {
           </span>
         </Badge>
       ))}
-      {can('admin') && (
+      {act('admin') && (
         <button className="ghost small" onClick={() => setEditing(labelString(l))} title="Its own labels: grants and scoped tokens pick nodes by them, and by those it inherits">
           <Tag size={13} /> {keys.length ? 'Edit' : 'Labels'}
         </button>
@@ -175,7 +179,7 @@ function InheritedLabels({ node, rows }) {
 
 function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet, onChanged, metrics, clock }) {
   const { prefs } = usePreferences()
-  const can = useCan()
+  const act = useAct()
   const st = status
   const reachable = st?.reachable
   return (
@@ -277,7 +281,7 @@ function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet, 
           Open <ArrowUpRight size={15} />
         </button>
         <span className="grow" />
-        {!can('admin') ? null : machine ? (
+        {!act('admin') ? null : machine ? (
           !machine.spec.locked && (
             <button className="ghost small danger" onClick={() => machineActions.destroy(machine)} disabled={machineActions.busy} title="Destroy its virtual machine">
               <Trash2 size={14} /> Destroy
@@ -298,7 +302,7 @@ function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet, 
 // trust, and Open; its card has the rest (labels edited, a machine's
 // power, kernel).
 function NodeTable({ groups, statuses, metrics, clock, machineOf, vmOf, fleet, onRemove, machineActions }) {
-  const can = useCan()
+  const act = useAct()
   const { prefs } = usePreferences()
   const trust = fleet?.state === 'ready'
   const columns = (trust ? 10 : 9) - (prefs.node_stats ? 0 : 3)
@@ -411,7 +415,7 @@ function NodeTable({ groups, statuses, metrics, clock, machineOf, vmOf, fleet, o
                       <button className="primary small" onClick={() => openNode(n)}>
                         Open <ArrowUpRight size={13} />
                       </button>
-                      {!can('admin') ? null : m ? (
+                      {!act('admin') ? null : m ? (
                         !m.spec.locked && (
                           <button className="ghost icon danger" onClick={() => machineActions.destroy(m)} disabled={machineActions.busy} title="Destroy its virtual machine" aria-label={`Destroy ${n.name}'s virtual machine`}>
                             <Trash2 size={14} />
@@ -463,7 +467,7 @@ function ClusterHeading({ cluster }) {
 // itself (see dashboard/backend/register.go) but isn't reachable until a
 // human approves it here - never fully automatic.
 function PendingList({ pending, onApprove, onReject, busy, machines }) {
-  const can = useCan()
+  const act = useAct()
   if (!pending.length) return null
   // A machine this Controller created whose image is too old to present
   // its registration token: approving it links the node to the machine.
@@ -488,7 +492,7 @@ function PendingList({ pending, onApprove, onReject, busy, machines }) {
                 </div>
               )}
             </div>
-            {can('admin') && (
+            {act('admin') && (
               <div className="row">
                 <button className="primary small" disabled={busy} onClick={() => onApprove(p.id)}>
                   <Check size={14} /> Approve
@@ -1050,6 +1054,7 @@ function PasswordForm({ onDone, forced, onCancel }) {
 // through, when the Controller answers where (then the provider sends
 // the browser back to the page).
 const signOut = async () => {
+  forgetReadOnly()
   const resp = await fetch('/api/auth/logout', { method: 'POST' })
   if (resp.status === 200) {
     const out = await resp.json().catch(() => null)
@@ -1109,7 +1114,7 @@ function AuthGate({ children }) {
   if (ssoDone)
     return (
       <AuthScreen title="Single sign-on">
-        <SSODone onDone={() => (setSSODone(false), setEnded(false), refreshStatus())} />
+        <SSODone onDone={() => (forgetReadOnly(), setSSODone(false), setEnded(false), refreshStatus())} />
       </AuthScreen>
     )
   if (!status) return null
@@ -1123,7 +1128,8 @@ function AuthGate({ children }) {
     ) : (
       <SetupForm onDone={refreshStatus} onRestore={() => setRestoring(true)} />
     )
-  if (!status.authenticated) return <LoginForm onDone={() => (setEnded(false), refreshStatus())} ended={ended} sso={status.sso} />
+  // A new sign-in: the pages open as the account's preference says.
+  if (!status.authenticated) return <LoginForm onDone={() => (forgetReadOnly(), setEnded(false), refreshStatus())} ended={ended} sso={status.sso} />
   if (needs.includes('mfa'))
     return (
       <AuthScreen title={`Second factor for ${status.user.name}`}>
@@ -1224,6 +1230,8 @@ function AccountButton() {
 function MainApp() {
   const route = useHashRoute()
   const can = useCan()
+  const offer = useAct()
+  const me = useMe()
   const tab = ['clusters', 'hypervisors', 'tokens', 'settings', 'accounts', 'audit', 'log-forwarding', 'letsencrypt', 'consul', 'backups'].find((t) => route.startsWith(`/${t}`)) || 'nodes'
   // The account's Settings (preferences.js): how often the nodes and the
   // hypervisors are asked, the nodes' figures and their curves.
@@ -1335,6 +1343,7 @@ function MainApp() {
 
   const act = async (fn, success) => {
     setBusy(true)
+    const release = hold()
     try {
       await fn()
       if (success) toast(success)
@@ -1342,6 +1351,7 @@ function MainApp() {
     } catch (err) {
       toast(err, 'danger')
     } finally {
+      release()
       setBusy(false)
     }
   }
@@ -1435,6 +1445,7 @@ function MainApp() {
           )}
         </div>
         <span className="grow" />
+        <ReadOnlySwitch available={changesAnything(me)} />
         <RefreshButton
           title="Refresh"
           onRefresh={() => {
@@ -1512,14 +1523,14 @@ function MainApp() {
                 {nodes?.length > 0 && (
                   <ViewToggle value={nodesView} onChange={setNodesView} label="Show the nodes as" />
                 )}
-                {!adding && can('admin') && (
+                {!adding && offer('admin') && (
                   <button className="primary" onClick={() => setAdding(true)}>
                     <Plus size={15} /> Add node
                   </button>
                 )}
               </div>
             </div>
-            {adding && (
+            {adding && offer('admin') && (
               <AddNodeForm
                 fleet={fleet}
                 onAdded={() => {
@@ -1531,7 +1542,7 @@ function MainApp() {
             )}
             {nodes && nodes.length === 0 && !adding && (
               <div className="card empty">
-                {can('admin') ? (
+                {offer('admin') ? (
                   <>
                     No node yet.{' '}
                     <button className="small" onClick={() => setAdding(true)}>
@@ -1580,7 +1591,7 @@ function MainApp() {
             </section>
             ))
             )}
-            <FleetCard fleet={fleet} nodes={nodes} isAdmin={can('admin')} onChanged={reload} />
+            <FleetCard fleet={fleet} nodes={nodes} isAdmin={can('admin')} mayAct={offer('admin')} onChanged={reload} />
             {can('admin') && <ProvisionInfo />}
             {can('admin') && <EnrollTokens focus={route.startsWith('/enrollment-tokens')} />}
           </div>
@@ -1591,11 +1602,24 @@ function MainApp() {
   )
 }
 
+// PagesReadOnly keeps the Read-only switch (#527) as the account's
+// preferences say.
+function PagesReadOnly({ children }) {
+  const { prefs, loaded } = usePreferences()
+  return (
+    <ReadOnlyProvider prefs={prefs} loaded={loaded}>
+      {children}
+    </ReadOnlyProvider>
+  )
+}
+
 export default function App() {
   return (
     <AuthGate>
       <PreferencesProvider>
-        <MainApp />
+        <PagesReadOnly>
+          <MainApp />
+        </PagesReadOnly>
       </PreferencesProvider>
     </AuthGate>
   )

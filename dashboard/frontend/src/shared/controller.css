@@ -267,3 +267,11 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 .diff .del { background: var(--danger-soft); color: var(--danger); }
 .diff .ctx { color: var(--muted); }
 .modal.wide { width: min(980px, 100%); }
+
+/* The Read-only switch (shared/readOnly.jsx, #527): calm while the page
+   only reads, the accent's tint while it can change things - the text in
+   --accent-ink, AA on --accent-soft in every palette. */
+button.read-only-switch { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; padding: 0.3rem 0.6rem; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); white-space: nowrap; }
+button.read-only-switch.editing, button.read-only-switch.editing:hover:not(:disabled) { color: var(--accent-ink); background: var(--accent-soft); border-color: var(--accent-ink); font-weight: 600; }
+button.read-only-switch:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+@media (max-width: 640px) { .read-only-switch .read-only-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } }

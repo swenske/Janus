@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { call, gib, postJSON } from './call.js'
-import { labelString, parseLabels, useCan } from './me.jsx'
+import { labelString, parseLabels, useAct, useCan, useReadOnly } from './me.jsx'
 import { PLACE_EXAMPLE, PLACE_KEYS } from './labels.js'
 import { AutoscaleFields, AutoscaleSummary } from './Autoscale.jsx'
 import { autoscalePolicy, initialAutoscale, samePolicy, sizeText, useAutoscale } from './autoscale.js'
@@ -631,7 +631,10 @@ function PrepModal({ hv, onClose }) {
   )
 }
 
+// While the page is read-only its reads stay - the host preparation, the
+// key or certificate read and shown -, the trust itself goes.
 function TrustSteps({ hv, onTrusted }) {
+  const readOnly = useReadOnly()
   const [probe, setProbe] = useState(null)
   const [prep, setPrep] = useState(false)
   const pve = hv.kind === 'proxmox'
@@ -706,14 +709,18 @@ function TrustSteps({ hv, onTrusted }) {
             <code>{pve ? 'openssl x509 -noout -fingerprint -sha256 -in /etc/pve/local/pveproxy-ssl.pem' : 'ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub'}</code>
             {pve && " (pve-ssl.pem without a certificate of your own) - the preparation's last step prints it."}
           </div>
-          <div className="row">
-            <button className="primary small" onClick={trust} disabled={busy}>
-              It matches - trust this {pve ? 'certificate' : 'host'}
-            </button>
-            <button className="small ghost" onClick={() => setProbe(null)} disabled={busy}>
-              Cancel
-            </button>
-          </div>
+          {readOnly ? (
+            <div className="muted small">Read-only: turn editing on to trust this {pve ? 'certificate' : 'host'}.</div>
+          ) : (
+            <div className="row">
+              <button className="primary small" onClick={trust} disabled={busy}>
+                It matches - trust this {pve ? 'certificate' : 'host'}
+              </button>
+              <button className="small ghost" onClick={() => setProbe(null)} disabled={busy}>
+                Cancel
+              </button>
+            </div>
+          )}
         </div>
       )}
       <ErrorBox error={error} />
@@ -785,6 +792,7 @@ function HVLabels({ hv, className = 'row node-labels' }) {
 
 function HypervisorCard({ hv, status, onEdit, onRemove, onTrusted }) {
   const can = useCan()
+  const act = useAct()
   const host = status?.host
   const badge = hvBadge(hv, status)
   return (
@@ -900,7 +908,7 @@ function HypervisorCard({ hv, status, onEdit, onRemove, onTrusted }) {
           </dl>
         </>
       )}
-      {can('admin') && (
+      {act('admin') && (
         <div className="row" style={{ marginTop: 'auto' }}>
           <button className="small" onClick={() => onEdit(hv)}>
             <Pencil size={14} /> Edit
@@ -1406,7 +1414,7 @@ function EditMachine({ m, hv, onClose, onSaved }) {
 }
 
 function MachineCard({ m, vm, vmError, actions, onEdit }) {
-  const can = useCan()
+  const act = useAct()
   const [history, setHistory] = useState(false)
   const last = m.events[m.events.length - 1]
   const synced = ago(m.synced_at)
@@ -1476,18 +1484,18 @@ function MachineCard({ m, vm, vmError, actions, onEdit }) {
         <button className="small ghost" onClick={() => setHistory(!history)} title="History">
           <History size={14} />
         </button>
-        {can('admin') && m.phase === 'ready' && m.node_id && !m.spec.locked && (
+        {act('admin') && m.phase === 'ready' && m.node_id && !m.spec.locked && (
           <button className="small" onClick={() => onEdit(m)} disabled={actions.busy} title="vCPUs, memory, network interfaces, auto-scaling">
             <Pencil size={14} /> Edit
           </button>
         )}
-        {can('admin') && m.phase === 'failed' && !m.node_id && (
+        {act('admin') && m.phase === 'failed' && !m.node_id && (
           <button className="small" onClick={() => actions.retry(m)} disabled={actions.busy}>
             <RotateCcw size={14} /> Retry
           </button>
         )}
         <span className="grow" />
-        {can('admin') && m.phase !== 'destroying' && !m.spec.locked && (
+        {act('admin') && m.phase !== 'destroying' && !m.spec.locked && (
           <button className="ghost small danger" onClick={() => actions.destroy(m)} disabled={actions.busy}>
             <Trash2 size={14} /> Destroy
           </button>
@@ -1503,7 +1511,8 @@ function MachineCard({ m, vm, vmError, actions, onEdit }) {
 // set-up steps and errors on a row of their own below.
 function HypervisorTable({ hypervisors, hvStatus, onEdit, onRemove, onTrusted }) {
   const can = useCan()
-  const columns = can('admin') ? 8 : 7
+  const act = useAct()
+  const columns = act('admin') ? 8 : 7
   return (
     <div className="card node-table-card">
       <div className="table-wrap">
@@ -1517,7 +1526,7 @@ function HypervisorTable({ hypervisors, hvStatus, onEdit, onRemove, onTrusted })
               <th>Memory</th>
               <th>Storage</th>
               <th>Machines</th>
-              {can('admin') && <th aria-label="Actions" />}
+              {act('admin') && <th aria-label="Actions" />}
             </tr>
           </thead>
           <tbody>
@@ -1589,7 +1598,7 @@ function HypervisorTable({ hypervisors, hvStatus, onEdit, onRemove, onTrusted })
                       {hv.machines}
                       {host?.running_machines >= 0 && <div className="muted">{host.running_machines} running</div>}
                     </td>
-                    {can('admin') && (
+                    {act('admin') && (
                       <td className="actions">
                         <div className="row" style={{ gap: '0.3rem', flexWrap: 'nowrap' }}>
                           <button className="small" onClick={() => onEdit(hv)}>
@@ -1675,7 +1684,7 @@ function MachineTable({ machines, vmOf, vmErrorOf, actions, onEdit }) {
 }
 
 function MachineRow({ m, vm, vmError, actions, onEdit }) {
-  const can = useCan()
+  const act = useAct()
   const [history, setHistory] = useState(false)
   const last = m.events[m.events.length - 1]
   const synced = ago(m.synced_at)
@@ -1744,17 +1753,17 @@ function MachineRow({ m, vm, vmError, actions, onEdit }) {
             <button className="small ghost" onClick={() => setHistory(!history)} title="History" aria-pressed={history}>
               <History size={14} />
             </button>
-            {can('admin') && m.phase === 'ready' && m.node_id && !m.spec.locked && (
+            {act('admin') && m.phase === 'ready' && m.node_id && !m.spec.locked && (
               <button className="small" onClick={() => onEdit(m)} disabled={actions.busy} title="vCPUs, memory, network interfaces, auto-scaling">
                 <Pencil size={14} /> Edit
               </button>
             )}
-            {can('admin') && m.phase === 'failed' && !m.node_id && (
+            {act('admin') && m.phase === 'failed' && !m.node_id && (
               <button className="small" onClick={() => actions.retry(m)} disabled={actions.busy}>
                 <RotateCcw size={14} /> Retry
               </button>
             )}
-            {can('admin') && m.phase !== 'destroying' && !m.spec.locked && (
+            {act('admin') && m.phase !== 'destroying' && !m.spec.locked && (
               <button className="ghost icon danger" onClick={() => actions.destroy(m)} disabled={actions.busy} title="Destroy" aria-label={`Destroy ${m.spec.name}`}>
                 <Trash2 size={14} />
               </button>
@@ -1789,7 +1798,7 @@ function MachineRow({ m, vm, vmError, actions, onEdit }) {
 // --- the page ---
 
 export default function HypervisorsPage({ hypervisors, machines, hvStatus, onChanged, onConsole }) {
-  const can = useCan()
+  const act = useAct()
   const [form, setForm] = useState(null) // null, 'add', or a hypervisor to edit
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState(null) // a machine
@@ -1818,7 +1827,10 @@ export default function HypervisorsPage({ hypervisors, machines, hvStatus, onCha
 
   return (
     <div className="stack">
+      {/* A form left open when the page turns read-only: hidden, what was
+          typed kept - editing again shows it as it was. */}
       {editing && (
+        <div hidden={!act('admin')}>
         <EditMachine
           m={editing}
           hv={editingHV}
@@ -1828,12 +1840,13 @@ export default function HypervisorsPage({ hypervisors, machines, hvStatus, onCha
             onChanged()
           }}
         />
+        </div>
       )}
       <div className="spread">
         <h1>Hypervisors</h1>
         <div className="row">
           {hypervisors.length > 0 && <ViewToggle value={hvView} onChange={setHvView} label="Show the hypervisors as" />}
-          {!form && can('admin') && (
+          {!form && act('admin') && (
             <button className="primary" onClick={() => setForm('add')}>
               <Plus size={15} /> Add hypervisor
             </button>
@@ -1841,6 +1854,7 @@ export default function HypervisorsPage({ hypervisors, machines, hvStatus, onCha
         </div>
       </div>
       {form && (
+        <div hidden={!act('admin')}>
         <HypervisorForm
           key={form === 'add' ? 'add' : form.id}
           hv={form === 'add' ? null : form}
@@ -1850,10 +1864,11 @@ export default function HypervisorsPage({ hypervisors, machines, hvStatus, onCha
           }}
           onClose={() => setForm(null)}
         />
+        </div>
       )}
       {hypervisors.length === 0 && !form && (
         <div className="card empty">
-          {can('admin') ? (
+          {act('admin') ? (
             <>
               No hypervisor yet.{' '}
               <button className="small" onClick={() => setForm('add')}>
@@ -1880,7 +1895,7 @@ export default function HypervisorsPage({ hypervisors, machines, hvStatus, onCha
         <h1>Machines</h1>
         <div className="row">
           {machines.length > 0 && <ViewToggle value={machinesView} onChange={setMachinesView} label="Show the machines as" />}
-          {!creating && can('admin') && (
+          {!creating && act('admin') && (
             <button className="primary" onClick={() => setCreating(true)} disabled={trusted.length === 0} title={trusted.length ? '' : 'Add and trust a hypervisor first'}>
               <Plus size={15} /> Create node
             </button>
@@ -1888,6 +1903,7 @@ export default function HypervisorsPage({ hypervisors, machines, hvStatus, onCha
         </div>
       </div>
       {creating && (
+        <div hidden={!act('admin')}>
         <CreateMachineForm
           hypervisors={hypervisors}
           onCreated={() => {
@@ -1896,6 +1912,7 @@ export default function HypervisorsPage({ hypervisors, machines, hvStatus, onCha
           }}
           onClose={() => setCreating(false)}
         />
+        </div>
       )}
       {machines.length === 0 && !creating && <div className="card empty">No machine yet: the nodes this Controller creates appear here.</div>}
       {machinesView === 'list' && machines.length > 0 ? (

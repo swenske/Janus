@@ -5,6 +5,7 @@ import { bytes, dateTime } from '../format.js'
 import { useCountdown, usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
 import { Badge, Card, Empty, ErrorBox, Loading, PageHeader, useAction, useConfirm, useToast } from '../../shared/ui.jsx'
+import { useHold } from '../../shared/holds.js'
 
 // System › Sysctl: the kernel parameters HAProxy depends on, changed on
 // trial and kept once applied (internal/sysctl, docs/guide/kernel-tuning.md),
@@ -100,6 +101,8 @@ export default function Sysctl() {
   const may = useMay()
   const canApply = may('SystemService/SysctlApply')
   const d = list.data
+  // Values on trial: the page stays in edit mode until they're settled.
+  useHold(!!d?.trial)
 
   if (list.error && !d) return <ErrorBox error={list.error} />
   if (!d) return <Loading />

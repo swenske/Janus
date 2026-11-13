@@ -31,6 +31,15 @@ type Preferences struct {
 	// RateUnit: traffic in "bytes" a second (KiB/s, HAProxy's counters) or
 	// "bits" (Mbit/s, a link's or a router's).
 	RateUnit string `json:"rate_unit,omitempty"`
+	// PagesOpen: how the pages open - "read_only", nothing on them that
+	// changes a node, a cluster or the Controller until the header's
+	// switch says so, or "read_write", as they always were (#527). A
+	// convenience of the pages, never a permission.
+	PagesOpen string `json:"pages_open,omitempty"`
+	// ReadOnlyAfterMinutes: a page put in edit mode goes back to read-only
+	// after that long without activity - one of ReadOnlyAfterChoices, 0
+	// never. Nil: the default. Not while pages open read-write.
+	ReadOnlyAfterMinutes *int `json:"read_only_after_minutes,omitempty"`
 }
 
 // RefreshChoices are the intervals offered, in seconds: a node's status
@@ -41,11 +50,18 @@ var RefreshChoices = map[string][]int{
 	"hypervisors": {10, 15, 30, 60, 120},
 }
 
+// ReadOnlyAfterChoices are the delays offered before a page in edit
+// mode goes back to read-only, in minutes - 0 is never.
+var ReadOnlyAfterChoices = []int{0, 5, 15, 30, 60}
+
 // DefaultPreferences are what an account that chose nothing gets: the
-// pages as they were.
-var DefaultPreferences = Preferences{NodesRefreshSeconds: 15, HypervisorsRefreshSeconds: 15, NodeStats: boolPtr(true), NodeCharts: boolPtr(true), TimeZone: "local", RateUnit: "bytes"}
+// pages as they were - but opening read-only, back to it after 15
+// minutes without activity in edit mode.
+var DefaultPreferences = Preferences{NodesRefreshSeconds: 15, HypervisorsRefreshSeconds: 15, NodeStats: boolPtr(true), NodeCharts: boolPtr(true), TimeZone: "local", RateUnit: "bytes", PagesOpen: "read_only", ReadOnlyAfterMinutes: intPtr(15)}
 
 func boolPtr(v bool) *bool { return &v }
+
+func intPtr(v int) *int { return &v }
 
 // Effective is p with the defaults filled in.
 func (p Preferences) Effective() Preferences {
@@ -67,6 +83,12 @@ func (p Preferences) Effective() Preferences {
 	}
 	if p.RateUnit == "" {
 		p.RateUnit = d.RateUnit
+	}
+	if p.PagesOpen == "" {
+		p.PagesOpen = d.PagesOpen
+	}
+	if p.ReadOnlyAfterMinutes == nil {
+		p.ReadOnlyAfterMinutes = intPtr(*d.ReadOnlyAfterMinutes)
 	}
 	return p
 }
@@ -92,6 +114,7 @@ func Choices(s Settings) map[string][]int {
 			}
 		}
 	}
+	out["read_only_after"] = slices.Clone(ReadOnlyAfterChoices)
 	return out
 }
 
@@ -113,6 +136,9 @@ func (p Preferences) clone() Preferences {
 	if p.NodeCharts != nil {
 		p.NodeCharts = boolPtr(*p.NodeCharts)
 	}
+	if p.ReadOnlyAfterMinutes != nil {
+		p.ReadOnlyAfterMinutes = intPtr(*p.ReadOnlyAfterMinutes)
+	}
 	return p
 }
 
@@ -133,6 +159,14 @@ func (p Preferences) Check() error {
 	case "", "bytes", "bits":
 	default:
 		return errors.New(`rate_unit: "bytes" or "bits"`)
+	}
+	switch p.PagesOpen {
+	case "", "read_only", "read_write":
+	default:
+		return errors.New(`pages_open: "read_only" or "read_write"`)
+	}
+	if p.ReadOnlyAfterMinutes != nil && !slices.Contains(ReadOnlyAfterChoices, *p.ReadOnlyAfterMinutes) {
+		return fmt.Errorf("read_only_after_minutes: one of %v (0: never)", ReadOnlyAfterChoices)
 	}
 	return nil
 }

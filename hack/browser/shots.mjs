@@ -75,6 +75,9 @@ async function until(what, fn, seconds = 120) {
 
 const SETUP = Date.now()
 await call('POST', '/api/auth/setup', { password: PASSWORD, mfa_required: 'nobody' })
+// The pages as they were: read-write, every action shown (the Read-only
+// switch, docs/controller-ui.md "Read-only mode").
+await call('PUT', '/api/me/preferences', { pages_open: 'read_write' })
 // The fleet first: a node is added by its pairing code into it.
 const fleet = await call('POST', '/api/fleet/setup')
 const kit = await (await api.get('/api/fleet/recovery-kit')).text()

@@ -36,7 +36,7 @@ import {
   Waypoints,
   Workflow,
 } from 'lucide-react'
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import { SIGNED_OUT } from '../shared/activity.js'
 import BrandMark from '../shared/BrandMark.jsx'
 import RefreshButton from '../shared/RefreshButton.jsx'
@@ -48,8 +48,9 @@ import { PrereleaseBadge } from '../PrereleaseBadge.jsx'
 import { SecurityBadge } from '../SecurityBadge.jsx'
 import { securityText, securityTone } from '../severity.js'
 import { INTERVALS, navigate, useHashRoute, useMetrics, useNodeStatus, usePoll, useRefresh } from './hooks.jsx'
-import { MayContext } from './may.js'
-import { lockedDomain } from './cluster.js'
+import { MayContext, changesSomething, mayFor } from './may.js'
+import { ReadOnlySwitch } from '../shared/readOnly.jsx'
+import { useEditing } from '../shared/editing.js'
 import { ClusterBadge } from './components/ClusterLock.jsx'
 import { ClusterContext } from './clusterContext.js'
 import { usePinned } from './rail.js'
@@ -159,12 +160,13 @@ function findRoute(full) {
   return NAV[0].items[0]
 }
 
-function RefreshSelect() {
+function RefreshSelect({ canChange }) {
   const { interval, setInterval } = useRefresh()
   const { refresh } = useMetrics()
   const { recheck } = useNodeStatus()
   return (
     <div className="refresh">
+      <ReadOnlySwitch available={canChange} />
       <RefreshButton onRefresh={() => Promise.all([refresh(), recheck()])} />
       <ThemePicker />
       <select value={interval} onChange={(e) => setInterval(Number(e.target.value))} title="Auto-refresh interval">
@@ -201,9 +203,15 @@ export default function App() {
   // What the account may call on the node: nothing until /api/me says -
   // never a flash of what it may not do, nor a read it would be refused.
   // Nor a write to what the node's cluster manages here: the node refuses
-  // it (ClusterLockNotice says so on those pages).
+  // it (ClusterLockNotice says so on those pages). Nor, while the page is
+  // read-only (the header's switch, #527), anything that changes the
+  // node: may.js.
   const mayList = me.data?.may
-  const may = useCallback((method) => !!mayList && mayList.includes(method) && !lockedDomain(cluster, method), [mayList, cluster])
+  const reads = me.data?.reads
+  const { editing } = useEditing()
+  const canChange = changesSomething({ may: mayList, reads, cluster })
+  const readOnly = canChange && !editing
+  const may = useMemo(() => mayFor({ may: mayList, reads, cluster, readOnly }), [mayList, reads, cluster, readOnly])
   const modules = usePoll('/api/network/modules', { every: 0 })
   const { check, overview } = useNodeStatus()
 
@@ -336,7 +344,7 @@ export default function App() {
             )}
           </div>
           <span className="grow" />
-          <RefreshSelect />
+          <RefreshSelect canChange={canChange} />
         </header>
         {error && !ended && (
           <div className="banner danger">

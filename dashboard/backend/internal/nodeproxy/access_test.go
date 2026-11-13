@@ -2,6 +2,7 @@ package nodeproxy
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -34,6 +35,16 @@ func TestAccessPage(t *testing.T) {
 	reader := User{Name: "rita", Perms: []Perm{{Role: "os:reader"}}}
 	if code, body := do(reader, "GET", "/api/me", ""); code != http.StatusOK || !strings.Contains(body, `"HAProxyService/ShowInfo"`) || strings.Contains(body, `"HAProxyService/ApplyConfig"`) {
 		t.Errorf("a reader's /api/me: %d %s", code, body)
+	}
+	// Those that only read, for the Read-only switch (#527): an
+	// operator's Logs and Reload, Logs alone.
+	operator := User{Name: "otto", Perms: []Perm{{Role: "os:operator"}}}
+	var me struct{ May, Reads []string }
+	if code, body := do(operator, "GET", "/api/me", ""); code != http.StatusOK || json.Unmarshal([]byte(body), &me) != nil {
+		t.Fatalf("an operator's /api/me: %d %s", code, body)
+	}
+	if !slices.Contains(me.May, "HAProxyService/Reload") || slices.Contains(me.Reads, "HAProxyService/Reload") || !slices.Contains(me.Reads, "SystemService/Logs") || len(me.Reads) >= len(me.May) {
+		t.Errorf("an operator's reads: %v of %v", me.Reads, me.May)
 	}
 
 	admin := User{Name: "root", Perms: []Perm{{Role: "os:admin"}}}

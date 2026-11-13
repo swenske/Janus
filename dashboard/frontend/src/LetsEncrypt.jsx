@@ -4,6 +4,7 @@ import { call, postJSON } from './call.js'
 import ProviderForm from './shared/ACMEProviderForm.jsx'
 import { Badge, Card, ErrorBox, Loading, useAction, useToast } from './shared/ui.jsx'
 import { fmtDate, fmtDateTime } from './shared/units.js'
+import { useReadOnly } from './me.jsx'
 
 // Let's Encrypt (admin): the Controller's part in the nodes'
 // certificates - the relay, for the nodes that reach the CA through the
@@ -37,6 +38,9 @@ function bytes(n) {
 }
 
 export default function LetsEncryptPage() {
+  // Read-only (the header's switch, #527): the relay's settings shown, not
+  // its form; a draft stays for when editing is back.
+  const readOnly = useReadOnly()
   const [view, setView] = useState(null)
   const [draft, setDraft] = useState(null)
   const [error, setError] = useState(null)
@@ -95,35 +99,51 @@ export default function LetsEncryptPage() {
           A node that reaches this Controller but not the internet goes through it: the relay tunnels the node’s HTTPS to the CA and to its DNS provider’s API - encrypted end to end, the relay sees host names only. It knows a node by a certificate of the node’s own CA: only the nodes added to this Controller get through, and only to the destinations listed here.
         </p>
         {view.error && <div className="notice danger">{view.error}</div>}
-        <fieldset className="plain relay-form" disabled={busy}>
-          <label className="check">
-            <input type="checkbox" checked={draft.enabled} onChange={(e) => set({ enabled: e.target.checked })} /> Relay on
-          </label>
-          <div className="relay-fields">
-            <label className="field">
-              <span>Listens on</span>
-              <input className="mono" value={draft.listen} placeholder=":8444" onChange={(e) => set({ listen: e.target.value })} />
+        {readOnly && (
+          <dl className="kv">
+            <dt>Relay</dt>
+            <dd>{view.config.enabled ? 'on' : 'off'}</dd>
+            <dt>Listens on</dt>
+            <dd className="mono">{view.config.listen || ':8444'}</dd>
+            <dt>The nodes reach it at</dt>
+            <dd className="mono">{view.config.address || (view.url ? view.url.replace('https://', '') : '-')}</dd>
+            <dt>Destinations allowed besides the built-in ones</dt>
+            <dd className="mono">{(view.config.allowed || []).join(', ') || <span className="muted">none</span>}</dd>
+          </dl>
+        )}
+        {!readOnly && (
+          <fieldset className="plain relay-form" disabled={busy}>
+            <label className="check">
+              <input type="checkbox" checked={draft.enabled} onChange={(e) => set({ enabled: e.target.checked })} /> Relay on
             </label>
+            <div className="relay-fields">
+              <label className="field">
+                <span>Listens on</span>
+                <input className="mono" value={draft.listen} placeholder=":8444" onChange={(e) => set({ listen: e.target.value })} />
+              </label>
+              <label className="field">
+                <span>The nodes reach it at - a name or address in the Controller’s identity</span>
+                <input className="mono" value={draft.address} placeholder={view.url ? view.url.replace('https://', '') : 'host:port'} onChange={(e) => set({ address: e.target.value })} />
+              </label>
+            </div>
             <label className="field">
-              <span>The nodes reach it at - a name or address in the Controller’s identity</span>
-              <input className="mono" value={draft.address} placeholder={view.url ? view.url.replace('https://', '') : 'host:port'} onChange={(e) => set({ address: e.target.value })} />
+              <span>Destinations allowed besides the built-in ones - host:port, one a line: a private ACME CA, the API an httpreq or pdns provider names</span>
+              <textarea className="mono small" rows={3} value={draft.allowed} placeholder="acme.internal.example:443" onChange={(e) => set({ allowed: e.target.value })} />
             </label>
-          </div>
-          <label className="field">
-            <span>Destinations allowed besides the built-in ones - host:port, one a line: a private ACME CA, the API an httpreq or pdns provider names</span>
-            <textarea className="mono small" rows={3} value={draft.allowed} placeholder="acme.internal.example:443" onChange={(e) => set({ allowed: e.target.value })} />
-          </label>
-        </fieldset>
-        <div className="row">
-          <button className="small primary" disabled={busy || !dirty} onClick={save}>
-            Save
-          </button>
-          {dirty && (
-            <button className="small ghost" disabled={busy} onClick={() => setDraft(draftOf(view.config))}>
-              Discard
+          </fieldset>
+        )}
+        {!readOnly && (
+          <div className="row">
+            <button className="small primary" disabled={busy || !dirty} onClick={save}>
+              Save
             </button>
-          )}
-        </div>
+            {dirty && (
+              <button className="small ghost" disabled={busy} onClick={() => setDraft(draftOf(view.config))}>
+                Discard
+              </button>
+            )}
+          </div>
+        )}
         <details className="relay-builtin">
           <summary className="small">Built-in destinations (port 443) and what can’t go through the relay</summary>
           <ul className="small">
@@ -193,6 +213,7 @@ export default function LetsEncryptPage() {
 // Ordering: the account the Controller orders its nodes' certificates
 // with, its DNS providers, and what it did for each node.
 function Ordering() {
+  const readOnly = useReadOnly()
   const [view, setView] = useState(null)
   const [error, setError] = useState(null)
   const [editing, setEditing] = useState(null) // the account, or a provider ({ index })
@@ -246,33 +267,44 @@ function Ordering() {
             </>
           )}
         </dl>
+        {/* Read-only: a form left open is hidden, not dropped - what was typed comes back with editing. */}
         {editing === 'account' ? (
-          <AccountForm settings={set} busy={busy} onCancel={() => setEditing(null)} onSave={(next) => save(next, () => setEditing(null))} />
-        ) : (
-          <div className="row">
-            <button className="small" onClick={() => setEditing('account')}>
-              <Pencil size={13} /> Edit the account
-            </button>
+          <div hidden={readOnly}>
+            <AccountForm settings={set} busy={busy} onCancel={() => setEditing(null)} onSave={(next) => save(next, () => setEditing(null))} />
           </div>
+        ) : (
+          !readOnly && (
+            <div className="row">
+              <button className="small" onClick={() => setEditing('account')}>
+                <Pencil size={13} /> Edit the account
+              </button>
+            </div>
+          )
         )}
         <div>
           <div className="spread">
             <strong className="small">DNS providers - what a node’s dns-01 certificate names</strong>
-            <button className="small" onClick={() => setEditing({ index: -1 })}>
-              <Plus size={13} /> Add a DNS provider
-            </button>
+            {!readOnly && (
+              <button className="small" onClick={() => setEditing({ index: -1 })}>
+                <Plus size={13} /> Add a DNS provider
+              </button>
+            )}
           </div>
           {providers.length ? (
             <ul className="small relay-providers">
               {providers.map((p, i) => (
                 <li key={p.name}>
                   <span className="mono">{p.name}</span> <span className="muted">({p.type})</span>{' '}
-                  <button className="small ghost" aria-label={`Edit ${p.name}`} onClick={() => setEditing({ index: i })}>
-                    <Pencil size={12} />
-                  </button>
-                  <button className="small ghost" aria-label={`Remove ${p.name}`} onClick={() => save({ ...set, dns_providers: providers.filter((_, j) => j !== i) })}>
-                    <Trash2 size={12} />
-                  </button>
+                  {!readOnly && (
+                    <>
+                      <button className="small ghost" aria-label={`Edit ${p.name}`} onClick={() => setEditing({ index: i })}>
+                        <Pencil size={12} />
+                      </button>
+                      <button className="small ghost" aria-label={`Remove ${p.name}`} onClick={() => save({ ...set, dns_providers: providers.filter((_, j) => j !== i) })}>
+                        <Trash2 size={12} />
+                      </button>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>
@@ -280,26 +312,30 @@ function Ordering() {
             <p className="small muted">None yet - only HTTP-01 certificates can be ordered.</p>
           )}
         </div>
-        <OrderingPolicy set={set} save={save} busy={busy} />
+        <OrderingPolicy set={set} save={save} busy={busy} readOnly={readOnly} />
       </Card>
       {editing?.index !== undefined && (
-        <ProviderForm
-          provider={editing.index >= 0 ? providers[editing.index] : null}
-          names={providers.map((p) => p.name)}
-          busy={busy}
-          onCancel={() => setEditing(null)}
-          onSave={(p) =>
-            save({ ...set, dns_providers: editing.index >= 0 ? providers.map((x, j) => (j === editing.index ? p : x)) : [...providers, p] }, () => setEditing(null))
-          }
-        />
+        <div hidden={readOnly}>
+          <ProviderForm
+            provider={editing.index >= 0 ? providers[editing.index] : null}
+            names={providers.map((p) => p.name)}
+            busy={busy}
+            onCancel={() => setEditing(null)}
+            onSave={(p) =>
+              save({ ...set, dns_providers: editing.index >= 0 ? providers.map((x, j) => (j === editing.index ? p : x)) : [...providers, p] }, () => setEditing(null))
+            }
+          />
+        </div>
       )}
       <Card
         title="Ordered certificates"
         icon={Waypoints}
         actions={
-          <button className="small" disabled={busy || !view.ready} onClick={orderNow}>
-            <RefreshCw size={13} /> Order what’s due now
-          </button>
+          !readOnly && (
+            <button className="small" disabled={busy || !view.ready} onClick={orderNow}>
+              <RefreshCw size={13} /> Order what’s due now
+            </button>
+          )
         }
       >
         {view.nodes?.length ? (
@@ -368,7 +404,7 @@ function selectorText(sel) {
     .join(', ')
 }
 
-function OrderingPolicy({ set, save, busy }) {
+function OrderingPolicy({ set, save, busy, readOnly }) {
   const [dirs, setDirs] = useState((set.directories || []).join('\n'))
   const [rules, setRules] = useState(
     (set.name_policy || []).map((r) => ({ selector: selectorText(r.selector), suffixes: (r.suffixes || []).join(', ') })),
@@ -387,9 +423,11 @@ function OrderingPolicy({ set, save, busy }) {
     <div className="ordering-policy">
       <div className="spread">
         <strong className="small">Policy - which names, and from which CA</strong>
-        <button className="small primary" disabled={busy} onClick={onSave}>
-          Save the policy
-        </button>
+        {!readOnly && (
+          <button className="small primary" disabled={busy} onClick={onSave}>
+            Save the policy
+          </button>
+        )}
       </div>
       {!(set.name_policy || []).length && (
         <div className="notice warn">No name rule yet: nothing is ordered until you allow at least one name suffix.</div>
@@ -400,6 +438,7 @@ function OrderingPolicy({ set, save, busy }) {
           className="mono"
           rows={2}
           value={dirs}
+          readOnly={readOnly}
           placeholder={'letsencrypt\nletsencrypt-staging'}
           onChange={(e) => setDirs(e.target.value)}
         />
@@ -412,23 +451,29 @@ function OrderingPolicy({ set, save, busy }) {
               aria-label={`Rule ${i + 1} node labels`}
               placeholder="node labels, e.g. team=web (empty: every node)"
               value={r.selector}
+              readOnly={readOnly}
               onChange={(e) => setRules(rules.map((x, j) => (j === i ? { ...x, selector: e.target.value } : x)))}
             />
             <input
               aria-label={`Rule ${i + 1} name suffixes`}
               placeholder="name suffixes, e.g. web.example.com"
               value={r.suffixes}
+              readOnly={readOnly}
               onChange={(e) => setRules(rules.map((x, j) => (j === i ? { ...x, suffixes: e.target.value } : x)))}
             />
-            <button className="small ghost" aria-label={`Remove rule ${i + 1}`} onClick={() => setRules(rules.filter((_, j) => j !== i))}>
-              <Trash2 size={12} />
-            </button>
+            {!readOnly && (
+              <button className="small ghost" aria-label={`Remove rule ${i + 1}`} onClick={() => setRules(rules.filter((_, j) => j !== i))}>
+                <Trash2 size={12} />
+              </button>
+            )}
           </li>
         ))}
       </ul>
-      <button className="small" onClick={() => setRules([...rules, { selector: '', suffixes: '' }])}>
-        <Plus size={13} /> Add a name rule
-      </button>
+      {!readOnly && (
+        <button className="small" onClick={() => setRules([...rules, { selector: '', suffixes: '' }])}>
+          <Plus size={13} /> Add a name rule
+        </button>
+      )}
     </div>
   )
 }

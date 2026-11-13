@@ -1,5 +1,6 @@
 import { AlertTriangle, Loader2, X } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { hold, useHold } from './holds.js'
 
 export function Card({ title, icon: Icon, actions, children, className = '' }) {
   return (
@@ -153,6 +154,8 @@ export function ConfirmProvider({ children }) {
     dialog?.resolve(result)
     setDialog(null)
   }
+  // An open confirmation: the page stays in edit mode (shared/holds.js).
+  useHold(!!dialog)
   useEffect(() => {
     if (!dialog) return undefined
     const onKey = (e) => e.key === 'Escape' && close(false)
@@ -203,6 +206,7 @@ export function useAction() {
   const run = useCallback(
     async (fn, success) => {
       setBusy(true)
+      const release = hold()
       try {
         const result = await fn()
         if (success) toast(typeof success === 'function' ? success(result) : success)
@@ -211,6 +215,7 @@ export function useAction() {
         toast(err, 'danger')
         return undefined
       } finally {
+        release()
         setBusy(false)
       }
     },

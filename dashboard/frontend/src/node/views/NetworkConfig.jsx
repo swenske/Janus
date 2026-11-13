@@ -412,7 +412,7 @@ function ApplyResult({ result, previousAddress }) {
   )
 }
 
-function Editor({ loaded, status, onApplied, onResult }) {
+function Editor({ loaded, status, onApplied, onResult, canApply }) {
   const [draft, setDraft] = useState(() => toDraft(loaded.config))
   const [mode, setMode] = useState('form')
   const [json, setJson] = useState(() => pretty(loaded.config || {}))
@@ -597,6 +597,7 @@ function Editor({ loaded, status, onApplied, onResult }) {
           <DiffView diff={diff} />
         </div>
       )}
+      {canApply && (
       <div className="row" style={{ marginTop: '0.8rem' }}>
         <label className="field" style={{ width: '12rem' }}>
           <span>Revert unless confirmed within (s)</span>
@@ -606,6 +607,7 @@ function Editor({ loaded, status, onApplied, onResult }) {
           <Save size={15} /> {busy ? 'Applying…' : 'Apply…'}
         </button>
       </div>
+      )}
     </Card>
   )
 }
@@ -618,6 +620,9 @@ export default function NetworkConfig() {
   const [result, setResult] = useState(null)
   const may = useMay()
   const canApply = may('NetworkService/NetworkConfigApply')
+  // The role reaches it, the page may be read-only: the editor stays,
+  // its Apply goes (#527).
+  const canEdit = may('NetworkService/NetworkConfigApply', 'validate')
   const canRead = may('NetworkService/NetworkConfigGet')
 
   useEffect(() => {
@@ -644,7 +649,7 @@ export default function NetworkConfig() {
             {result && <ApplyResult result={result} previousAddress={result.previousAddress} />}
             {!canRead ? (
               <div className="notice">The saved configuration is the network domain&apos;s - your permission on this node doesn&apos;t reach it.</div>
-            ) : loaded && !canApply ? (
+            ) : loaded && !canEdit ? (
               <Card title="Saved configuration">
                 <p className="small muted" style={{ marginTop: 0 }}>
                   Changing the node&apos;s network is an admin&apos;s.
@@ -654,6 +659,7 @@ export default function NetworkConfig() {
             ) : loaded ? (
               <Editor
                 key={generation}
+                canApply={canApply}
                 loaded={loaded}
                 status={status.data}
                 onResult={setResult}
