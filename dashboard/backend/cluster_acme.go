@@ -148,6 +148,11 @@ func (a *app) handleClusterACME(w http.ResponseWriter, r *http.Request) {
 type clusterACMERequest struct {
 	Config json.RawMessage `json:"config"`
 	Note   string          `json:"note"`
+	// AccountKey: an existing account's key (PEM), for every member;
+	// Base: the version the new one starts from (0: the members', 409
+	// when a newer one waits, not applied).
+	AccountKey string `json:"account_key"`
+	Base       int    `json:"base"`
 }
 
 func (req clusterACMERequest) parse() (*janusv1alpha1.ACMEConfig, error) {
@@ -173,7 +178,7 @@ func (a *app) handleClusterACMECheck(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "config: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, a.checkClusterACME(r.Context(), c, cfg))
+	writeJSON(w, http.StatusOK, a.checkClusterACME(r.Context(), c, cfg, req.AccountKey))
 }
 
 type acmeCheck struct {
@@ -181,14 +186,14 @@ type acmeCheck struct {
 	Errors   []string `json:"errors,omitempty"`
 }
 
-func (a *app) checkClusterACME(ctx context.Context, c *clusters.Cluster, cfg *janusv1alpha1.ACMEConfig) acmeCheck {
+func (a *app) checkClusterACME(ctx context.Context, c *clusters.Cluster, cfg *janusv1alpha1.ACMEConfig, accountKey string) acmeCheck {
 	o := c.Member(c.SecretsFrom)
 	if o == nil {
 		return acmeCheck{Errors: []string{"the cluster has no member the secrets come from: the one that orders"}}
 	}
 	cctx, cancel := context.WithTimeout(nodeproxy.ForCluster(ctx, c.ID), 30*time.Second)
 	defer cancel()
-	if err := a.clusters.Nodes.ACMEApply(cctx, *o, cfg, true); err != nil {
+	if err := a.clusters.Nodes.ACMEApply(cctx, *o, cfg, accountKey, true); err != nil {
 		return acmeCheck{Errors: strings.Split(strings.TrimPrefix(err.Error(), "letsencrypt.json: "), "; ")}
 	}
 	return acmeCheck{Accepted: true}
@@ -215,13 +220,86 @@ func (a *app) handleClusterACMESet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "an operation runs on cluster "+c.Name+": wait for it to end")
 		return
 	}
-	if chk := a.checkClusterACME(r.Context(), c, cfg); !chk.Accepted {
+	// A newer version waiting, not applied: which one to start from is
+	// the caller's to say (base) - 409 with both.
+	if req.Base == 0 && c.Desired > 0 {
+		if vs, err := a.clusters.Store.Versions(c.ID); err == nil && len(vs) > 0 && vs[0].Version > c.Desired {
+			ue := &clusters.UnappliedError{Newest: vs[0].Version, Desired: c.Desired}
+			writeJSON(w, http.StatusConflict, map[string]any{"error": ue.Error(), "unapplied": ue.Newest, "desired": ue.Desired})
+			return
+		}
+	}
+	if chk := a.checkClusterACME(r.Context(), c, cfg, req.AccountKey); !chk.Accepted {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": c.SecretsFrom + " refused the configuration: " + strings.Join(chk.Errors, "; "), "errors": chk.Errors})
 		return
 	}
 	actor := requestPrincipal(r).User
+	opts := clusters.ACMEOptions{Note: req.Note, AccountKey: req.AccountKey, Base: req.Base}
 	a.runCluster(w, c, "configuring Let's Encrypt", actor, func(ctx context.Context) error {
-		_, err := a.clusters.ConfigureACME(ctx, c.ID, cfg, req.Note, actor)
+		_, err := a.clusters.ConfigureACME(ctx, c.ID, cfg, opts, actor)
 		return err
 	})
+}
+
+// handleClusterACMECheckPath has every member fetch the CA's directory the
+// way a path says - the draft one on the page, a member's own secret where
+// it leaves one empty -, changing nothing: {ok, members: [{member, result,
+// error}]}, ok when every member that has the extension got it.
+func (a *app) handleClusterACMECheckPath(w http.ResponseWriter, r *http.Request) {
+	c, ok := a.clusterOr404(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Path json.RawMessage `json:"path"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	var path *janusv1alpha1.ACMEPath
+	if len(req.Path) > 0 && string(req.Path) != "null" {
+		path = &janusv1alpha1.ACMEPath{}
+		if err := protojson.Unmarshal(req.Path, path); err != nil {
+			writeError(w, http.StatusBadRequest, "path: "+err.Error())
+			return
+		}
+	}
+	ctx, cancel := context.WithTimeout(nodeproxy.ForCluster(r.Context(), c.ID), 45*time.Second)
+	defer cancel()
+	checks := a.clusters.CheckACMEPath(ctx, c, path)
+	ok = len(checks) > 0
+	for _, ch := range checks {
+		if ch.Error != "" || !ch.Result.GetOk() {
+			ok = false
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": ok, "members": checks})
+}
+
+// handleClusterACMERenew has the member that orders obtain the named
+// certificates (every one if none) now; the others pull them at the next
+// check.
+func (a *app) handleClusterACMERenew(w http.ResponseWriter, r *http.Request) {
+	c, ok := a.clusterOr404(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Names []string `json:"names"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(nodeproxy.ForCluster(r.Context(), c.ID), 30*time.Second)
+	defer cancel()
+	names, err := a.clusters.RenewACME(ctx, c, req.Names, requestPrincipal(r).User)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	// The Controller orders at once for an orderer it orders for.
+	if nodeproxy.ACMEChanged != nil {
+		nodeproxy.ACMEChanged()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"names": nonNil(names)})
 }

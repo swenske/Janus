@@ -201,6 +201,8 @@ func TestRoutesNeedTheirRole(t *testing.T) {
 		{"POST", "/api/clusters/c1/certificates", auth.Admin},
 		{"PUT", "/api/clusters/c1/letsencrypt", auth.Admin},
 		{"POST", "/api/clusters/c1/letsencrypt/check", auth.Admin},
+		{"POST", "/api/clusters/c1/letsencrypt/check-path", auth.Admin},
+		{"POST", "/api/clusters/c1/letsencrypt/renew", auth.Admin},
 		{"POST", "/api/clusters/c1/check", auth.Admin},
 		{"GET", "/api/telemetry", auth.Admin},
 		{"PUT", "/api/telemetry", auth.Admin},

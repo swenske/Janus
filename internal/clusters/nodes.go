@@ -32,10 +32,15 @@ type Nodes interface {
 	// thumbprint it answers HTTP-01 with.
 	ACMEStatus(ctx context.Context, m Member) (*janusv1alpha1.ACMEStatusResponse, error)
 	// ACMEConfig: m's letsencrypt configuration, its secrets empty;
-	// ACMEApply replaces it - an empty secret keeps m's -, its refusal
+	// ACMEApply replaces it - an empty secret keeps m's; accountKey, PEM,
+	// an account key to use from now on, "" to keep m's -, its refusal
 	// worded as the node gives it.
 	ACMEConfig(ctx context.Context, m Member) (*janusv1alpha1.ACMEConfig, error)
-	ACMEApply(ctx context.Context, m Member, cfg *janusv1alpha1.ACMEConfig, validateOnly bool) error
+	ACMEApply(ctx context.Context, m Member, cfg *janusv1alpha1.ACMEConfig, accountKey string, validateOnly bool) error
+	// ACMECheckPath: m fetches the CA's directory the way path says (nil:
+	// its own); ACMERenew: m obtains names (none: every certificate) now.
+	ACMECheckPath(ctx context.Context, m Member, path *janusv1alpha1.ACMEPath) (*janusv1alpha1.ACMECheckPathResponse, error)
+	ACMERenew(ctx context.Context, m Member, names []string) ([]string, error)
 	// A node-to-node state transfer's steps (Seed): a signing request
 	// for m's transfer key; m's grant of one export to it - never the
 	// identity; m pulling from addr with it.
@@ -259,12 +264,12 @@ func (g GRPC) ACMEConfig(ctx context.Context, m Member) (*janusv1alpha1.ACMEConf
 	return resp.GetConfig(), nil
 }
 
-func (g GRPC) ACMEApply(ctx context.Context, m Member, cfg *janusv1alpha1.ACMEConfig, validateOnly bool) error {
+func (g GRPC) ACMEApply(ctx context.Context, m Member, cfg *janusv1alpha1.ACMEConfig, accountKey string, validateOnly bool) error {
 	c, err := g.haproxy(ctx, m)
 	if err != nil {
 		return err
 	}
-	resp, err := c.ACMEApplyConfig(ctx, &janusv1alpha1.ACMEApplyConfigRequest{Config: cfg, ValidateOnly: validateOnly})
+	resp, err := c.ACMEApplyConfig(ctx, &janusv1alpha1.ACMEApplyConfigRequest{Config: cfg, AccountKey: accountKey, ValidateOnly: validateOnly})
 	if err != nil {
 		return nodeError(err)
 	}
@@ -272,6 +277,24 @@ func (g GRPC) ACMEApply(ctx context.Context, m Member, cfg *janusv1alpha1.ACMECo
 		return fmt.Errorf("letsencrypt.json: %s", strings.Join(resp.GetErrors(), "; "))
 	}
 	return nil
+}
+
+func (g GRPC) ACMECheckPath(ctx context.Context, m Member, path *janusv1alpha1.ACMEPath) (*janusv1alpha1.ACMECheckPathResponse, error) {
+	c, err := g.haproxy(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.ACMECheckPath(ctx, &janusv1alpha1.ACMECheckPathRequest{Path: path})
+	return resp, nodeError(err)
+}
+
+func (g GRPC) ACMERenew(ctx context.Context, m Member, names []string) ([]string, error) {
+	c, err := g.haproxy(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.ACMERenew(ctx, &janusv1alpha1.ACMERenewRequest{Names: names})
+	return resp.GetNames(), nodeError(err)
 }
 
 func (g GRPC) StateTransferRequest(ctx context.Context, m Member) ([]byte, error) {

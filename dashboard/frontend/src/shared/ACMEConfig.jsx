@@ -314,7 +314,8 @@ const CONTROLLER_TAB = '/#/letsencrypt'
 
 // PathCard: controller is the Controller's relay and ordering (a node
 // page's /api/haproxy/acme/controller); onCheckPath(path) tries a way to
-// the CA - none: no Test.
+// the CA - none: no Test; its answer's members, when there are several
+// (a cluster's), each said.
 export function PathCard({ cfg, st, canApply, canCheck, busy, run, apply, controller, onCheckPath, words = NODE_WORDS }) {
   const saved = cfg.path || {}
   const [draft, setDraft] = useState(null) // the path being edited
@@ -435,10 +436,28 @@ export function PathCard({ cfg, st, canApply, canCheck, busy, run, apply, contro
             {check && (
               <span className="small" role="status">
                 <Badge tone={check.ok ? 'ok' : 'danger'}>{check.ok ? 'reached' : 'failed'}</Badge>{' '}
-                {check.ok ? `${check.directory} ${check.via}, in ${check.milliseconds} ms.` : `${check.directory || 'The CA'} ${check.via || ''}: ${check.error}`}
+                {check.members
+                  ? check.ok
+                    ? `${check.directory} ${check.via}, from every member.`
+                    : `${check.members.filter((m) => !m.ok).length} of ${check.members.length} members didn't reach ${check.directory || 'the CA'}.`
+                  : check.ok
+                    ? `${check.directory} ${check.via}, in ${check.milliseconds} ms.`
+                    : `${check.directory || 'The CA'} ${check.via || ''}: ${check.error}`}
               </span>
             )}
           </div>
+          {check?.members && (
+            <ul className="acme-check-members small">
+              {check.members.map((m) => (
+                <li key={m.member}>
+                  <Badge tone={m.ok ? 'ok' : 'danger'} dot>
+                    {m.member}
+                  </Badge>{' '}
+                  {m.text}
+                </li>
+              ))}
+            </ul>
+          )}
         </>
       )}
       <Needs cfg={cfg} st={st} mode={old ? 'ACME_PATH_MODE_DIRECT' : modeOf(path)} proxy={path.proxy_url} relay={relay} ordering={ordering} choosing={!!draft} certsWord={words.certs} />

@@ -222,10 +222,14 @@ every member, pull everything again), **Let's Encrypt**
 orders, whether the cluster manages the configuration - **Stop
 managing…** applies the desired version again without `acme` -, each
 member's way to the CA and certificates; then the node page's editors,
-shared from `shared/ACMEConfig.jsx` - the way to the CA without a Test,
-the account without an account key, the certificates with their state
-on each member, the DNS providers, the JSON -, each change shown as a
-diff then `PUT` to the cluster, a refusal's errors under the cards) and
+shared from `shared/ACMEConfig.jsx` - the way to the CA with its **Test**
+on every member (each member's answer under it; a check, kept while
+read-only, for admins), the account with an account key for every
+member, the certificates with their state on each member and **Renew**
+through the orderer, the DNS providers, the JSON -, each change shown as
+a diff then `PUT` to the cluster, a refusal's errors under the cards; a
+`409` (a newer version waiting, not applied) asks which version to start
+from, then sends it again) and
 **Journal**. The page polls every 2 s while the cluster is busy, 15 s
 otherwise.
 

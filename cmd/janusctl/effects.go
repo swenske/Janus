@@ -177,7 +177,7 @@ var effects = map[string]effectOf{
 	"cluster certificate":    {effectChanges, "pass the PEM by path, never print it"},
 	"cluster tickets":        {effectChanges, ""},
 	"cluster balancer":       {effectChanges, "shows the hook without flags"},
-	"cluster letsencrypt":    {effectChanges, "shows it without FILE; pass the secrets by file, never print them"},
+	"cluster letsencrypt":    {effectChanges, "shows it without FILE or a flag; -test changes nothing; pass the secrets and the account key by file, never print them"},
 	"cluster journal":        {effectReads, ""},
 	"cluster get":            {effectReads, ""},
 	"cluster status":         {effectReads, ""},

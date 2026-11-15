@@ -245,10 +245,14 @@ The version is rendered for every member first, checked on the first
 member (`haproxy -c`, each daemon's own check), then applied one member
 at a time: the files, Let's Encrypt, HAProxy, the files and certificates
 the version no longer has, the firewall on trial and confirmed, VRRP,
-BGP - and before the next member,
-the member's stick tables learnt back from its peers (a reloaded HAProxy
-gets them from a peer after about 5 seconds: members reloaded together
-would lose them). The first failure stops it:
+BGP - only what differs from what the member runs: a domain it has
+already is left alone, so a Let's Encrypt change reloads no HAProxy and
+an unchanged ruleset isn't put on trial again; a file that changes
+reloads HAProxy, which reads it as it starts. Before the next member,
+the member's stick tables are learnt back from its peers when its
+HAProxy may have reloaded (a reloaded HAProxy gets them from a peer
+after about 5 seconds: members reloaded together would lose them). The
+first failure stops it:
 the members before run the new version, the others the one they ran,
 and the cluster says which. Going back is applying an older version.
 
@@ -351,6 +355,24 @@ same way.
   configuration changed behind the cluster's back shows as drifted, and
   the next apply puts the cluster's back. Renewals stay each member's
   to ask.
+- An existing account's key (the account form's **Use an existing
+  account key…**, `account_key`) goes to every member, relayed, never
+  kept: whichever member orders uses that account, the others answer
+  HTTP-01 with its thumbprint at once. A member added later keeps its
+  own key until the configuration is set again with it.
+- The new version starts from the one the members run. When a newer
+  version waits, not applied, setting the configuration is refused
+  (`409`, naming both) until you say which to start from - `base`: the
+  members' (the newer one stays aside, not applied), or the newer one
+  (its changes applied with Let's Encrypt's); the tab asks, `janusctl
+  cluster letsencrypt -base N` says.
+- **Test** on the tab (`POST .../letsencrypt/check-path`, `janusctl
+  cluster letsencrypt -test`) has every member fetch the CA's directory
+  the way chosen - each with its own secrets where the form leaves one
+  empty -, and says each member's answer; it changes nothing. **Renew**
+  (`POST .../letsencrypt/renew`, `-renew`) asks the orderer - the
+  Controller orders at once when it orders for the cluster -, the others
+  pull the certificate at the next check.
 - When only a secret changes, no version is made: the orderer gets it,
   the others pull it. The tab shows each member's way to the CA and its
   certificates; **Stop managing…** applies the cluster's version again
@@ -973,6 +995,8 @@ janusctl cluster apply edge edge/ -manage haproxy,files,vrrp -m "VRRP"
 janusctl cluster check edge          # each member; exits 1 when one wants a look
 janusctl cluster certificate edge www.pem
 janusctl cluster letsencrypt edge letsencrypt.json   # the cluster's, secrets in it; shown without the file
+janusctl cluster letsencrypt edge -test              # the way to the CA, tried on every member
+janusctl cluster letsencrypt edge -renew site        # obtained now by the member that orders
 janusctl cluster add edge lb-3 -address 192.0.2.13
 janusctl cluster remove edge lb-3
 janusctl cluster replace edge lb-1 lb-4 -address 192.0.2.14
@@ -1030,8 +1054,10 @@ Readers see clusters, administrators change them.
 | `GET`, `POST /api/clusters/{id}/versions`, `GET .../versions/{n}` | the versions; a new one (`{base, files, delete, note}`); one, with its files |
 | `POST /api/clusters/{id}/apply` | apply a version (`{version, managed}`) |
 | `POST /api/clusters/{id}/certificates` | a certificate for every member (`{name, pem, crt_list, sni}`) |
-| `GET`, `PUT /api/clusters/{id}/letsencrypt` | its [Let's Encrypt](#lets-encrypt): the orderer's configuration, secrets empty, each member's state and the Controller's relay and ordering; make a configuration the cluster's (`{config, note}` - 400 with the orderer's refusal, else `202`) |
+| `GET`, `PUT /api/clusters/{id}/letsencrypt` | its [Let's Encrypt](#lets-encrypt): the orderer's configuration, secrets empty, each member's state and the Controller's relay and ordering; make a configuration the cluster's (`{config, note, account_key, base}` - 400 with the orderer's refusal, 409 when a newer version waits and `base` doesn't say, else `202`) |
 | `POST /api/clusters/{id}/letsencrypt/check` | check a configuration on the orderer, change nothing: `{accepted, errors}` |
+| `POST /api/clusters/{id}/letsencrypt/check-path` | every member fetches the CA's directory the way `{path}` says (none: the way set): `{ok, members: [{member, result, error}]}` |
+| `POST /api/clusters/{id}/letsencrypt/renew` | the orderer obtains `{names}` now (none: every certificate) |
 | `POST /api/clusters/{id}/pull` | the members pull the secrets again |
 | `POST /api/clusters/{id}/check` | look at every member now |
 | `GET /api/clusters/{id}/journal` | what was done (`?n=`) |

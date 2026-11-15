@@ -56,6 +56,8 @@ func (a *app) registerClusterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/clusters/{id}/letsencrypt", a.gate(auth.Reader, auth.Admin, a.handleClusterACME))
 	mux.HandleFunc("PUT /api/clusters/{id}/letsencrypt", a.gate(auth.Reader, auth.Admin, a.handleClusterACMESet))
 	mux.HandleFunc("POST /api/clusters/{id}/letsencrypt/check", a.gate(auth.Reader, auth.Admin, a.handleClusterACMECheck))
+	mux.HandleFunc("POST /api/clusters/{id}/letsencrypt/check-path", a.gate(auth.Reader, auth.Admin, a.handleClusterACMECheckPath))
+	mux.HandleFunc("POST /api/clusters/{id}/letsencrypt/renew", a.gate(auth.Reader, auth.Admin, a.handleClusterACMERenew))
 	mux.HandleFunc("GET /api/clusters/{id}/journal", a.gate(auth.Reader, auth.Admin, a.handleClusterJournal))
 	mux.HandleFunc("GET /api/clusters/{id}/router", a.gate(auth.Reader, auth.Admin, a.handleClusterRouter))
 	// What the loop does every 10 minutes, now: it may renew a member's

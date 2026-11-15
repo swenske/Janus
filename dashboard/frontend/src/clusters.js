@@ -230,3 +230,26 @@ export function acmeInStep(view) {
     .filter((m) => m.state === 'running' && m.name !== orderer.name)
     .every((m) => (orderer.certificates || []).every((c) => !c.serial || (m.certificates || []).some((x) => x.name === c.name && x.serial === c.serial)))
 }
+
+// pathCheckSummary is a cluster's way to the CA tried on every member
+// (/api/clusters/<id>/letsencrypt/check-path) as a node's test reads:
+// ok when every member reached the CA, the first one's directory and
+// way, the slowest's time, each failing member's reason - and every
+// member's line.
+export function pathCheckSummary(r) {
+  const members = (r?.members || []).map((m) => ({
+    member: m.member,
+    ok: !m.error && !!m.result?.ok,
+    text: m.error || (m.result?.ok ? `${m.result.milliseconds || 0} ms` : m.result?.error || 'failed'),
+  }))
+  const first = (r?.members || []).find((m) => m.result?.directory)?.result || {}
+  const failing = members.filter((m) => !m.ok)
+  return {
+    ok: members.length > 0 && failing.length === 0,
+    directory: first.directory || '',
+    via: first.via || '',
+    milliseconds: Math.max(0, ...(r?.members || []).map((m) => m.result?.milliseconds || 0)),
+    error: failing.map((m) => `${m.member}: ${m.text}`).join('; '),
+    members,
+  }
+}

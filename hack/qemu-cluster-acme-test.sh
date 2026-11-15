@@ -20,9 +20,13 @@
 # 10.0.2.100:3128) -, the cluster's next version carrying it without the
 # password; lb-2 pulls the password from lb-1 and runs the same
 # configuration, locked: its own apply refused; released and changed, the
-# check sees it drifted, the next configuration puts it back. lb-1 removed,
-# lb-2 orders through the same proxy with the password it pulled - the
-# way to the CA kept by the change of orderer. No AVC denial.
+# check sees it drifted, the next configuration puts it back - with an
+# account key, every member's from then on. A Let's Encrypt-only change
+# reloads no member's HAProxy (an apply touches what changed only); the
+# way to the CA tried on every member; a renewal asked through the
+# cluster. lb-1 removed, lb-2 orders through the same proxy with the
+# password it pulled and the account key it was given - the way to the CA
+# and the account kept by the change of orderer. No AVC denial.
 #
 # Usage: hack/qemu-cluster-acme-test.sh <disk.img> <janusctl-bin> <pebble-bin-dir>
 set -euo pipefail
@@ -246,7 +250,14 @@ c = json.load(open(sys.argv[1]))
 c["path"] = {"mode": "ACME_PATH_MODE_PROXY", "proxy_url": "http://10.0.2.100:3128", "proxy_username": "acme", "proxy_password": "pr0xy-secret"}
 print(json.dumps(c, indent=2))
 EOF_PY
+uptime() { alice -n "lb-$1" haproxy show-info | awk '/^Uptime:/ {print $2+0}'; }
+up1="$(uptime 1)" up2="$(uptime 2)"
 out="$(alice cluster letsencrypt edge "$WORKDIR/acme-managed.json" -m "LE through the proxy" 2>&1)" || fail "cluster letsencrypt: $out"
+for i in $NODES; do
+  now="$(uptime "$i")"
+  before="up$i"
+  [ -n "$now" ] && [ "$now" -ge "${!before}" ] || fail "lb-$i's HAProxy reloaded for a Let's Encrypt-only change (uptime ${!before}s, then ${now}s): $out"
+done
 check "the cluster's next version carries it" "Let's Encrypt's configuration in version 2, on every member" "$out"
 rm -rf "$WORKDIR/v2"
 alice cluster checkout edge "$WORKDIR/v2" >/dev/null || fail "checkout v2"
@@ -262,7 +273,11 @@ if out="$(alice -n lb-2 haproxy acme apply "$WORKDIR/acme.json" 2>&1)"; then fai
 check "lb-2's own apply refused" "Let's Encrypt's configuration is managed by cluster edge" "$out"
 out="$(alice cluster check edge 2>&1 || true)"
 if grep -q "drifted" <<<"$out"; then fail "drift right after the cluster's configuration: $out"; fi
-echo "  ok: the cluster manages Let's Encrypt - version 2 without the proxy's password, lb-2 pulled it from lb-1, the same way to the CA on both, lb-2's own apply refused"
+echo "  ok: the cluster manages Let's Encrypt - version 2 without the proxy's password, lb-2 pulled it from lb-1, the same way to the CA on both, lb-2's own apply refused, no HAProxy reloaded"
+out="$(alice cluster letsencrypt edge -test 2>&1)" || fail "the way to the CA tried on every member: $out"
+check "lb-1 reached the CA through the proxy" "^lb-1 +yes +through the proxy http://10.0.2.100:3128" "$out"
+check "lb-2 reached the CA through the proxy" "^lb-2 +yes +through the proxy http://10.0.2.100:3128" "$out"
+echo "  ok: the way to the CA tried on every member, through the proxy"
 
 # Released on lb-2 and changed there: drifted; the next configuration
 # takes it back.
@@ -271,7 +286,13 @@ out="$(alice -n lb-2 haproxy acme apply "$WORKDIR/acme.json" 2>&1)" || fail "lb-
 out="$(alice cluster check edge 2>&1 || true)"
 check "the check sees lb-2 released" "lb-2 .*released: acme" "$out"
 check "the check sees lb-2 drifted" "lb-2 .*drifted: acme" "$out"
-out="$(alice cluster letsencrypt edge "$WORKDIR/acme-managed.json" 2>&1)" || fail "cluster letsencrypt again: $out"
+openssl ecparam -name prime256v1 -genkey -noout -out "$WORKDIR/account.key" 2>/dev/null || fail "an account key"
+out="$(alice cluster letsencrypt edge "$WORKDIR/acme-managed.json" -account-key "$WORKDIR/account.key" 2>&1)" || fail "cluster letsencrypt again, with an account key: $out"
+THUMBK="$(alice -n lb-1 haproxy acme status | awk '/^Thumbprint:/ {print $2}')"
+[ -n "$THUMBK" ] && [ "$THUMBK" != "$THUMB1" ] && [ "$THUMBK" != "$THUMB2" ] || fail "lb-1's account after the key: '$THUMBK' (was $THUMB1)"
+check "lb-2 answers HTTP-01 with the key's account" "^Thumbprint: +$THUMBK" "$(alice -n lb-2 haproxy acme status)"
+if alice cluster journal edge | grep -q "BEGIN EC PRIVATE KEY"; then fail "the key in the journal"; fi
+if grep -rq "BEGIN EC PRIVATE KEY" "$WORKDIR/alice"; then fail "the key in the orchestrator's data"; fi
 check "lb-2 back on the cluster's" '"mode": "ACME_PATH_MODE_PROXY"' "$(alice -n lb-2 haproxy acme get)"
 if out="$(alice -n lb-2 haproxy acme apply "$WORKDIR/acme.json" 2>&1)"; then fail "lb-2 not locked again: $out"; fi
 out="$(alice cluster check edge 2>&1 || true)"
@@ -281,25 +302,26 @@ echo "  ok: lb-2 released and changed - drifted; the cluster's configuration bac
 # lb-1 orders through the proxy now.
 before="$(issued_on 1)"
 : > "$WORKDIR/proxy-1.log"
-alice -n lb-1 haproxy acme renew site >/dev/null || fail "renew site through the proxy on lb-1"
+out="$(alice cluster letsencrypt edge -renew site 2>&1)" || fail "renew site through the cluster: $out"
+check "the renewal asked of lb-1, which orders" "lb-1 obtaining site now" "$out"
 renewed() { [ "$(issued_on 1)" != "$before" ] && [ -n "$(issued_on 1)" ]; }
 wait_for 90 "lb-1's renewal through the proxy" renewed
 check "lb-1 reached Pebble through the proxy" "CONNECT 10.0.2.2:$P_ACME" "$(cat "$WORKDIR/proxy-1.log")"
-echo "  ok: lb-1 orders through the proxy"
+echo "  ok: a renewal asked through the cluster: lb-1 orders, through the proxy"
 
 # --- lb-1 leaves: lb-2 orders on its own -----------------------------------------
 : > "$WORKDIR/proxy-2.log"
 out="$(alice cluster remove edge lb-1 2>&1)" || fail "remove lb-1: $out"
 st2="$(alice -n lb-2 haproxy acme status)"
 if grep -q '^Ordered by:' <<<"$st2"; then fail "lb-2 still follows after lb-1 left: $st2"; fi
-check "lb-2 answers with its own account again" "^Thumbprint: +$THUMB2" "$st2"
+check "lb-2 orders with the account key the cluster gave it" "^Thumbprint: +$THUMBK" "$st2"
 before="$(issued_on 2)"
 alice -n lb-2 haproxy acme renew site >/dev/null || fail "renew site on lb-2"
 own_order() { [ "$(issued_on 2)" != "$before" ] && [ -n "$(issued_on 2)" ]; }
 wait_for 90 "lb-2's own order (with the configuration it pulled)" own_order
 check "lb-2 reached Pebble through the proxy - its password pulled from lb-1" "CONNECT 10.0.2.2:$P_ACME" "$(cat "$WORKDIR/proxy-2.log")"
 if grep -q "refused" "$WORKDIR/proxy-2.log"; then fail "lb-2 sent the proxy wrong credentials: $(cat "$WORKDIR/proxy-2.log")"; fi
-echo "  ok: lb-1 out, lb-2 orders on its own - through the cluster's proxy, with the password it pulled - and its challenge is answered by itself"
+echo "  ok: lb-1 out, lb-2 orders on its own - through the cluster's proxy, with the password it pulled, under the account key the cluster gave it - and its challenge is answered by itself"
 
 for i in $NODES; do
   if grep -a "avc:.*denied" "$WORKDIR/$i.log"; then fail "AVC denials on node $i"; fi
