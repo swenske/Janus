@@ -1564,15 +1564,19 @@ janusctl cluster balancer [-kind KIND] [-url URL] [-ca FILE] [-fingerprint SHA25
 
 #### janusctl cluster letsencrypt
 
-The cluster's Let's Encrypt: FILE (janusctl haproxy acme get's JSON, secrets in it) given to the member that orders, the rest the cluster's next version, the same on every member and locked there - they pull the secrets from it; shown without FILE.
+The cluster's Let's Encrypt: FILE (janusctl haproxy acme get's JSON, secrets in it) given to the member that orders, the rest the cluster's next version, the same on every member and locked there - they pull the secrets from it; shown without FILE; -test tries the way to the CA on every member, -renew renews through the member that orders.
 
 ```text
-janusctl cluster letsencrypt [-m TEXT] NAME [FILE]
+janusctl cluster letsencrypt [-m TEXT] [-account-key FILE] [-base N] [-renew LIST] [-test] NAME [FILE]
 ```
 
 | Flag | |
 |---|---|
 | `-m TEXT` | what this version changes |
+| `-account-key FILE` | an existing account's private key (PEM), for every member |
+| `-base N` | the version the new one starts from (default: the members', refused when a newer one waits) |
+| `-renew LIST` | obtain these certificates now on the member that orders (comma-separated, or all) |
+| `-test` | every member fetches the CA's directory the way it is set |
 
 #### janusctl cluster journal
 

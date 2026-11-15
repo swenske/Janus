@@ -1,7 +1,7 @@
-import { ExternalLink, KeyRound, Lock, Pencil, Plus, ShieldCheck, Trash2, Unlock, Users, Waypoints } from 'lucide-react'
+import { ExternalLink, KeyRound, Lock, Pencil, Plus, RefreshCw, ShieldCheck, Trash2, Unlock, Users, Waypoints } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { call, postJSON } from './call.js'
-import { ACME_WAYS, acmeCertStates, acmeInStep } from './clusters.js'
+import { ACME_WAYS, acmeCertStates, acmeInStep, pathCheckSummary } from './clusters.js'
 import { useAct, useCan } from './me.jsx'
 import { AccountForm, CertForm, JSONCard, PathCard } from './shared/ACMEConfig.jsx'
 import { CLUSTER_WORDS, pretty } from './shared/acmeConfig.js'
@@ -58,10 +58,47 @@ export default function ClusterLetsEncrypt({ cluster, reload }) {
   const st = view.status || {}
   const orderer = cluster.members.find((m) => m.name === view.orderer)
   const ordererPage = orderer ? `/nodes/${encodeURIComponent(orderer.node_id)}/#/apps/letsencrypt` : ''
+  const canTest = can('admin') // a test changes nothing: kept while read-only
+
+  // put sends a configuration; a newer version than the members' waiting
+  // (409): which one to start from is asked, then it goes again.
+  const put = async (body) => {
+    try {
+      return await postJSON(`/api/clusters/${id}/letsencrypt`, body, 'PUT')
+    } catch (err) {
+      if (err.status !== 409 || !err.data?.unapplied) throw err
+      const { unapplied, desired } = err.data
+      const choice = { base: desired }
+      const ok = await confirm({
+        title: `Version ${unapplied} isn't applied yet`,
+        body: (
+          <>
+            <p>
+              Version {unapplied} is newer than the one the members run (v{desired}) and waits, not applied. Which one does Let’s Encrypt’s configuration start from?
+            </p>
+            <label className="check small">
+              <input type="radio" name="acme-base" defaultChecked onChange={() => (choice.base = desired)} /> v{desired}, what the members run - v{unapplied} stays aside, not applied
+            </label>
+            <label className="check small">
+              <input type="radio" name="acme-base" onChange={() => (choice.base = unapplied)} /> v{unapplied} - its changes applied with Let’s Encrypt’s
+            </label>
+          </>
+        ),
+        action: 'Apply',
+      })
+      if (!ok) return undefined
+      return postJSON(`/api/clusters/${id}/letsencrypt`, { ...body, base: choice.base }, 'PUT')
+    }
+  }
+  const renew = (names) =>
+    run(
+      () => postJSON(`/api/clusters/${id}/letsencrypt/renew`, { names }),
+      (r) => `${view.orderer} obtains ${(r?.names || names).join(', ') || 'every certificate'} now - the others pull it at the next check (Check now).`,
+    )
 
   // apply shows the change, then makes it the cluster's; true once the
   // operation started.
-  const apply = async (next, { title = "Make this the cluster's Let's Encrypt configuration?", note } = {}) => {
+  const apply = async (next, { title = "Make this the cluster's Let's Encrypt configuration?", note, accountKey = '' } = {}) => {
     const diff = hunks(lineDiff(pretty(cfg), pretty(next)))
     const ok = await confirm({
       title,
@@ -70,6 +107,7 @@ export default function ClusterLetsEncrypt({ cluster, reload }) {
       body: (
         <>
           {note && <p>{note}</p>}
+          {accountKey && <p>The account key goes to every member - relayed, never kept: whichever orders uses that account, and HAProxy answers HTTP-01 with its thumbprint (it reloads).</p>}
           <p>
             Checked on {view.orderer}, which orders, and given to it - a secret typed here goes to it alone, never kept by the Controller. Then the cluster’s next version
             carries the configuration without its secrets, applied one member at a time: each pulls the secrets from {view.orderer}.
@@ -82,7 +120,7 @@ export default function ClusterLetsEncrypt({ cluster, reload }) {
     if (!ok) return false
     const r = await run(async () => {
       try {
-        return await postJSON(`/api/clusters/${id}/letsencrypt`, { config: next }, 'PUT')
+        return await put({ config: next, account_key: accountKey })
       } catch (err) {
         setErrors(err.data?.errors || null)
         throw err
@@ -196,7 +234,8 @@ export default function ClusterLetsEncrypt({ cluster, reload }) {
         cfg={cfg}
         st={st}
         canApply={canApply}
-        canCheck={false}
+        canCheck={canTest}
+        onCheckPath={async (path) => pathCheckSummary(await postJSON(`/api/clusters/${id}/letsencrypt/check-path`, { path }))}
         busy={busy}
         run={run}
         apply={apply}
@@ -244,10 +283,9 @@ export default function ClusterLetsEncrypt({ cluster, reload }) {
       {editing?.kind === 'account' && (
         <AccountForm
           account={cfg.account || {}}
-          allowKey={false}
           busy={busy}
           onCancel={() => setEditing(null)}
-          onSave={async (account) => (await apply({ ...cfg, account })) && setEditing(null)}
+          onSave={async (account, key) => (await apply({ ...cfg, account }, { accountKey: key })) && setEditing(null)}
         />
       )}
 
@@ -257,9 +295,14 @@ export default function ClusterLetsEncrypt({ cluster, reload }) {
         actions={
           <div className="row">
             {ordererPage && (
-              <a className="small" href={ordererPage} target="_blank" rel="noreferrer" title={`Renewals are asked on ${view.orderer}'s page`}>
-                Renew on {view.orderer} <ExternalLink size={11} />
+              <a className="small" href={ordererPage} target="_blank" rel="noreferrer" title={`${view.orderer}'s own page`}>
+                {view.orderer} <ExternalLink size={11} />
               </a>
+            )}
+            {certs.length > 0 && canApply && (
+              <button className="small" disabled={busy} onClick={() => renew([])} title={`${view.orderer} obtains them now; the others pull them`}>
+                <RefreshCw size={13} /> Renew all
+              </button>
             )}
             {canApply && (
               <button className="small primary" onClick={() => setEditing({ kind: 'cert', index: -1 })}>
@@ -314,6 +357,9 @@ export default function ClusterLetsEncrypt({ cluster, reload }) {
                       <td className="nowrap">
                         {canApply && (
                           <>
+                            <button className="small" disabled={busy} onClick={() => renew([c.name])} title={`Obtain it again now, on ${view.orderer}`}>
+                              <RefreshCw size={13} />
+                            </button>{' '}
                             <button className="small" onClick={() => setEditing({ kind: 'cert', index: i })} title="Edit">
                               <Pencil size={13} />
                             </button>{' '}

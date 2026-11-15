@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { acmeCertStates, acmeInStep, behindLatest, clusterNameError, domainsOf, groupByCluster, health, memberDefaults, memberNameError, parseAddressing, parseVars, pathError, releaseError, temporaryAddressError, upgradeRows, varsText, versionChanges, versionOf } from './clusters.js'
+import { acmeCertStates, acmeInStep, behindLatest, pathCheckSummary, clusterNameError, domainsOf, groupByCluster, health, memberDefaults, memberNameError, parseAddressing, parseVars, pathError, releaseError, temporaryAddressError, upgradeRows, varsText, versionChanges, versionOf } from './clusters.js'
 
 test('a node gives its member name and address when it can', () => {
   assert.deepEqual(memberDefaults({ name: 'LB-1', address: '192.0.2.11:9505' }), { name: 'lb-1', address: '192.0.2.11' })
@@ -140,4 +140,16 @@ test("a certificate's state on each member, and whether they serve the orderer's
   view.members[1].certificates[0].serial = '00'
   assert.equal(acmeInStep(view), false)
   assert.equal(acmeInStep(null), true)
+})
+
+test("a way to the CA tried on every member, as a node's test reads", () => {
+  const ok = pathCheckSummary({ members: [{ member: 'lb-1', result: { ok: true, directory: 'https://ca/dir', via: 'directly', milliseconds: 40 } }, { member: 'lb-2', result: { ok: true, directory: 'https://ca/dir', via: 'directly', milliseconds: 90 } }] })
+  assert.equal(ok.ok, true)
+  assert.equal(ok.milliseconds, 90)
+  assert.equal(ok.directory, 'https://ca/dir')
+  const bad = pathCheckSummary({ members: [{ member: 'lb-1', result: { ok: true, directory: 'https://ca/dir', via: 'x' } }, { member: 'lb-2', result: { ok: false, error: 'refused' } }, { member: 'lb-3', error: 'unreachable' }] })
+  assert.equal(bad.ok, false)
+  assert.equal(bad.error, 'lb-2: refused; lb-3: unreachable')
+  assert.deepEqual(bad.members.map((m) => m.ok), [true, false, false])
+  assert.equal(pathCheckSummary(null).ok, false)
 })

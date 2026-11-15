@@ -32,10 +32,15 @@ type Nodes interface {
 	// thumbprint it answers HTTP-01 with.
 	ACMEStatus(ctx context.Context, m Member) (*janusv1alpha1.ACMEStatusResponse, error)
 	// ACMEConfig: m's letsencrypt configuration, its secrets empty;
-	// ACMEApply replaces it - an empty secret keeps m's -, its refusal
+	// ACMEApply replaces it - an empty secret keeps m's; accountKey, PEM,
+	// an account key to use from now on, "" to keep m's -, its refusal
 	// worded as the node gives it.
 	ACMEConfig(ctx context.Context, m Member) (*janusv1alpha1.ACMEConfig, error)
-	ACMEApply(ctx context.Context, m Member, cfg *janusv1alpha1.ACMEConfig, validateOnly bool) error
+	ACMEApply(ctx context.Context, m Member, cfg *janusv1alpha1.ACMEConfig, accountKey string, validateOnly bool) error
+	// ACMECheckPath: m fetches the CA's directory the way path says (nil:
+	// its own); ACMERenew: m obtains names (none: every certificate) now.
+	ACMECheckPath(ctx context.Context, m Member, path *janusv1alpha1.ACMEPath) (*janusv1alpha1.ACMECheckPathResponse, error)
+	ACMERenew(ctx context.Context, m Member, names []string) ([]string, error)
 	// A node-to-node state transfer's steps (Seed): a signing request
 	// for m's transfer key; m's grant of one export to it - never the
 	// identity; m pulling from addr with it.
@@ -259,12 +264,12 @@ func (g GRPC) ACMEConfig(ctx context.Context, m Member) (*janusv1alpha1.ACMEConf
 	return resp.GetConfig(), nil
 }
 
-func (g GRPC) ACMEApply(ctx context.Context, m Member, cfg *janusv1alpha1.ACMEConfig, validateOnly bool) error {
+func (g GRPC) ACMEApply(ctx context.Context, m Member, cfg *janusv1alpha1.ACMEConfig, accountKey string, validateOnly bool) error {
 	c, err := g.haproxy(ctx, m)
 	if err != nil {
 		return err
 	}
-	resp, err := c.ACMEApplyConfig(ctx, &janusv1alpha1.ACMEApplyConfigRequest{Config: cfg, ValidateOnly: validateOnly})
+	resp, err := c.ACMEApplyConfig(ctx, &janusv1alpha1.ACMEApplyConfigRequest{Config: cfg, AccountKey: accountKey, ValidateOnly: validateOnly})
 	if err != nil {
 		return nodeError(err)
 	}
@@ -272,6 +277,24 @@ func (g GRPC) ACMEApply(ctx context.Context, m Member, cfg *janusv1alpha1.ACMECo
 		return fmt.Errorf("letsencrypt.json: %s", strings.Join(resp.GetErrors(), "; "))
 	}
 	return nil
+}
+
+func (g GRPC) ACMECheckPath(ctx context.Context, m Member, path *janusv1alpha1.ACMEPath) (*janusv1alpha1.ACMECheckPathResponse, error) {
+	c, err := g.haproxy(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.ACMECheckPath(ctx, &janusv1alpha1.ACMECheckPathRequest{Path: path})
+	return resp, nodeError(err)
+}
+
+func (g GRPC) ACMERenew(ctx context.Context, m Member, names []string) ([]string, error) {
+	c, err := g.haproxy(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.ACMERenew(ctx, &janusv1alpha1.ACMERenewRequest{Names: names})
+	return resp.GetNames(), nodeError(err)
 }
 
 func (g GRPC) StateTransferRequest(ctx context.Context, m Member) ([]byte, error) {
@@ -584,13 +607,23 @@ func (g GRPC) ModuleApply(ctx context.Context, m Member, domain string, cfg []by
 	if err != nil {
 		return err
 	}
+	// keepalived or BIRD refusing a configuration is an answer, not a
+	// gRPC error: accepted false, their messages in errors. Taken for a
+	// success, a refused keepalived.conf was journaled "applied" while the
+	// members ran no VRRP at all (the Proxmox proof of #515, 2026-11-15).
 	switch domain {
 	case "vrrp":
-		_, err := c.VRRPApplyConfig(ctx, &janusv1alpha1.VRRPApplyConfigRequest{Config: cfg, ValidateOnly: validateOnly})
-		return nodeError(err)
+		resp, err := c.VRRPApplyConfig(ctx, &janusv1alpha1.VRRPApplyConfigRequest{Config: cfg, ValidateOnly: validateOnly})
+		if err != nil {
+			return nodeError(err)
+		}
+		return refused("keepalived.conf", resp.GetAccepted(), resp.GetErrors())
 	case "bgp":
-		_, err := c.BGPApplyConfig(ctx, &janusv1alpha1.BGPApplyConfigRequest{Config: cfg, ValidateOnly: validateOnly})
-		return nodeError(err)
+		resp, err := c.BGPApplyConfig(ctx, &janusv1alpha1.BGPApplyConfigRequest{Config: cfg, ValidateOnly: validateOnly})
+		if err != nil {
+			return nodeError(err)
+		}
+		return refused("bird.conf", resp.GetAccepted(), resp.GetErrors())
 	case "firewall":
 		resp, err := c.FirewallApplyRuleset(ctx, &janusv1alpha1.FirewallApplyRulesetRequest{Ruleset: cfg, ValidateOnly: validateOnly})
 		if err != nil {
@@ -608,6 +641,18 @@ func (g GRPC) ModuleApply(ctx context.Context, m Member, domain string, cfg []by
 		return nil
 	}
 	return fmt.Errorf("unknown module %q", domain)
+}
+
+// refused is a module daemon's answer to an apply or a check, as an
+// error: nil when it accepted file, else what it said.
+func refused(file string, accepted bool, errs []string) error {
+	if accepted {
+		return nil
+	}
+	if len(errs) == 0 {
+		return fmt.Errorf("%s: refused, without a reason given", file)
+	}
+	return fmt.Errorf("%s: %s", file, strings.Join(errs, "; "))
 }
 
 func (g GRPC) Addresses(ctx context.Context, m Member) ([]netip.Addr, error) {

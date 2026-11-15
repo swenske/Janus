@@ -1,11 +1,12 @@
 package clusters
 
 import (
-	"maps"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"net"
 	"slices"
 	"strings"
@@ -429,7 +430,7 @@ func (e *Engine) Apply(ctx context.Context, id string, n int, only []string, act
 		if o := c.Member(c.SecretsFrom); o != nil {
 			have, err := e.Nodes.ACMEConfig(ctx, *o)
 			if err == nil {
-				err = e.Nodes.ACMEApply(ctx, *o, withKept(r.ACMEConfig, have), true)
+				err = e.Nodes.ACMEApply(ctx, *o, withKept(r.ACMEConfig, have), "", true)
 			}
 			if err != nil {
 				return fmt.Errorf("version %d's %s, checked on %s: %v", n, ACMEFile, o.Name, err)
@@ -445,8 +446,12 @@ func (e *Engine) Apply(ctx context.Context, id string, n int, only []string, act
 	}
 	st := e.Store.State(id)
 	for i, m := range targets {
-		err := e.applyMember(ctx, c, v, m, rendered[m.Name], st.Members[m.Name], actor)
-		if err == nil && c.Manages("haproxy") {
+		reloaded, err := e.applyMember(ctx, c, v, m, rendered[m.Name], st.Members[m.Name], actor)
+		// Its stick tables learnt back before the next member's turn -
+		// after a reload, for a member joining (its HAProxy restarted with
+		// the peers), and for one whose last apply failed (perhaps right
+		// after its reload).
+		if err == nil && (reloaded || only != nil || st.Members[m.Name].Error != "") {
 			err = e.waitLearnt(ctx, c, m, actor)
 		}
 		if err != nil {
@@ -483,22 +488,29 @@ func (e *Engine) Apply(ctx context.Context, id string, n int, only []string, act
 	return err
 }
 
-// applyMember puts version v, rendered as r, on member m.
-func (e *Engine) applyMember(ctx context.Context, c *Cluster, v *Version, m Member, r *Rendered, prev MemberState, actor string) error {
+// applyMember puts version v, rendered as r, on member m - only what
+// differs from what m runs: a domain whose content m has already is left
+// alone (HAProxy isn't reloaded for a Let's Encrypt change, a ruleset
+// isn't put on trial again). reloaded: m's HAProxy may have reloaded -
+// its haproxy.cfg applied, or its Let's Encrypt configuration (an
+// HTTP-01 answer that changes reloads it): its stick tables are to be
+// learnt again before the next member's turn.
+func (e *Engine) applyMember(ctx context.Context, c *Cluster, v *Version, m Member, r *Rendered, prev MemberState, actor string) (reloaded bool, err error) {
 	if len(prev.Drift) > 0 || len(prev.Released) > 0 {
 		e.Journal(c.ID, actor, "drift", m.Name, v.Version, "%s had drifted (%s) or been released (%s): version %d replaces it", m.Name, ListOrNone(prev.Drift), ListOrNone(prev.Released), v.Version)
 	}
 	// The locks back first: a domain released on the member is the
 	// cluster's again.
 	if _, err := e.Nodes.ClusterSet(ctx, m, e.SetRequest(c, m, nil, nil)); err != nil {
-		return fmt.Errorf("ClusterSet: %v", err)
+		return false, fmt.Errorf("ClusterSet: %v", err)
 	}
 	var obsolete []string
+	filesPut := false // HAProxy reads a file it uses as it starts
 	if c.Manages("files") {
 		have := map[string]string{}
 		list, err := e.Nodes.Files(ctx, m)
 		if err != nil {
-			return err
+			return false, err
 		}
 		for _, f := range list {
 			have[f.GetName()] = f.GetSha256()
@@ -508,8 +520,9 @@ func (e *Engine) applyMember(ctx context.Context, c *Cluster, v *Version, m Memb
 				continue
 			}
 			if err := e.Nodes.FilePut(ctx, m, name, data); err != nil {
-				return fmt.Errorf("file %s: %v", name, err)
+				return false, fmt.Errorf("file %s: %v", name, err)
 			}
+			filesPut = true
 		}
 		// The files the version it ran had, and this one hasn't: gone once
 		// HAProxy no longer uses them.
@@ -526,34 +539,47 @@ func (e *Engine) applyMember(ctx context.Context, c *Cluster, v *Version, m Memb
 	}
 	var acmeFinal *janusv1alpha1.ACMEConfig
 	if c.Manages("acme") {
-		var err error
-		if acmeFinal, err = e.acmeBefore(ctx, c, m, r.ACMEConfig); err != nil {
-			return err
+		var applied bool
+		if acmeFinal, applied, err = e.acmeBefore(ctx, c, m, r); err != nil {
+			return false, err
 		}
+		reloaded = applied
 	}
 	if c.Manages("haproxy") {
-		if err := e.Nodes.HAProxyApply(ctx, m, r.HAProxy); err != nil {
-			return err
+		same := false
+		if !filesPut {
+			have, err := e.Nodes.HAProxyConfig(ctx, m)
+			same = err == nil && bytes.Equal(have, r.HAProxy)
+		}
+		if !same {
+			if err := e.Nodes.HAProxyApply(ctx, m, r.HAProxy); err != nil {
+				return false, err
+			}
+			reloaded = true
 		}
 	}
 	for _, name := range obsolete {
 		if err := e.Nodes.FileDelete(ctx, m, name); err != nil {
-			return fmt.Errorf("file %s, gone from the version: %v", name, err)
+			return false, fmt.Errorf("file %s, gone from the version: %v", name, err)
 		}
 	}
 	if acmeFinal != nil {
-		if err := e.Nodes.ACMEApply(ctx, m, acmeFinal, false); err != nil {
-			return fmt.Errorf("the certificates gone from letsencrypt.json: %v", err)
+		if err := e.Nodes.ACMEApply(ctx, m, acmeFinal, "", false); err != nil {
+			return false, fmt.Errorf("the certificates gone from letsencrypt.json: %v", err)
 		}
 	}
 	for _, d := range []string{"firewall", "vrrp", "bgp"} {
-		if c.Manages(d) {
-			if err := e.Nodes.ModuleApply(ctx, m, d, r.Modules[d], false); err != nil {
-				return fmt.Errorf("%s: %v", d, err)
-			}
+		if !c.Manages(d) {
+			continue
+		}
+		if have, err := e.Nodes.ModuleConfig(ctx, m, d); err == nil && bytes.Equal(have, r.Modules[d]) {
+			continue // what it runs already: no trial, no reload
+		}
+		if err := e.Nodes.ModuleApply(ctx, m, d, r.Modules[d], false); err != nil {
+			return false, fmt.Errorf("%s: %v", d, err)
 		}
 	}
-	return nil
+	return reloaded, nil
 }
 
 // Pull has cluster id's members - only's, or every one - pull items
@@ -653,7 +679,8 @@ func (e *Engine) addMember(ctx context.Context, id string, m Member, actor strin
 }
 
 // renderOthers applies again on cluster id's members, but except, the
-// modules - the firewall, VRRP, BGP - whose rendering its members changed:
+// modules - the firewall, VRRP, BGP - whose rendering differs from what
+// it runs, its members having changed:
 // templates naming .Peers. A member joins: its VRRP starts once the
 // others name it - unicast keepalived sends its advertisements to the
 // peers it names, and a member none names hears none of them and takes
@@ -686,8 +713,11 @@ func (e *Engine) renderOthers(ctx context.Context, id, except, actor string) err
 		h := r.Hashes()
 		var changed []string
 		for _, d := range []string{"firewall", "vrrp", "bgp"} {
-			if !c.Manages(d) || h[d] == ms.Hashes[d] {
+			if !c.Manages(d) {
 				continue
+			}
+			if have, err := e.Nodes.ModuleConfig(ctx, o, d); err == nil && bytes.Equal(have, r.Modules[d]) {
+				continue // what it runs already
 			}
 			if err := e.Nodes.ModuleApply(ctx, o, d, r.Modules[d], false); err != nil {
 				return fmt.Errorf("%s's %s with the members now: %v", o.Name, d, err)

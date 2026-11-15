@@ -53,6 +53,10 @@ type fakeMember struct {
 	// its configuration, secrets and all.
 	acme    *janusv1alpha1.ACMEStatusResponse
 	acmeCfg *janusv1alpha1.ACMEConfig
+	// acmeKey: the account key it was given; renewed: what ACMERenew
+	// asked of it.
+	acmeKey string
+	renewed []string
 	// set: what the last ClusterSet said.
 	set *janusv1alpha1.ClusterSetRequest
 	// addrs: the addresses on its interfaces besides its member address
@@ -436,8 +440,11 @@ func (f *clusterFake) ACMEConfig(_ context.Context, m clusters.Member) (*janusv1
 
 // ACMEApply is the node's: an empty secret keeps the saved one; a
 // certificate haproxy.cfg uses (acme/<name>.pem in it) can't go.
-func (f *clusterFake) ACMEApply(_ context.Context, m clusters.Member, cfg *janusv1alpha1.ACMEConfig, validateOnly bool) error {
+func (f *clusterFake) ACMEApply(_ context.Context, m clusters.Member, cfg *janusv1alpha1.ACMEConfig, accountKey string, validateOnly bool) error {
 	detail := strings.ToLower(strings.TrimPrefix(cfg.GetPath().GetMode().String(), "ACME_PATH_MODE_"))
+	if accountKey != "" {
+		detail += " +key"
+	}
 	for _, c := range cfg.GetCertificates() {
 		detail += " " + c.GetName()
 	}
@@ -488,8 +495,35 @@ func (f *clusterFake) ACMEApply(_ context.Context, m clusters.Member, cfg *janus
 		fm.acmeCfg = next
 		fm.acme.Configured = true
 		fm.acme.PathMode = next.GetPath().GetMode()
+		if accountKey != "" {
+			fm.acmeKey = accountKey
+			fm.acme.AccountThumbprint = "thumb-of-" + strings.TrimSpace(accountKey)
+		}
 	}
 	return nil
+}
+
+func (f *clusterFake) ACMECheckPath(_ context.Context, m clusters.Member, path *janusv1alpha1.ACMEPath) (*janusv1alpha1.ACMECheckPathResponse, error) {
+	if err := f.call(m, "ACMECheckPath", strings.ToLower(strings.TrimPrefix(path.GetMode().String(), "ACME_PATH_MODE_"))); err != nil {
+		return nil, err
+	}
+	if path.GetProxyUrl() == "http://unreachable:3128" {
+		return &janusv1alpha1.ACMECheckPathResponse{Via: "through the proxy " + path.GetProxyUrl(), Error: "connection refused"}, nil
+	}
+	return &janusv1alpha1.ACMECheckPathResponse{Ok: true, Directory: "https://ca.test/dir", Via: "directly", Milliseconds: 12}, nil
+}
+
+func (f *clusterFake) ACMERenew(_ context.Context, m clusters.Member, names []string) ([]string, error) {
+	if err := f.call(m, "ACMERenew", strings.Join(names, ",")); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nodes[m.Name].renewed = append(f.nodes[m.Name].renewed, names...)
+	if len(names) == 0 {
+		names = []string{"site", "wild"}
+	}
+	return names, nil
 }
 
 func (f *clusterFake) RotateTickets(_ context.Context, m clusters.Member, renew bool) error {
@@ -808,7 +842,7 @@ func TestClusterApply(t *testing.T) {
 	// Checked on the first member before any is touched; then, on each:
 	// the locks back, the files, HAProxy, the old file gone, VRRP - and
 	// its stick tables learnt back before the next member.
-	want := []string{"HAProxyValidate", "ModuleApply vrrp check", "ClusterSet lb-1,lb-2,lb-3", "Files", "FilePut maps/new.map", "HAProxyApply", "FileDelete maps/old.map", "ModuleApply vrrp", "ClusterStatus"}
+	want := []string{"HAProxyValidate", "ModuleApply vrrp check", "ClusterSet lb-1,lb-2,lb-3", "Files", "FilePut maps/new.map", "HAProxyApply", "FileDelete maps/old.map", "ModuleConfig vrrp", "ModuleApply vrrp", "ClusterStatus"}
 	if got := f.callsOf("lb-1", mark); !slices.Equal(got, want) {
 		t.Errorf("lb-1:\n got  %v\n want %v", got, want)
 	}
@@ -1122,7 +1156,7 @@ func TestClusterReplace(t *testing.T) {
 	if err := a.clusters.Replace(ctx, c.ID, "lb-1", lb4, clusters.ReplaceOptions{}, "admin"); err != nil {
 		t.Fatal(err)
 	}
-	if !inOrder(f.callsSince(mark), "lb-4 ClusterSet lb-1,lb-2,lb-3,lb-4 +cert", "lb-4 ClusterDrain", "lb-4 HAProxyApply", "lb-4 ClusterStatus",
+	if !inOrder(f.callsSince(mark), "lb-4 ClusterSet lb-1,lb-2,lb-3,lb-4 +cert", "lb-4 ClusterDrain", "lb-4 ClusterStatus",
 		"lb-4 ClusterUndrain", "lb-1 ClusterDrain", "lb-1 ClusterLeave", "lb-2 ClusterSet lb-2,lb-3,lb-4") {
 		t.Errorf("the replacement's order: %v", f.callsSince(mark))
 	}
@@ -1173,7 +1207,7 @@ func TestClusterRejoinsInService(t *testing.T) {
 	if err := a.clusters.AddMember(ctx, c.ID, clusters.Member{NodeID: nodes["lb-3"].ID, Name: "lb-3", Address: "10.0.0.3"}, "admin"); err != nil {
 		t.Fatal(err)
 	}
-	if got := f.callsOf("lb-3", mark); !inOrder(got, "HAProxyApply", "ClusterUndrain") || f.nodes["lb-3"].drained || !said("lb-3 was drained") {
+	if got := f.callsOf("lb-3", mark); !inOrder(got, "ClusterStatus", "ClusterUndrain") || f.nodes["lb-3"].drained || !said("lb-3 was drained") {
 		t.Errorf("lb-3 joined again: %v, drained %v", got, f.nodes["lb-3"].drained)
 	}
 	// A node that wasn't drained isn't undrained.

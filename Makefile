@@ -48,7 +48,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean rootfs-fit-test kernel-menuconfig janusctl-deb janusctl-deb-test apt-publish-test \
-	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke docs-og docs-screenshots docs-screenshots-check ui-preview qemu-metrics-test qemu-console-flood-test qemu-logvol-test qemu-logforward-test qemu-logforward-nologs-test qemu-logforward-es-test qemu-logforward-fleet-test qemu-sysctl-test qemu-hotplug-test qemu-firewall-test qemu-vrrp-test qemu-vrrp-ipv6-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-cluster-acme-test qemu-acme-proxy-test qemu-acme-relay-test qemu-acme-ordered-test qemu-consul-test qemu-consul-controller-test \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke docs-og docs-screenshots docs-screenshots-check ui-preview qemu-metrics-test qemu-console-flood-test qemu-logvol-test qemu-logforward-test qemu-logforward-nologs-test qemu-logforward-es-test qemu-logforward-fleet-test qemu-sysctl-test qemu-hotplug-test qemu-firewall-test qemu-vrrp-test qemu-vrrp-ipv6-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-cluster-acme-test qemu-cluster-acme-ordered-test qemu-acme-proxy-test qemu-acme-relay-test qemu-acme-ordered-test qemu-consul-test qemu-consul-controller-test \
 	kernel-build kernel-builds kernel-config-refresh rpi4-kernel-config-refresh selinux-classes init initramfs qemu-boot-test haproxy-build haproxy-builds \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -1430,6 +1430,14 @@ qemu-controller-cluster-test: build dashboard-bin extension-keepalived-amd64
 # letsencrypt nodes of a janusctl fleet's cluster against Pebble - one
 # orders, validated on the other, which pulls the certificate and its
 # renewal, and takes over when the orderer leaves.
+# The same set on a Controller's cluster, "ordered by this Controller": a
+# native dashboardd orders for the member that orders, the other follows,
+# and a new orderer keeps the mode.
+qemu-cluster-acme-ordered-test: SCHEMATIC = hack/testdata/schematic-letsencrypt.json
+qemu-cluster-acme-ordered-test: build dashboard-bin extension-letsencrypt-amd64 pebble
+	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)
+	./hack/qemu-cluster-acme-ordered-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl $(BUILD_DIR)/pebble $(BIN_DIR)/dashboardd $(BIN_DIR)/janus-acme
+
 qemu-cluster-acme-test: SCHEMATIC = hack/testdata/schematic-letsencrypt.json
 qemu-cluster-acme-test: build extension-letsencrypt-amd64 pebble
 	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)

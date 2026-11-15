@@ -222,10 +222,14 @@ every member, pull everything again), **Let's Encrypt**
 orders, whether the cluster manages the configuration - **Stop
 managing…** applies the desired version again without `acme` -, each
 member's way to the CA and certificates; then the node page's editors,
-shared from `shared/ACMEConfig.jsx` - the way to the CA without a Test,
-the account without an account key, the certificates with their state
-on each member, the DNS providers, the JSON -, each change shown as a
-diff then `PUT` to the cluster, a refusal's errors under the cards) and
+shared from `shared/ACMEConfig.jsx` - the way to the CA with its **Test**
+on every member (each member's answer under it; a check, kept while
+read-only, for admins), the account with an account key for every
+member, the certificates with their state on each member and **Renew**
+through the orderer, the DNS providers, the JSON -, each change shown as
+a diff then `PUT` to the cluster, a refusal's errors under the cards; a
+`409` (a newer version waiting, not applied) asks which version to start
+from, then sends it again) and
 **Journal**. The page polls every 2 s while the cluster is busy, 15 s
 otherwise.
 
@@ -997,8 +1001,10 @@ both tests.
   an hour without a token. The list is read in the background, one read
   shared by every page (`releaseFetch`, up to 3 minutes - GitHub slow
   takes more than 30 s to bring it): a page waits 30 s at most, and is
-  answered once the releases are known, the `security.json` following.
-  A file that didn't come (a `security.json`, a pre-release's checksum)
+  answered once the releases are known, the `security.json` following -
+  an answer meanwhile has those read so far, newest first (a 🔒 badge
+  needs the newest ones). A list cut short (GitHub 4 s away reset it) is
+  read again at once. A file that didn't come (a `security.json`, a pre-release's checksum)
   is read again 3 minutes later from the same list, GitHub's API not
   asked again.
 - **Metrics history** lives in `MetricsProvider`, app-wide, so charts

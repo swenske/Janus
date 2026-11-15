@@ -407,6 +407,7 @@ type slowGitHub struct {
 	srv          *httptest.Server
 	lists, files atomic.Int32
 	down         sync.Map // paths answering 504
+	slow         sync.Map // paths taking this time.Duration, not each
 }
 
 func newSlowGitHub(t *testing.T, list, each time.Duration, maintenance, older int) *slowGitHub {
@@ -420,6 +421,9 @@ func newSlowGitHub(t *testing.T, list, each time.Duration, maintenance, older in
 			wait = list
 		} else {
 			g.files.Add(1)
+		}
+		if d, ok := g.slow.Load(r.URL.Path); ok {
+			wait = d.(time.Duration)
 		}
 		select {
 		case <-time.After(wait):
@@ -655,5 +659,72 @@ func TestCallersShareTheFetch(t *testing.T) {
 	waitReleaseFetch(t)
 	if g.lists.Load() != 2 {
 		t.Errorf("%d lists", g.lists.Load())
+	}
+}
+
+// TestAnswersTakeTheSecuritiesReadSoFar: an answer while the
+// security.json are read has the ones read so far - newest first, the
+// files a 🔒 badge depends on. Against GitHub 4 s away the answers lacked
+// the badge until the 63rd file, 70 s after the one that mattered
+// (#627's follow-up).
+func TestAnswersTakeTheSecuritiesReadSoFar(t *testing.T) {
+	keepReleaseCache(t)
+	releaseKnownGrace = 100 * time.Millisecond
+	g := newSlowGitHub(t, 0, 0, 0, 30)
+	for i := range 30 {
+		g.slow.Store(fmt.Sprintf("/v2026.10.%02d.json", 31-i), time.Second)
+	}
+	start := time.Now()
+	rel, err := getLatestRelease(context.Background())
+	if err != nil || !rel.partial || time.Since(start) > time.Second {
+		t.Fatalf("first answer: %v, partial %v after %s - want the releases, the older security.json still coming", err, rel != nil && rel.partial, time.Since(start))
+	}
+	// The newest release's own security.json came in the first round.
+	if sev, from := rel.SecurityUpdate("v2026.10.31", "node", NodeImage{}); sev != "high" || from != "v2026.11.19" {
+		t.Fatalf("first answer, v2026.10.31: %q from %q - want the newest release's fix", sev, from)
+	}
+	again, _ := getLatestRelease(context.Background())
+	if again == rel {
+		t.Error("an answer while the read runs is the first one again")
+	}
+	waitReleaseFetch(t)
+	final, err := getLatestRelease(context.Background())
+	if err != nil || final.partial || len(final.security) != 31 {
+		t.Fatalf("after the read: %v, partial %v, %d security.json", err, final != nil && final.partial, len(final.security))
+	}
+	if g.lists.Load() != 1 {
+		t.Errorf("%d lists", g.lists.Load())
+	}
+}
+
+// TestListReadAgainAfterAReset: the list's answer cut short - GitHub 4 s
+// away reset its stream ~27 s in, twice in two measures (#627's
+// follow-up) - is read again at once in the same fetch, not after
+// errorCacheTTL and a caller; a status of GitHub's isn't (see
+// TestReleaseErrorCachedBriefly).
+func TestListReadAgainAfterAReset(t *testing.T) {
+	keepReleaseCache(t)
+	var lists atomic.Int32
+	body := `[{"tag_name":"v2026.11.19","html_url":"https://github.invalid/r/releases/tag/v2026.11.19","assets":[]}]`
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if lists.Add(1) == 1 {
+			w.Header().Set("Content-Length", fmt.Sprint(len(body)))
+			_, _ = io.WriteString(w, body[:20])
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			panic(http.ErrAbortHandler) // the connection cut, the answer half sent
+		}
+		_, _ = io.WriteString(w, body)
+	}))
+	t.Cleanup(gh.Close)
+	ReleasesURL = gh.URL
+	logged := captureLog(t)
+	rel, err := getLatestRelease(context.Background())
+	if err != nil || rel.TagName != "v2026.11.19" || lists.Load() != 2 {
+		t.Fatalf("%+v %v, %d lists - want the list read again at once", rel, err, lists.Load())
+	}
+	if !strings.Contains(logged.String(), "reading the list again") {
+		t.Errorf("logged %q", logged.String())
 	}
 }

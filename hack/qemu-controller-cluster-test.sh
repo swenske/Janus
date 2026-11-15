@@ -330,6 +330,24 @@ view="$(api POST "/api/clusters/$CID/check")" || fail "check"
 if grep -q "drifted" <<<"$view"; then fail "still drifted: $view"; fi
 echo "  ok: a drift reported, left alone, put back by the next apply - the lock with it"
 
+# A keepalived.conf keepalived refuses fails the apply with its words,
+# checked on the first member before any is touched. The node answers
+# accepted false, no gRPC error - which the engine once took for a
+# success: "version applied" journaled, no VRRP running (the Proxmox
+# proof of #515).
+v3="$(python3 -c 'import json,sys; print(json.dumps({"files": {"keepalived.conf": sys.argv[1].replace("interface eth1", "interface eth9")}, "note": "no such interface"}))' "$keepalived")"
+api POST "/api/clusters/$CID/versions" "$v3" >/dev/null || fail "version 3"
+api POST "/api/clusters/$CID/apply" '{"version": 3}' >/dev/null || fail "apply version 3"
+wait_for 120 "version 3's apply" idle
+check "keepalived's refusal is the apply's error" "keepalived\.conf: .*eth9" "$(cluster_error)"
+if api GET "/api/clusters/$CID/journal" | grep -q "version 3 applied"; then fail "version 3 journaled as applied"; fi
+for i in $NODES; do
+  check "lb-$i keeps version 2's keepalived.conf" "interface eth1" "$(ctl "$i" network vrrp get)"
+done
+master 1 || fail "lb-1 lost the virtual IP over a refused keepalived.conf"
+[ "$(api GET "/api/clusters/$CID" | jq_ 'd["desired"]')" = 2 ] || fail "the cluster's desired version moved to the refused one"
+echo "  ok: a keepalived.conf keepalived refuses fails the apply with keepalived's words, no member touched"
+
 # A certificate uploaded to the cluster: on every member.
 cert="$(python3 -c 'import json,sys; print(json.dumps({"name": "www", "pem": open(sys.argv[1]).read()}))' "$WORKDIR/lb.pem")"
 api POST "/api/clusters/$CID/certificates" "$cert" >/dev/null || fail "certificate"
