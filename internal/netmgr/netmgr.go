@@ -577,9 +577,13 @@ func executeIface(ip ifPlan, lease netip.Prefix) error {
 	if err := netlink.LinkSetUp(link); err != nil {
 		return fmt.Errorf("set up: %w", err)
 	}
-	if err := syncAddrs(link, ip.addrs, lease); err != nil {
+	added, err := syncAddrs(link, ip.addrs, lease)
+	if err != nil {
 		return err
 	}
+	// The segment told the new addresses are here (announce.go) - its
+	// routes set first.
+	defer announce(ip.name, link.Attrs().Index, link.Attrs().HardwareAddr, added)
 	proto := netlink.RouteProtocol(unix.RTPROT_STATIC)
 	if ip.mode == janusv1alpha1.AddressingMode_ADDRESSING_MODE_DHCP {
 		proto = unix.RTPROT_BOOT // what the kernel's boot DHCP used
@@ -631,13 +635,15 @@ func managed(a addr) bool {
 
 // syncAddrs adds what's missing before removing what's no longer wanted,
 // so an address change doesn't drop connectivity in between. It removes
-// only its own addresses (ownProto) and lease, the boot DHCP address.
-func syncAddrs(link netlink.Link, want []netip.Prefix, lease netip.Prefix) error {
+// only its own addresses (ownProto) and lease, the boot DHCP address. It
+// returns the addresses it added.
+func syncAddrs(link netlink.Link, want []netip.Prefix, lease netip.Prefix) ([]netip.Prefix, error) {
 	index := link.Attrs().Index
 	have, err := listAddrs(index)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var added []netip.Prefix
 	present := map[netip.Prefix]bool{}
 	for _, a := range have {
 		if managed(a) {
@@ -651,8 +657,9 @@ func syncAddrs(link netlink.Link, want []netip.Prefix, lease netip.Prefix) error
 			continue
 		}
 		if err := addAddr(index, p); err != nil && !errors.Is(err, unix.EEXIST) {
-			return fmt.Errorf("add address %s: %w", p, err)
+			return added, fmt.Errorf("add address %s: %w", p, err)
 		}
+		added = append(added, p)
 	}
 	removed := false
 	for _, a := range have {
@@ -661,19 +668,19 @@ func syncAddrs(link netlink.Link, want []netip.Prefix, lease netip.Prefix) error
 		}
 		del := &netlink.Addr{IPNet: &net.IPNet{IP: net.IP(a.prefix.Addr().AsSlice()), Mask: net.CIDRMask(a.prefix.Bits(), a.prefix.Addr().BitLen())}}
 		if err := netlink.AddrDel(link, del); err != nil && !errors.Is(err, unix.EADDRNOTAVAIL) {
-			return fmt.Errorf("remove address %s: %w", a.prefix, err)
+			return added, fmt.Errorf("remove address %s: %w", a.prefix, err)
 		}
 		removed = true
 	}
 	if !removed {
-		return nil
+		return added, nil
 	}
 	// Removing an interface's primary IPv4 address deletes the secondary
 	// ones of its subnet along with it, unless promote_secondaries is on
 	// (rootfs/init turns it on): a new address in the old one's subnet
 	// would be gone. Put back whatever is missing.
 	if have, err = listAddrs(index); err != nil {
-		return err
+		return added, err
 	}
 	present = map[netip.Prefix]bool{}
 	for _, a := range have {
@@ -686,10 +693,13 @@ func syncAddrs(link netlink.Link, want []netip.Prefix, lease netip.Prefix) error
 			continue
 		}
 		if err := addAddr(index, p); err != nil && !errors.Is(err, unix.EEXIST) {
-			return fmt.Errorf("add address %s: %w", p, err)
+			return added, fmt.Errorf("add address %s: %w", p, err)
+		}
+		if !slices.Contains(added, p) {
+			added = append(added, p)
 		}
 	}
-	return nil
+	return added, nil
 }
 
 // addAddr adds p to link index as netmgr's (ownProto). A single IPv6
@@ -844,7 +854,8 @@ func flush(link netlink.Link, lease netip.Prefix) error {
 	if err := syncRoutes(link, nil); err != nil {
 		return err
 	}
-	return syncAddrs(link, nil, lease)
+	_, err := syncAddrs(link, nil, lease)
+	return err
 }
 
 // --- reading the system ---
