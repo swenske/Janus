@@ -18,9 +18,12 @@
 # member removed, added again - the ticket ring it knew renewed on the
 # others, its own made anew -; the ticket ring rotated. A fourth node
 # replaces the VRRP master (janusctl cluster replace): it joins drained,
-# learns the table, and the virtual IP moves once, to it. The cluster
-# deleted - and no AVC denial. A drained member rebooted comes back
-# drained (#356).
+# learns the table, and the virtual IP moves once, to it. lb-1, free
+# again, replaces lb-2 keeping its address (-keep-address, #515): it
+# joins drained on its own, lb-2 is drained, leaves and powers off, lb-1
+# moves to lb-2's address and every member's keepalived.conf names it
+# there. The cluster deleted - and no AVC denial. A drained member
+# rebooted comes back drained (#356).
 #
 # Usage: hack/qemu-clusterctl-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
@@ -338,14 +341,44 @@ has_entry 4 || fail "lb-4 hasn't the stick table"
 for i in 2 3 4; do wait_for 60 "lb-$i's peers up after the replacement" peers_up "$i" 2; done
 echo "  ok: lb-4 replaced lb-1, the VRRP master - joined drained, the table learnt, the virtual IP moved once"
 
+# lb-1, out since, replaces lb-2 keeping its address (#515): it joins
+# drained on 192.168.87.1 and stays so - lb-3 and lb-4 serve - while
+# lb-2 is drained, leaves and powers off; then lb-1's eth1 moves to
+# 192.168.87.2 on trial, confirmed, every member's keepalived.conf
+# rendered again with it there, and lb-1 comes into service. The
+# virtual IP stays on lb-4 throughout.
+m1="$(masters 1)" m3="$(masters 3)"
+out="$(alice cluster replace edge lb-2 lb-1 -address 192.168.87.1 -keep-address 2>&1)" || fail "replace lb-2 with lb-1, keeping its address: $out"
+check "lb-1 joined drained, to take lb-2's address" "lb-1, which joins drained on 192\.168\.87\.1 and takes lb-2's address 192\.168\.87\.2/24" "$out"
+check "lb-2 powered off" "lb-2 is powering off" "$out"
+check "lb-2's address free" "lb-2's address 192\.168\.87\.2 is free" "$out"
+check "lb-1 moved" "lb-1 moved from 192\.168\.87\.1 to 192\.168\.87\.2/24" "$out"
+check "every member told" "every member knows lb-1 at 192\.168\.87\.2" "$out"
+check "the replacement done" "lb-1 replaced lb-2, at its address 192\.168\.87\.2" "$out"
+gone() { ! kill -0 "${PID[2]}" 2>/dev/null; }
+wait_for 60 "lb-2's machine powered off" gone
+check "lb-1's eth1 at lb-2's address" "192\.168\.87\.2/24" "$(alice -n lb-1 network status)"
+if grep -q "192\.168\.87\.1/" <<<"$(alice -n lb-1 network status)"; then fail "lb-1 kept its own address: $(alice -n lb-1 network status)"; fi
+check "lb-1 a member at lb-2's address" "lb-1 +192\.168\.87\.2:10057" "$(alice -n lb-3 cluster status)"
+check "lb-1 rendered at its new address" "unicast_src_ip 192\.168\.87\.2" "$(alice -n lb-1 network vrrp get)"
+check "lb-1 has lb-2's priority" "priority 100" "$(alice -n lb-1 network vrrp get)"
+check "lb-3 reaches lb-1 there" "192\.168\.87\.2" "$(alice -n lb-3 network vrrp get)"
+if grep -Eq "^ +192\.168\.87\.1$" <<<"$(alice -n lb-3 network vrrp get)"; then fail "lb-3 still names 192.168.87.1: $(alice -n lb-3 network vrrp get)"; fi
+if alice -n lb-1 cluster get | grep -q "Drained"; then fail "lb-1 still drained: $(alice -n lb-1 cluster get)"; fi
+for i in 1 3 4; do wait_for 60 "lb-$i's peers up after lb-1 took lb-2's address" peers_up "$i" 2; done
+wait_for 20 "lb-1 learnt the entry" has_entry 1
+master 4 || fail "the virtual IP left lb-4"
+[ "$(masters 1)" = "$m1" ] && [ "$(masters 3)" = "$m3" ] || fail "the virtual IP went through lb-1 or lb-3: $(masters 1) $(masters 3) MASTER transitions, $m1 $m3 before"
+echo "  ok: lb-1 replaced lb-2 at its address - joined drained on its own, lb-2 powered off, lb-1 moved to 192.168.87.2 and every keepalived.conf names it there; the virtual IP stayed on lb-4"
+
 # The cluster goes: the nodes on their own, unlocked.
 out="$(alice cluster delete edge 2>&1)" || fail "delete: $out"
-for i in 2 3 4; do check "lb-$i on its own" "Cluster: +none" "$(alice -n "lb-$i" cluster get)"; done
-out="$(alice -n lb-2 haproxy apply-config "$WORKDIR/v1.cfg" 2>&1)" || fail "lb-2 unlocked once the cluster went: $out"
+for i in 1 3 4; do check "lb-$i on its own" "Cluster: +none" "$(alice -n "lb-$i" cluster get)"; done
+out="$(alice -n lb-3 haproxy apply-config "$WORKDIR/v1.cfg" 2>&1)" || fail "lb-3 unlocked once the cluster went: $out"
 [ -z "$(alice cluster list | tail -n +2)" ] || fail "the cluster still listed: $(alice cluster list)"
 echo "  ok: the cluster deleted - the nodes on their own and unlocked"
 
 for i in $NODES; do
   if grep -a "avc:.*denied" "$WORKDIR/$i.log"; then fail "AVC denials on node $i"; fi
 done
-echo "Clusterctl test PASSED: a fleet's cluster made by janusctl - advisory locks, VRRP from a directory, a dry run, drift reported and put back, a certificate, a drain kept across a reboot, a member out and back with the ticket ring renewed, tickets, the master replaced with the virtual IP moving once, deleted"
+echo "Clusterctl test PASSED: a fleet's cluster made by janusctl - advisory locks, VRRP from a directory, a dry run, drift reported and put back, a certificate, a drain kept across a reboot, a member out and back with the ticket ring renewed, tickets, the master replaced with the virtual IP moving once, a member replaced at its address, deleted"

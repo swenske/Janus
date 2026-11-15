@@ -36,9 +36,12 @@
 #      removed (restarted fixed);
 #   3e. recycling a cluster's member (docs/cluster.md section 5): the
 #      Controller's fleet set up, a cluster of node1 and a new machine,
-#      node3; node3 recycled - a new machine like it made, registered,
-#      trusting the fleet, joined drained and taking node3's place - and
-#      node3's machine destroyed;
+#      node3, on a static address; node3 recycled keeping its address
+#      (#515) - a new machine like it made on a temporary address,
+#      registered, trusting the fleet, joined drained; node3 drained, out
+#      and its machine destroyed; the new one moved to node3's address on
+#      trial, the Controller following it, its record and the cluster
+#      saying so, in service;
 #   3f. a cluster made of new machines (docs/cluster.md "On a
 #      hypervisor"): a second record reaching the same libvirtd is the
 #      same host (its pinned SSH host key); with anti-affinity required
@@ -586,7 +589,7 @@ trusted "$NODE" || fail "node1 never trusted the fleet: $(api "$API/api/fleet")"
 api -X POST "$API/api/machines" -H 'Content-Type: application/json' -d "{
   \"name\": \"node3\", \"hypervisor_id\": \"$HV\", \"vcpus\": 1, \"memory_mib\": 512,
   \"image\": {\"url\": \"http://127.0.0.1:8000/janus-kvm.qcow2\", \"sha256\": \"$SUM\"},
-  \"nics\": [{\"network\": \"janus-test\", \"name\": \"lan\", \"mode\": \"dhcp\"}]}" >"$WORKDIR/m3.json"
+  \"nics\": [{\"network\": \"janus-test\", \"name\": \"lan\", \"mode\": \"static\", \"addresses\": [\"192.168.123.33/24\"], \"gateway\": \"192.168.123.1\"}]}" >"$WORKDIR/m3.json"
 MID3="$(json "d['id']" <"$WORKDIR/m3.json")" || fail "create node3: $(cat "$WORKDIR/m3.json")"
 for _ in $(seq 1 120); do
   [ "$(api "$API/api/machines/$MID3" | json "d['phase']")" = ready ] && break
@@ -610,13 +613,34 @@ cluster_idle() { # $1: how long
 cluster_idle 120
 err="$(api "$API/api/clusters/$CID" | json "d.get('error','')")"
 [ -z "$err" ] || fail "the cluster's creation: $err"
-api -X POST "$API/api/clusters/$CID/recycle" -H 'Content-Type: application/json' -d '{"members": ["node3"]}' >/dev/null || fail "recycle node3"
+# Its address is static: a new machine can't have it while node3 runs.
+code="$(api -o "$WORKDIR/r.json" -w '%{http_code}' -X POST "$API/api/clusters/$CID/recycle" -H 'Content-Type: application/json' -d '{"members": ["node3"], "temporary_address": "192.168.123.34"}')"
+[ "$code" = 400 ] || fail "a temporary address without its prefix: $code $(cat "$WORKDIR/r.json")"
+api -X POST "$API/api/clusters/$CID/recycle" -H 'Content-Type: application/json' -d '{"members": ["node3"], "temporary_address": "192.168.123.34/24"}' >/dev/null || fail "recycle node3"
 cluster_idle 450
 api "$API/api/clusters/$CID" >"$WORKDIR/c.json"
 err="$(json "d.get('error','')" <"$WORKDIR/c.json")"
 [ -z "$err" ] || fail "recycling node3: $err"
 members="$(json "','.join(sorted(m['name'] for m in d['members']))" <"$WORKDIR/c.json")"
 [ "$members" = "edge-1,node1" ] || fail "the members after the recycle: $members"
+addr="$(json "next(m['address'] for m in d['members'] if m['name']=='edge-1')" <"$WORKDIR/c.json")"
+[ "$addr" = 192.168.123.33 ] || fail "edge-1 isn't a member at node3's address: $addr"
+drained="$(json "next(m['state'].get('drained', False) for m in d['members'] if m['name']=='edge-1')" <"$WORKDIR/c.json")"
+[ "$drained" = False ] || fail "edge-1 still drained: $(cat "$WORKDIR/c.json")"
+journal="$(api "$API/api/clusters/$CID/journal")"
+for want in "which joins drained on 192.168.123.34 and takes node3's address 192.168.123.33/24 via 192.168.123.1" \
+  "node3's address 192.168.123.33 is free" "edge-1 moved from 192.168.123.34 to 192.168.123.33/24" \
+  "every member knows edge-1 at 192.168.123.33" "node3 replaced by edge-1 at its address"; do
+  grep -qF "$want" <<<"$journal" || fail "the journal doesn't say \"$want\": $journal"
+done
+EDGE_NODE="$(api "$API/api/machines" | json "next(m['node_id'] for m in d if m['spec']['name']=='edge-1')")"
+at="$(api "$API/api/nodes" | json "next(n['address'] for n in d if n['id']=='$EDGE_NODE')")"
+[ "$at" = 192.168.123.33:9505 ] || fail "the Controller reaches edge-1 at $at"
+nic="$(api "$API/api/machines" | json "next(' '.join(m['spec']['nics'][0].get('addresses') or []) for m in d if m['spec']['name']=='edge-1')")"
+[ "$nic" = 192.168.123.33/24 ] || fail "edge-1's record keeps $nic"
+api "$API/nodes/$EDGE_NODE/api/network/status" >"$WORKDIR/ns.json" || fail "edge-1's network status through its page"
+grep -q '192.168.123.33/24' "$WORKDIR/ns.json" || fail "edge-1 doesn't hold 192.168.123.33: $(cat "$WORKDIR/ns.json")"
+if grep -q '192.168.123.34/' "$WORKDIR/ns.json"; then fail "edge-1 kept its temporary address: $(cat "$WORKDIR/ns.json")"; fi
 api "$API/api/clusters/$CID/journal" | grep -q "edge-1 joins drained" || fail "edge-1 didn't join drained: $(api "$API/api/clusters/$CID/journal")"
 api "$API/api/clusters/$CID/journal" | grep -q "a new machine, edge-1, on testhost" || fail "the recycle's journal doesn't name the hypervisor: $(api "$API/api/clusters/$CID/journal")"
 for _ in $(seq 1 90); do
@@ -626,7 +650,7 @@ done
 [ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$MID3")" = 404 ] || fail "node3's machine was never destroyed: $(api "$API/api/machines/$MID3")"
 if in_host virsh list --all --name | grep -q '^janus-node3$'; then fail "node3's virtual machine is still defined"; fi
 MIDE="$(api "$API/api/machines" | json "next(m['id'] for m in d if m['spec']['name']=='edge-1')")"
-echo "Part 4e OK: node3 recycled - edge-1 made like it, registered, trusting the fleet, joined drained and took its place; node3's machine destroyed"
+echo "Part 4e OK: node3 recycled keeping its static address - edge-1 made like it on 192.168.123.34, registered, trusting the fleet, joined drained; node3 out and its machine destroyed; edge-1 moved to 192.168.123.33 on trial, the Controller, its record and the cluster following, in service"
 # Back as the parts after expect: the cluster gone, edge-1 destroyed.
 api -o /dev/null -X DELETE "$API/api/clusters/$CID" || fail "delete the cluster"
 for _ in $(seq 1 60); do

@@ -5,8 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
+	"slices"
 	"strings"
 	"time"
+
+	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/machines"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
@@ -32,7 +36,20 @@ type recycleRequest struct {
 	// NewImage: the replacements may run another image than the members
 	// (other extensions, HAProxy branch, kernel).
 	NewImage bool `json:"new_image,omitempty"`
+	// KeepAddress: each replacement takes its member's address over once
+	// the member has left - its interface's static addressing - and comes
+	// into service there (clusters.ReplaceOptions.KeepAddress).
+	KeepAddress bool `json:"keep_address,omitempty"`
+	// TemporaryAddress: a new machine's address on that interface until
+	// then - CIDR, or "dhcp" -, where its member's is static; implies
+	// KeepAddress. One is enough for several members: each gives it back
+	// as it takes its member's.
+	TemporaryAddress string `json:"temporary_address,omitempty"`
 }
+
+// keepAddress reports whether the replacements take their members'
+// addresses over.
+func (r recycleRequest) keepAddress() bool { return r.KeepAddress || r.TemporaryAddress != "" }
 
 // awaitTimeout bounds a new machine's creation, registration and fleet
 // trust (a var: the tests shorten it).
@@ -62,15 +79,21 @@ func (a *app) machineOf(nodeID string) *machines.Machine {
 // on each interface, version when given. A static address can't be
 // cloned - two machines would hold it.
 func cloneSpec(old machines.Spec, name, version string) (machines.Spec, error) {
+	return cloneKeeping(old, name, version, -1)
+}
+
+// cloneKeeping is cloneSpec, interface keep's static address kept: a
+// temporary one (cloneTakingOver).
+func cloneKeeping(old machines.Spec, name, version string, keep int) (machines.Spec, error) {
 	spec := old
 	spec.Name = name
 	if version != "" {
 		spec.Version = version
 	}
 	spec.NICs = nil
-	for _, n := range old.NICs {
-		if n.Mode == "static" {
-			return machines.Spec{}, fmt.Errorf("its interface %s has a static address a new machine can't take while it runs - give its replacement", n.Name)
+	for i, n := range old.NICs {
+		if n.Mode == "static" && i != keep {
+			return machines.Spec{}, fmt.Errorf("its interface %s has a static address a new machine can't take while it runs", n.Name)
 		}
 		n.MAC = ""
 		spec.NICs = append(spec.NICs, n)
@@ -79,6 +102,107 @@ func cloneSpec(old machines.Spec, name, version string) (machines.Spec, error) {
 	spec.NTP = append([]string(nil), old.NTP...)
 	spec.Extensions = append([]string(nil), old.Extensions...)
 	return spec, nil
+}
+
+// cloneTakingOver is cloneSpec for a new machine that takes its member's
+// address addr over: the interface holding it gets temporary instead -
+// an address in CIDR form, or "dhcp" - until the member has left.
+func cloneTakingOver(old machines.Spec, name, version, addr, temporary string) (machines.Spec, error) {
+	tmp := old
+	tmp.NICs = slices.Clone(old.NICs)
+	found := -1
+	for i, n := range tmp.NICs {
+		if n.Mode != "static" || !slices.ContainsFunc(n.Addresses, func(a string) bool { return addressIs(a, addr) }) {
+			continue
+		}
+		found = i
+		switch {
+		case temporary == "":
+			return machines.Spec{}, fmt.Errorf("its interface %s has a static address a new machine can't take while it runs: give it a temporary address (CIDR, or dhcp) until then", n.Name)
+		case strings.EqualFold(temporary, "dhcp"):
+			n.Mode, n.Addresses, n.Gateway = "dhcp", nil, ""
+		default:
+			if addressIs(temporary, addr) {
+				return machines.Spec{}, fmt.Errorf("the temporary address %s is %s's own: the new machine runs beside it until it leaves", temporary, old.Name)
+			}
+			n.Addresses = []string{temporary}
+		}
+		tmp.NICs[i] = n
+	}
+	if found < 0 {
+		return machines.Spec{}, fmt.Errorf("its address %s isn't a static one of its machine's interfaces: there's no address to take over", addr)
+	}
+	return cloneKeeping(tmp, name, version, found)
+}
+
+// addressIs reports whether cidr (192.0.2.11/24) is the address ip.
+func addressIs(cidr, ip string) bool {
+	p, err := netip.ParsePrefix(cidr)
+	if err != nil {
+		return false
+	}
+	a, err := netip.ParseAddr(ip)
+	return err == nil && p.Addr().Unmap() == a.Unmap()
+}
+
+// destroyAndWait destroys machine id and waits until it's gone.
+func (a *app) destroyAndWait(ctx context.Context, id string) error {
+	a.destroyMachine(id)
+	for {
+		m, ok := a.machines.Get(id)
+		if !ok {
+			return nil
+		}
+		if m.Phase == machines.PhaseFailed {
+			return fmt.Errorf("destroying machine %s failed: %s", m.Spec.Name, m.Error)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+// releaseMember is the cluster engine's Release: member m, out of its
+// cluster, gives its address up for its replacement - its machine
+// destroyed, or, a node the Controller didn't make, powered off.
+func (a *app) releaseMember(ctx context.Context, m clusters.Member) error {
+	if mach := a.machineOf(m.NodeID); mach != nil {
+		return a.destroyAndWait(ctx, mach.ID)
+	}
+	n, ok := a.store.Get(m.NodeID)
+	if !ok {
+		return nil // no longer the Controller's: whether its address is free, the engine checks
+	}
+	sctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := nodes.Shutdown(sctx, n); err != nil {
+		return fmt.Errorf("powering %s off: %v", n.Name, err)
+	}
+	return nil
+}
+
+// moveMemberNetwork is the cluster engine's MoveNetwork: cfg on trial on
+// member m's node, confirmed where it answers then - the Controller
+// follows it there (its record's address), and reads a machine's
+// interfaces back into its record.
+func (a *app) moveMemberNetwork(ctx context.Context, m clusters.Member, cfg *janusv1alpha1.NetworkConfig) error {
+	n, err := a.memberNode(m)
+	if err != nil {
+		return err
+	}
+	nctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+	if err := nodes.ApplyNetwork(nctx, n, a.store, cfg); err != nil {
+		return err
+	}
+	if mach := a.machineOf(n.ID); mach != nil {
+		sctx, scancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer scancel()
+		_ = a.runner.syncAs(sctx, mach.ID, "its cluster moved its address")
+	}
+	return nil
 }
 
 // recycleName is a new machine's name in cluster c: <cluster>-<n>, the
@@ -180,7 +304,13 @@ func (a *app) recycle(ctx context.Context, id string, req recycleRequest, actor 
 			if oldMachine == nil {
 				return fmt.Errorf("%s isn't a machine of this Controller: give its replacement", name)
 			}
-			spec, err := cloneSpec(oldMachine.Spec, a.recycleName(c), req.Version)
+			var spec machines.Spec
+			var err error
+			if req.keepAddress() {
+				spec, err = cloneTakingOver(oldMachine.Spec, a.recycleName(c), req.Version, old.Address, req.TemporaryAddress)
+			} else if spec, err = cloneSpec(oldMachine.Spec, a.recycleName(c), req.Version); err != nil {
+				err = fmt.Errorf("%v: keep its address - the new machine on a temporary address until it leaves -, or give its replacement", err)
+			}
 			if err != nil {
 				return fmt.Errorf("%s: %v", name, err)
 			}
@@ -208,7 +338,7 @@ func (a *app) recycle(ctx context.Context, id string, req recycleRequest, actor 
 				return fmt.Errorf("%s's replacement %s: %v - destroyed", name, spec.Name, err)
 			}
 		}
-		if err := a.clusters.Replace(ctx, id, name, repl, clusters.ReplaceOptions{NewImage: req.NewImage}, actor); err != nil {
+		if err := a.clusters.Replace(ctx, id, name, repl, clusters.ReplaceOptions{NewImage: req.NewImage, KeepAddress: req.keepAddress()}, actor); err != nil {
 			// What failed decides: a replacement in service stays, and
 			// the old member's machine goes once the member is out.
 			cur, ok := a.clusters.Store.Get(id)
@@ -218,15 +348,23 @@ func (a *app) recycle(ctx context.Context, id string, req recycleRequest, actor 
 				a.destroyMachine(created.ID)
 				err = fmt.Errorf("%v; %s destroyed", err, repl.Name)
 			case inService && cur.Member(name) == nil && oldMachine != nil:
-				a.destroyMachine(oldMachine.ID)
-				err = fmt.Errorf("%v; %s's machine destroyed", err, name)
+				// Destroyed already when its address was to be taken over.
+				if _, still := a.machines.Get(oldMachine.ID); still {
+					a.destroyMachine(oldMachine.ID)
+					err = fmt.Errorf("%v; %s's machine destroyed", err, name)
+				}
 			}
 			return err
 		}
-		if oldMachine != nil {
+		switch {
+		case oldMachine != nil && req.keepAddress():
+			a.clusters.Journal(id, actor, "recycle", name, 0, "%s replaced by %s at its address: its machine destroyed", name, repl.Name)
+		case oldMachine != nil:
 			a.destroyMachine(oldMachine.ID)
 			a.clusters.Journal(id, actor, "recycle", name, 0, "%s replaced by %s: its machine destroyed", name, repl.Name)
-		} else {
+		case req.keepAddress():
+			a.clusters.Journal(id, actor, "recycle", name, 0, "%s replaced by %s at its address: it stays one of the Controller's nodes, powered off - remove it", name, repl.Name)
+		default:
 			a.clusters.Journal(id, actor, "recycle", name, 0, "%s replaced by %s: it stays one of the Controller's nodes, drained until it reboots", name, repl.Name)
 		}
 	}
@@ -245,6 +383,12 @@ func (a *app) handleClusterRecycle(w http.ResponseWriter, r *http.Request) {
 	if len(req.Members) == 0 {
 		writeError(w, http.StatusBadRequest, "members: the ones to replace")
 		return
+	}
+	if t := req.TemporaryAddress; t != "" && !strings.EqualFold(t, "dhcp") {
+		if p, err := netip.ParsePrefix(t); err != nil || !p.Addr().IsGlobalUnicast() {
+			writeError(w, http.StatusBadRequest, "temporary_address: an address in CIDR form (192.0.2.30/24), or dhcp")
+			return
+		}
 	}
 	seen := map[string]bool{}
 	for _, name := range req.Members {

@@ -1442,7 +1442,7 @@ janusctl cluster remove [-force] NAME NODE
 A node of the fleet context takes a member's place, the traffic moving once: it joins drained, learns the stick tables, comes into service as OLD is drained, and OLD leaves.
 
 ```text
-janusctl cluster replace [-address IP] [-var KEY=VALUE] [-new-image] NAME OLD NEW
+janusctl cluster replace [-address IP] [-var KEY=VALUE] [-new-image] [-keep-address] NAME OLD NEW
 ```
 
 | Flag | |
@@ -1450,6 +1450,20 @@ janusctl cluster replace [-address IP] [-var KEY=VALUE] [-new-image] NAME OLD NE
 | `-address IP` | the address the other members reach NEW on (default: the context's) |
 | `-var KEY=VALUE` | a variable the cluster's templates use for NEW, repeatable (default: OLD's) |
 | `-new-image` | NEW may run another image - the cluster changing image member by member |
+| `-keep-address` | NEW takes OLD's address over once OLD has left: NEW stays drained meanwhile, OLD is powered off |
+
+#### janusctl cluster readdress
+
+A member moved to another address: drained, its interface's static addressing on trial and confirmed there - the context following it -, every member told, back in service; the first address is the member's.
+
+```text
+janusctl cluster readdress [-gateway IP] [-gateway6 IP] NAME MEMBER CIDR...
+```
+
+| Flag | |
+|---|---|
+| `-gateway IP` | the interface's IPv4 default gateway |
+| `-gateway6 IP` | its IPv6 default gateway |
 
 #### janusctl cluster upgrade
 

@@ -38,6 +38,7 @@ func (a *app) registerClusterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/clusters/{id}/members/{name}", a.gate(auth.Reader, auth.Admin, a.handleClusterMemberRemove))
 	mux.HandleFunc("POST /api/clusters/{id}/members/{name}/drain", a.gate(auth.Reader, auth.Admin, a.handleClusterDrain(true)))
 	mux.HandleFunc("POST /api/clusters/{id}/members/{name}/undrain", a.gate(auth.Reader, auth.Admin, a.handleClusterDrain(false)))
+	mux.HandleFunc("POST /api/clusters/{id}/members/{name}/address", a.gate(auth.Reader, auth.Admin, a.handleClusterReaddress))
 	mux.HandleFunc("GET /api/clusters/{id}/versions", a.gate(auth.Reader, auth.Admin, a.handleClusterVersions))
 	mux.HandleFunc("POST /api/clusters/{id}/versions", a.gate(auth.Reader, auth.Admin, a.handleClusterVersionNew))
 	mux.HandleFunc("GET /api/clusters/{id}/versions/{n}", a.gate(auth.Reader, auth.Admin, a.handleClusterVersion))
@@ -501,6 +502,34 @@ func (a *app) handleClusterDrain(drain bool) http.HandlerFunc {
 			return a.clusters.Drain(ctx, c.ID, name, actor)
 		})
 	}
+}
+
+// handleClusterReaddress moves a member to another address
+// (clusters.Engine.Readdress): drained, its interface's addressing on
+// trial and confirmed - the Controller following the node -, every
+// member told, back in service.
+func (a *app) handleClusterReaddress(w http.ResponseWriter, r *http.Request) {
+	c, ok := a.clusterOr404(w, r)
+	if !ok {
+		return
+	}
+	name := r.PathValue("name")
+	if c.Member(name) == nil {
+		writeError(w, http.StatusNotFound, name+" isn't a member")
+		return
+	}
+	var to clusters.Addressing
+	if !decodeBody(w, r, &to) {
+		return
+	}
+	if err := to.Check(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	actor := requestPrincipal(r).User
+	a.runCluster(w, c, "moving "+name+" to "+to.Address(), actor, func(ctx context.Context) error {
+		return a.clusters.Readdress(ctx, c.ID, name, to, actor)
+	})
 }
 
 func (a *app) handleClusterVersions(w http.ResponseWriter, r *http.Request) {

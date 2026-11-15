@@ -478,7 +478,8 @@ Controller's fleet (the report says why).
 
 Since v2026.10.24-2. The lab's Controller makes two machines from the
 pre-release, each with one interface by DHCP (a recycle clones a
-machine's interfaces; a static address can't be cloned), and a cluster
+machine's interfaces; a static address is recycled keeping it, below),
+and a cluster
 of them: a stick table, a TLS frontend naming the ticket key ring, VRRP
 from a template with a VIP of their own on the management network.
 `wrk` on that VIP from a runner, the probes from another, then the
@@ -493,6 +494,15 @@ master recycled through the API as the page does.
 | The old machine | gone from the Controller and the hypervisor |
 | The ticket keys | the remaining members' rings shared and renewed; a session from before no longer resuming |
 | The journal, the page | each step journaled; the Members tab and its Recycle form in headless Chromium, both themes, axe |
+
+Since #515, the same with **a static address kept**: a third machine on
+a static address of the management network joins the cluster, and is
+recycled with **It takes its address** and a temporary address. Measured
+too: the requests lost on the VIP (the member's share goes to the others
+while its address moves - none expected), its address answering again
+from the new machine (from the runner: how long the router's ARP entry
+for the old MAC lasted), every member's `keepalived.conf` naming it there,
+the machine's record and the Controller reaching it at that address.
 
 ### Clusters on the hypervisor, and scaling
 
