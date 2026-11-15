@@ -982,7 +982,13 @@ both tests.
   (`/api/update-check`, `/api/controller/update`, `RefreshAsked`): the
   list is read again unless it's younger than 30 s, and kept when GitHub
   fails. Only a click asks for it - never a poll: GitHub allows 60 calls
-  an hour without a token.
+  an hour without a token. The list is read in the background, one read
+  shared by every page (`releaseFetch`, up to 3 minutes - GitHub slow
+  takes more than 30 s to bring it): a page waits 30 s at most, and is
+  answered once the releases are known, the `security.json` following.
+  A file that didn't come (a `security.json`, a pre-release's checksum)
+  is read again 3 minutes later from the same list, GitHub's API not
+  asked again.
 - **Metrics history** lives in `MetricsProvider`, app-wide, so charts
   keep their data across page changes; it holds the last 900 samples in
   the browser only. Unlike `usePoll`, it goes on sampling while the tab
