@@ -209,9 +209,9 @@ func (a *app) moveMemberNetwork(ctx context.Context, m clusters.Member, cfg *jan
 	if err != nil {
 		return err
 	}
-	nctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	nctx, cancel := context.WithTimeout(ctx, clusters.MoveWindow+time.Minute)
 	defer cancel()
-	if err := nodes.ApplyNetwork(nctx, n, a.store, cfg); err != nil {
+	if err := nodes.ApplyNetwork(nctx, n, a.store, cfg, clusters.MoveWindow); err != nil {
 		return err
 	}
 	if mach := a.machineOf(n.ID); mach != nil {

@@ -27,6 +27,20 @@ import (
 // KeepAddress) is a Readdress to the old member's addressing once that
 // one is gone.
 
+// MoveWindow is how long a moving member's node waits for its new
+// network configuration's confirmation before going back by itself: the
+// orchestrator confirms over a new connection where the node answers,
+// again every second until shortly before then. What it covers: the node
+// taking the addresses and announcing them (netmgr: a gratuitous ARP, an
+// unsolicited NA - a router whose entry still had the old member's MAC
+// takes the new one at once; one ignoring them relearns it once that
+// entry fails), its server certificate reissued for them, and the
+// orchestrator's way back to it - a router in between included. Twice an
+// ordinary change's minute: a takeover lets the old member go first,
+// and a slow router mustn't revert it (#515's Proxmox proof: 44 s before
+// announcements).
+const MoveWindow = 2 * time.Minute
+
 // Addressing is a member's interface's static addressing.
 type Addressing struct {
 	// Addresses in CIDR form ("192.0.2.11/24", "2001:db8::11/64"); the
@@ -321,8 +335,29 @@ func (e *Engine) moveMember(ctx context.Context, id, name string, to Addressing,
 		return false, fmt.Errorf("%s: %v", name, err)
 	}
 	from := m.Address
+	// Its VRRP out while it moves, back once every other member knows its
+	// new address: from the moment its address changes, its keepalived
+	// and the others' - each naming the other by the addresses they had,
+	// unicast - no longer hear each other, and both would be MASTER
+	// (#515's Proxmox proof: the virtual IP flapping 16 s between the
+	// remaining member and the drained newcomer). A drained member's
+	// priority is lowered, not nothing: alone, it takes the virtual IP.
+	vrrpOut := c.Manages("vrrp") && c.Desired > 0
+	if vrrpOut {
+		if err := e.Nodes.ModuleApply(ctx, *m, "vrrp", nil, false); err != nil {
+			return false, fmt.Errorf("%s's keepalived stopped before its address moves: %v", name, err)
+		}
+		e.Journal(id, actor, "address", name, 0, "%s's keepalived stopped while its address moves: it can't hear the others there until they know it", name)
+	}
 	if err := e.MoveNetwork(ctx, *m, next); err != nil {
-		return false, fmt.Errorf("%s moving to %s: %v", name, to, err)
+		err = fmt.Errorf("%s moving to %s: %v", name, to, err)
+		if vrrpOut {
+			// Where it was: its keepalived back with the version.
+			if aerr := e.Apply(ctx, id, c.Desired, []string{name}, actor); aerr != nil {
+				err = fmt.Errorf("%v; and its keepalived back: %v", err, aerr)
+			}
+		}
+		return false, err
 	}
 	e.Journal(id, actor, "address", name, 0, "%s moved from %s to %s: its network configuration confirmed there", name, from, to)
 	addr := to.Address()
@@ -341,9 +376,22 @@ func (e *Engine) moveMember(ctx context.Context, id, name string, to Addressing,
 	if err != nil {
 		return true, err
 	}
-	// Every member told: the peers section names it, the templates may.
+	// Every member told: the peers section names it, the templates may -
+	// the others first, then it: its keepalived starts once they all
+	// name it where it is.
 	if c.Desired > 0 {
-		if err := e.Apply(ctx, id, c.Desired, nil, actor); err != nil {
+		var others []string
+		for _, o := range c.Members {
+			if o.Name != name {
+				others = append(others, o.Name)
+			}
+		}
+		if len(others) > 0 {
+			if err := e.Apply(ctx, id, c.Desired, others, actor); err != nil {
+				return true, err
+			}
+		}
+		if err := e.Apply(ctx, id, c.Desired, []string{name}, actor); err != nil {
 			return true, err
 		}
 	} else {

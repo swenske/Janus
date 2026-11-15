@@ -351,7 +351,17 @@ echo "  ok: lb-4 replaced lb-1, the VRRP master - joined drained, the table lear
 # lb-2 is drained, leaves and powers off; then lb-1's eth1 moves to
 # 192.168.87.2 on trial, confirmed, every member's keepalived.conf
 # rendered again with it there, and lb-1 comes into service. The
-# virtual IP stays on lb-4 throughout.
+# virtual IP stays on lb-4 throughout, and lb-1 is never MASTER: lb-2's
+# priority raised to 120 first, so lb-1, given it, stays above 0 drained
+# (weight -100) - a drained member hearing no advertisement would take
+# the virtual IP: when it joins, the others name it before its VRRP
+# starts; while it moves, its keepalived is stopped until they name it
+# at its new address (#515's Proxmox proof: both MASTER, 16 s).
+echo "# lb-2 at 120 for the takeover" >>"$DIR/keepalived.conf"
+alice cluster vars edge lb-2 priority=120 >/dev/null || fail "lb-2's priority"
+out="$(alice cluster apply edge "$DIR" -m "lb-2 at 120" 2>&1)" || fail "apply lb-2 at 120: $out"
+check "lb-2 at 120" "priority 120" "$(alice -n lb-2 network vrrp get)"
+wait_for 30 "lb-4 holding the virtual IP before the takeover" master 4
 m1="$(masters 1)" m3="$(masters 3)"
 out="$(alice cluster replace edge lb-2 lb-1 -address 192.168.87.1 -keep-address 2>&1)" || fail "replace lb-2 with lb-1, keeping its address: $out"
 check "lb-1 joined drained, to take lb-2's address" "lb-1, which joins drained on 192\.168\.87\.1 and takes lb-2's address 192\.168\.87\.2/24 2001:db8:87::2/64" "$out"
@@ -370,19 +380,21 @@ check "lb-1's eth1 at lb-2's IPv6 address" "2001:db8:87::2/64" "$(alice -n lb-1 
 if grep -q "192\.168\.87\.1/" <<<"$(alice -n lb-1 network status)"; then fail "lb-1 kept its own address: $(alice -n lb-1 network status)"; fi
 check "lb-1 a member at lb-2's address" "lb-1 +192\.168\.87\.2:10057" "$(alice -n lb-3 cluster status)"
 check "lb-1 rendered at its new address" "unicast_src_ip 192\.168\.87\.2" "$(alice -n lb-1 network vrrp get)"
-check "lb-1 has lb-2's priority" "priority 100" "$(alice -n lb-1 network vrrp get)"
+check "lb-1 has lb-2's priority" "priority 120" "$(alice -n lb-1 network vrrp get)"
+check "lb-1's keepalived out while it moved" "lb-1's keepalived stopped while its address moves" "$out"
+check "the others named lb-1 before its VRRP started" "lb-4's vrrp rendered again for the members now" "$out"
 check "lb-3 reaches lb-1 there" "192\.168\.87\.2" "$(alice -n lb-3 network vrrp get)"
 if grep -Eq "^ +192\.168\.87\.1$" <<<"$(alice -n lb-3 network vrrp get)"; then fail "lb-3 still names 192.168.87.1: $(alice -n lb-3 network vrrp get)"; fi
 if alice -n lb-1 cluster get | grep -q "Drained"; then fail "lb-1 still drained: $(alice -n lb-1 cluster get)"; fi
 for i in 1 3 4; do wait_for 60 "lb-$i's peers up after lb-1 took lb-2's address" peers_up "$i" 2; done
 wait_for 20 "lb-1 learnt the entry" has_entry 1
 master 4 || fail "the virtual IP left lb-4"
-[ "$(masters 1)" = "$m1" ] && [ "$(masters 3)" = "$m3" ] || fail "the virtual IP went through lb-1 or lb-3: $(masters 1) $(masters 3) MASTER transitions, $m1 $m3 before"
+[ "$(masters 1)" = "$m1" ] && [ "$(masters 3)" = "$m3" ] || fail "lb-1 or lb-3 was MASTER during the takeover - two masters, the virtual IP flapping: $(masters 1) $(masters 3) MASTER transitions, $m1 $m3 before"
 # The others' ARP entry for the address: lb-1's MAC now.
 nmac() { alice -n "lb-$1" network neighbors -interface eth1 2>/dev/null | awk -v a="$2" '$2 == a {print $3}'; }
 mac_is() { [ "$(nmac "$1" "$2")" = "$3" ]; }
 for i in 3 4; do wait_for 20 "lb-$i's ARP entry for 192.168.87.2 at lb-1's MAC" mac_is "$i" 192.168.87.2 52:54:00:bb:01:01; done
-echo "  ok: lb-1 replaced lb-2 at its address - joined drained on its own, lb-2 powered off and out of the context, lb-1 moved to 192.168.87.2 and 2001:db8:87::2, every keepalived.conf names it there, lb-3's and lb-4's ARP entries have its MAC; the virtual IP stayed on lb-4"
+echo "  ok: lb-1 replaced lb-2 at its address - joined drained on its own, lb-2 powered off and out of the context, lb-1 moved to 192.168.87.2 and 2001:db8:87::2, every keepalived.conf names it there, lb-3's and lb-4's ARP entries have its MAC; the virtual IP stayed on lb-4, lb-1 never MASTER - not when it joined, not while it moved"
 
 # An address a node adds is announced (netmgr): lb-3 learns lb-4's MAC
 # for 192.168.87.60 and 2001:db8:87::60 by reaching them; lb-4 gives

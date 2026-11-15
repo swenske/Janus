@@ -631,7 +631,11 @@ of a fleet without a Controller):
 2. **Join it drained**: the checks (section 3; with `new_image` its
    schematic may differ - how a cluster changes image), its member
    certificate, the others told of it (each waits for its tables,
-   section 7.1), then `ClusterDrain` on it at once - its VRRP instances
+   section 7.1) - their firewall, VRRP and BGP configuration rendered
+   again when it names the members (`.Peers`): a unicast
+   `keepalived.conf` must name the newcomer before its VRRP starts, or
+   it hears no advertisement and takes the virtual IP -, then
+   `ClusterDrain` on it at once - its VRRP instances
    start BACKUP, its BGP protocols stay disabled: it must not take the
    virtual IP while the old member holds it. Then the secrets and the
    cluster's version; the apply waits until its HAProxy has **learnt
@@ -673,14 +677,20 @@ replacement checks nothing answers there any more. The replacement's
 interface holding its address then gets the old member's static
 addressing - read from the old member's own configuration before
 anything, every address on that interface and its gateways - as a
-network trial confirmed where it answers (`Engine.MoveNetwork`: the
+network trial confirmed where it answers - its keepalived stopped
+first, as at its new address the others' unicast advertisements miss
+it and it would take the virtual IP; the node waits `MoveWindow` (2
+min) for the confirmation, tried every second over a new connection
+(`Engine.MoveNetwork`: the
 orchestrator follows the node; the node announces the addresses it
 adds - gratuitous ARP, unsolicited NA -, so the router and the members
 take its MAC at once); the old member's record is dropped
 (`Engine.Forget`: the Controller's node, janusctl's context entry - it
 named the address the replacement holds); `Member.Address` changes and the
 cluster's version is applied again on every member, one at a time
-(the peers sections, templates naming `.Member.Address` or `.Peers`);
+(the peers sections, templates naming `.Member.Address` or `.Peers`),
+the others first and the replacement last - its keepalived back once
+they name it;
 the replacement comes into service. Here the member's share of the
 traffic goes to the others while the address moves, so a cluster of
 one member refuses it, and so does a cluster whose `firewall.nft`

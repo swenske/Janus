@@ -588,9 +588,12 @@ janusctl cluster upgrade edge v2026.10.29 \
 image, a VM on fresh disks - and the traffic moves once:
 
 1. The newcomer joins **drained**: checked, given its certificate, the
-   others told, the secrets and the cluster's version applied - its
-   VRRP stays BACKUP, its BGP routes unannounced - until its HAProxy
-   has learnt the stick tables from a peer.
+   others told - their firewall, VRRP and BGP configuration rendered
+   again when it names the members (`.Peers`), so a unicast
+   `keepalived.conf` names the newcomer before its VRRP starts -, the
+   secrets and the cluster's version applied - its VRRP stays BACKUP,
+   its BGP routes unannounced - until its HAProxy has learnt the stick
+   tables from a peer.
 2. It comes into service as the member is drained: the virtual IP or
    the routes move from the member to it (or a peer), whose tables are
    full; the member's established connections finish.
@@ -629,19 +632,23 @@ instead of keeping its own:
    its address up: its machine destroyed, or - a node the Controller
    didn't make - powered off. The newcomer checks that nothing answers
    there any more.
-3. The newcomer's interface gets the member's static addressing - every
-   address on that interface, IPv4 and IPv6, and its gateways - on
-   trial, confirmed where it answers then: the Controller follows it,
-   its machine's record too. The node announces the addresses - a
+3. The newcomer's keepalived is stopped - at another address than the
+   one the others name it by, it would hear none of them and take the
+   virtual IP -, then its interface gets the member's static addressing
+   - every address on that interface, IPv4 and IPv6, and its gateways -
+   on trial, confirmed where it answers then (the node waits two
+   minutes for that, the orchestrator trying again every second): the
+   Controller follows it, its machine's record too. The node announces the addresses - a
    gratuitous ARP, an unsolicited Neighbour Advertisement -: the router
    and the other members take its MAC for them at once. A powered-off
    member is then no longer one of the Controller's nodes: its record
    named the address the newcomer holds.
 4. Every member is told its address and the cluster's version is applied
-   again on each, one at a time, its stick tables learnt: the peers
-   sections, and templates naming `.Member.Address` or `.Peers` -
-   keepalived's `unicast_src_ip` and `unicast_peer`, BIRD's router ID, a
-   firewall rule.
+   again on each, one at a time, its stick tables learnt - the others
+   first, the newcomer last, its keepalived back once they all name it:
+   the peers sections, and templates naming `.Member.Address` or
+   `.Peers` - keepalived's `unicast_src_ip` and `unicast_peer`, BIRD's
+   router ID, a firewall rule.
 5. The newcomer comes into service.
 
 The traffic moves twice, the member's share going to the other members

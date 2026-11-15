@@ -150,12 +150,12 @@ func (o *clusterCtl) moveNetwork(ctx context.Context, m clusters.Member, cfg *ja
 	}
 	actx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	stream, err := janusv1alpha1.NewNetworkServiceClient(conn).NetworkConfigApply(actx, &janusv1alpha1.NetworkConfigApplyRequest{Config: cfg, ConfirmTimeoutSeconds: 60})
+	stream, err := janusv1alpha1.NewNetworkServiceClient(conn).NetworkConfigApply(actx, &janusv1alpha1.NetworkConfigApplyRequest{Config: cfg, ConfirmTimeoutSeconds: uint32(clusters.MoveWindow / time.Second)})
 	if err != nil {
 		return err
 	}
 	var addrs []string
-	revertAt := time.Now().Add(60 * time.Second)
+	revertAt := time.Now().Add(clusters.MoveWindow)
 	applying := false
 	for {
 		resp, err := stream.Recv()
