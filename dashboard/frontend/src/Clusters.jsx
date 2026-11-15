@@ -1665,8 +1665,9 @@ function Recycle({ cluster, member, nodes, onDone, reload }) {
           <p className="small muted">
             The newcomer joins drained on its own address, gets the secrets and the cluster’s version, learns the stick tables, and stays drained: {member.name} is drained -
             the other members serve -, leaves and {member.machine_id ? 'its machine is destroyed' : 'is powered off'}. The newcomer then takes {member.name}’s address on
-            trial, every member is told, and it comes into service there - what routers, firewalls and NATs know stays true. Its variables are {member.name}’s. If the
-            address can’t be taken, the newcomer serves on its own; move it with Address once the cause is fixed.
+            trial, announced to its neighbours, every member is told, and it comes into service there - what routers, firewalls and NATs know stays true.
+            {member.machine_id ? '' : ` ${member.name} is then no longer one of the Controller’s nodes.`} Its variables are {member.name}’s. If the address can’t be taken, the
+            newcomer serves on its own; move it with Address once the cause is fixed. A firewall template naming the member’s own address is refused first.
           </p>
         ) : (
           <p className="small muted">

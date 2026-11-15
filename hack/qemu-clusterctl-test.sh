@@ -20,10 +20,15 @@
 # replaces the VRRP master (janusctl cluster replace): it joins drained,
 # learns the table, and the virtual IP moves once, to it. lb-1, free
 # again, replaces lb-2 keeping its address (-keep-address, #515): it
-# joins drained on its own, lb-2 is drained, leaves and powers off, lb-1
-# moves to lb-2's address and every member's keepalived.conf names it
-# there. The cluster deleted - and no AVC denial. A drained member
-# rebooted comes back drained (#356).
+# joins drained on its own, lb-2 is drained, leaves and powers off - and
+# out of alice's context -, lb-1 moves to lb-2's IPv4 and IPv6 addresses
+# and every member's keepalived.conf names it there; the others' ARP
+# entry for it has lb-1's MAC. An address a node adds is announced: lb-3,
+# whose neighbour entries for an address lb-4 gave up still have lb-4's
+# MAC, has lb-1's for it as soon as lb-1 adds it - a gratuitous ARP and an
+# unsolicited Neighbour Advertisement, lb-1 sending lb-3 nothing else. The
+# cluster deleted - and no AVC denial. A drained member rebooted comes
+# back drained (#356).
 #
 # Usage: hack/qemu-clusterctl-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
@@ -107,7 +112,7 @@ for i in $NODES; do
   cat > "$WORKDIR/$i-net.json" <<EOF
 {"hostname": "lb-$i", "interfaces": [
   {"name": "eth0", "mac": "52:54:00:aa:01:0$i", "mode": "ADDRESSING_MODE_DHCP"},
-  {"name": "eth1", "mac": "52:54:00:bb:01:0$i", "mode": "ADDRESSING_MODE_STATIC", "addresses": ["192.168.87.$i/24"]}
+  {"name": "eth1", "mac": "52:54:00:bb:01:0$i", "mode": "ADDRESSING_MODE_STATIC", "addresses": ["192.168.87.$i/24", "2001:db8:87::$i/64"]}
 ]}
 EOF
   out="$(own "$i" network apply "$WORKDIR/$i-net.json" 2>&1)" || fail "network apply on $i: $out"
@@ -349,8 +354,11 @@ echo "  ok: lb-4 replaced lb-1, the VRRP master - joined drained, the table lear
 # virtual IP stays on lb-4 throughout.
 m1="$(masters 1)" m3="$(masters 3)"
 out="$(alice cluster replace edge lb-2 lb-1 -address 192.168.87.1 -keep-address 2>&1)" || fail "replace lb-2 with lb-1, keeping its address: $out"
-check "lb-1 joined drained, to take lb-2's address" "lb-1, which joins drained on 192\.168\.87\.1 and takes lb-2's address 192\.168\.87\.2/24" "$out"
+check "lb-1 joined drained, to take lb-2's address" "lb-1, which joins drained on 192\.168\.87\.1 and takes lb-2's address 192\.168\.87\.2/24 2001:db8:87::2/64" "$out"
 check "lb-2 powered off" "lb-2 is powering off" "$out"
+check "lb-2 out of the context" "lb-2 is out of context lab" "$out"
+check "the journal says it" "lb-2 forgotten: released, its address 192\.168\.87\.2 is lb-1's now" "$out"
+if grep -q '"name": "lb-2"' "$WORKDIR/alice/janusctl.json"; then fail "lb-2 still in alice's context"; fi
 check "lb-2's address free" "lb-2's address 192\.168\.87\.2 is free" "$out"
 check "lb-1 moved" "lb-1 moved from 192\.168\.87\.1 to 192\.168\.87\.2/24" "$out"
 check "every member told" "every member knows lb-1 at 192\.168\.87\.2" "$out"
@@ -358,6 +366,7 @@ check "the replacement done" "lb-1 replaced lb-2, at its address 192\.168\.87\.2
 gone() { ! kill -0 "${PID[2]}" 2>/dev/null; }
 wait_for 60 "lb-2's machine powered off" gone
 check "lb-1's eth1 at lb-2's address" "192\.168\.87\.2/24" "$(alice -n lb-1 network status)"
+check "lb-1's eth1 at lb-2's IPv6 address" "2001:db8:87::2/64" "$(alice -n lb-1 network status)"
 if grep -q "192\.168\.87\.1/" <<<"$(alice -n lb-1 network status)"; then fail "lb-1 kept its own address: $(alice -n lb-1 network status)"; fi
 check "lb-1 a member at lb-2's address" "lb-1 +192\.168\.87\.2:10057" "$(alice -n lb-3 cluster status)"
 check "lb-1 rendered at its new address" "unicast_src_ip 192\.168\.87\.2" "$(alice -n lb-1 network vrrp get)"
@@ -369,7 +378,44 @@ for i in 1 3 4; do wait_for 60 "lb-$i's peers up after lb-1 took lb-2's address"
 wait_for 20 "lb-1 learnt the entry" has_entry 1
 master 4 || fail "the virtual IP left lb-4"
 [ "$(masters 1)" = "$m1" ] && [ "$(masters 3)" = "$m3" ] || fail "the virtual IP went through lb-1 or lb-3: $(masters 1) $(masters 3) MASTER transitions, $m1 $m3 before"
-echo "  ok: lb-1 replaced lb-2 at its address - joined drained on its own, lb-2 powered off, lb-1 moved to 192.168.87.2 and every keepalived.conf names it there; the virtual IP stayed on lb-4"
+# The others' ARP entry for the address: lb-1's MAC now.
+nmac() { alice -n "lb-$1" network neighbors -interface eth1 2>/dev/null | awk -v a="$2" '$2 == a {print $3}'; }
+mac_is() { [ "$(nmac "$1" "$2")" = "$3" ]; }
+for i in 3 4; do wait_for 20 "lb-$i's ARP entry for 192.168.87.2 at lb-1's MAC" mac_is "$i" 192.168.87.2 52:54:00:bb:01:01; done
+echo "  ok: lb-1 replaced lb-2 at its address - joined drained on its own, lb-2 powered off and out of the context, lb-1 moved to 192.168.87.2 and 2001:db8:87::2, every keepalived.conf names it there, lb-3's and lb-4's ARP entries have its MAC; the virtual IP stayed on lb-4"
+
+# An address a node adds is announced (netmgr): lb-3 learns lb-4's MAC
+# for 192.168.87.60 and 2001:db8:87::60 by reaching them; lb-4 gives
+# them up - lb-3's entries keep its MAC, nothing tells them otherwise -;
+# lb-1 adds them: a gratuitous ARP and an unsolicited Neighbour
+# Advertisement, and lb-3's entries have lb-1's MAC - lb-1 never sent
+# lb-3 anything from them.
+netcfg() { # netcfg INDEX ADDRESS...: eth0 by DHCP, eth1 with ADDRESS...
+  local i=$1 list
+  shift
+  list="$(printf '"%s", ' "$@")"
+  printf '{"hostname": "lb-%s", "interfaces": [\n  {"name": "eth0", "mac": "52:54:00:aa:01:0%s", "mode": "ADDRESSING_MODE_DHCP"},\n  {"name": "eth1", "mac": "52:54:00:bb:01:0%s", "mode": "ADDRESSING_MODE_STATIC", "addresses": [%s]}\n]}\n' "$i" "$i" "$i" "${list%, }" >"$WORKDIR/$i-x.json"
+  out="$(alice -n "lb-$i" network apply "$WORKDIR/$i-x.json" 2>&1)" || fail "network apply on lb-$i ($*): $out"
+}
+netcfg 4 192.168.87.4/24 2001:db8:87::4/64 192.168.87.60/24 2001:db8:87::60/64
+sleep 3 # IPv6 duplicate address detection
+for a in 192.168.87.60:9505 "[2001:db8:87::60]:9505"; do
+  out="$(alice -n lb-3 system probe tcp "$a" 2>&1)" || fail "lb-3 reaching lb-4 at $a: $out"
+done
+for a in 192.168.87.60 2001:db8:87::60; do
+  [ "$(nmac 3 "$a")" = 52:54:00:bb:01:04 ] || fail "lb-3's entry for $a: '$(nmac 3 "$a")', not lb-4's MAC: $(alice -n lb-3 network neighbors -interface eth1)"
+done
+netcfg 4 192.168.87.4/24 2001:db8:87::4/64
+sleep 3
+for a in 192.168.87.60 2001:db8:87::60; do
+  [ "$(nmac 3 "$a")" = 52:54:00:bb:01:04 ] || fail "lb-3's entry for $a changed by itself: '$(nmac 3 "$a")'"
+done
+netcfg 1 192.168.87.2/24 2001:db8:87::2/64 192.168.87.60/24 2001:db8:87::60/64
+for a in 192.168.87.60 2001:db8:87::60; do
+  wait_for 15 "lb-3's entry for $a at lb-1's MAC" mac_is 3 "$a" 52:54:00:bb:01:01
+done
+netcfg 1 192.168.87.2/24 2001:db8:87::2/64
+echo "  ok: an address added is announced - lb-3's ARP and NDP entries for 192.168.87.60 and 2001:db8:87::60 kept lb-4's MAC once lb-4 gave them up, and had lb-1's as soon as lb-1 added them"
 
 # The cluster goes: the nodes on their own, unlocked.
 out="$(alice cluster delete edge 2>&1)" || fail "delete: $out"

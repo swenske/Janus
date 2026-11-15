@@ -238,6 +238,10 @@ func TestClusterReplaceKeepingAddress(t *testing.T) {
 	if !inOrder(f.callsOf("lb-4", mark), "ClusterDrain", "Probe 10.0.0.1:9505", "ClusterUndrain") {
 		t.Errorf("lb-4: %v", f.callsOf("lb-4", mark))
 	}
+	// Its address not taken, lb-1 stays one of the Controller's nodes.
+	if _, ok := a.store.Get(nodesByName["lb-1"].ID); !ok {
+		t.Error("lb-1 forgotten although lb-4 didn't take its address")
+	}
 
 	// For real, lb-2 replaced by lb-3 (a node of the Controller's, powered
 	// off for its address).
@@ -267,6 +271,14 @@ func TestClusterReplaceKeepingAddress(t *testing.T) {
 	if n, _ := a.store.Get(nodesByName["lb-3"].ID); n.Addr() != "10.0.0.2:9505" {
 		t.Errorf("the Controller reaches lb-3 at %s", n.Addr())
 	}
+	// lb-2, powered off, its address lb-3's: no longer one of the
+	// Controller's nodes, and the journal says so.
+	if _, ok := a.store.Get(nodesByName["lb-2"].ID); ok {
+		t.Error("lb-2 still one of the Controller's nodes, at lb-3's address")
+	}
+	if !journalSays(t, a, c.ID, "lb-2 forgotten: released, its address 10.0.0.2 is lb-3's now") {
+		t.Errorf("the journal doesn't say lb-2 was forgotten: %v", a.clusters.Store.Entries(c.ID, 20))
+	}
 	f.mu.Lock()
 	lan := f.nodes["lb-3"].netcfg.GetInterfaces()[0]
 	f.mu.Unlock()
@@ -285,6 +297,62 @@ func TestClusterReplaceKeepingAddress(t *testing.T) {
 	}
 	if err := a.clusters.Replace(ctx, c.ID, "lb-3", clusters.Member{NodeID: nodesByName["lb-1"].ID, Name: "lb-1", Address: "10.0.0.1"}, keep, "admin"); err == nil || !strings.Contains(err.Error(), "only member") {
 		t.Errorf("a cluster of one: %v", err)
+	}
+}
+
+// A cluster whose firewall template names the member's own address: a
+// move would apply the ruleset for one address and confirm at the
+// other - refused before anything is touched, a replacement taking an
+// address over and a move alike; a template naming only the peers'
+// addresses goes on.
+func TestClusterTakeoverAndAFirewallOnTheAddress(t *testing.T) {
+	a, f, nodesByName := clusterApp(t, "lb-1", "lb-2", "lb-3")
+	useMovingNodes(t, f)
+	c, err := a.clusters.Store.Create("edge", 0, []string{"haproxy", "files", "firewall"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err = a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error {
+		c.Members = []clusters.Member{{NodeID: nodesByName["lb-1"].ID, Name: "lb-1", Address: "10.0.0.1"}, {NodeID: nodesByName["lb-2"].ID, Name: "lb-2", Address: "10.0.0.2"}}
+		c.SecretsFrom = "lb-1"
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := func(fw string) {
+		t.Helper()
+		v, err := a.clusters.Store.NewVersion(c.ID, "admin", "", map[string][]byte{"haproxy.cfg": []byte("global\n"), "firewall.nft": []byte(fw)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error { c.Desired = v.Version; return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx := context.Background()
+	lb3 := clusters.Member{NodeID: nodesByName["lb-3"].ID, Name: "lb-3", Address: "10.0.0.3"}
+	version("table inet filter {\n  chain input {\n    type filter hook input priority 0; policy drop;\n    ip daddr {{ .Member.Address }} tcp dport 9505 accept\n  }\n}\n")
+	mark := f.mark()
+	err = a.clusters.Replace(ctx, c.ID, "lb-2", lb3, clusters.ReplaceOptions{KeepAddress: true}, "admin")
+	if err == nil || !strings.Contains(err.Error(), "firewall.nft depends on lb-3's own address") || !strings.Contains(err.Error(), "iifname") {
+		t.Errorf("a takeover under a firewall on the member's address: %v", err)
+	}
+	if calls := f.callsSince(mark); slices.ContainsFunc(calls, func(c string) bool { return !strings.HasSuffix(c, " NetworkConfig") }) {
+		t.Errorf("touched before refusing: %v", calls)
+	}
+	err = a.clusters.Readdress(ctx, c.ID, "lb-2", clusters.Addressing{Addresses: []string{"10.0.0.40/24"}}, "admin")
+	if err == nil || !strings.Contains(err.Error(), "firewall.nft depends on lb-2's own address") {
+		t.Errorf("a move under a firewall on the member's address: %v", err)
+	}
+	if calls := f.callsSince(mark); slices.ContainsFunc(calls, func(c string) bool { return !strings.HasSuffix(c, " NetworkConfig") }) {
+		t.Errorf("touched before refusing: %v", calls)
+	}
+
+	// The peers' addresses only: the takeover goes on.
+	version("table inet filter {\n  chain input {\n    type filter hook input priority 0; policy accept;\n{{- range .Peers }}\n    ip saddr {{ .Address }} tcp dport 10057 accept\n{{- end }}\n  }\n}\n")
+	if err := a.clusters.Readdress(ctx, c.ID, "lb-2", clusters.Addressing{Addresses: []string{"10.0.0.40/24"}}, "admin"); err != nil {
+		t.Errorf("a move under a firewall naming the peers only: %v", err)
 	}
 }
 

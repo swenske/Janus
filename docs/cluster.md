@@ -674,12 +674,21 @@ interface holding its address then gets the old member's static
 addressing - read from the old member's own configuration before
 anything, every address on that interface and its gateways - as a
 network trial confirmed where it answers (`Engine.MoveNetwork`: the
-orchestrator follows the node); `Member.Address` changes and the
+orchestrator follows the node; the node announces the addresses it
+adds - gratuitous ARP, unsolicited NA -, so the router and the members
+take its MAC at once); the old member's record is dropped
+(`Engine.Forget`: the Controller's node, janusctl's context entry - it
+named the address the replacement holds); `Member.Address` changes and the
 cluster's version is applied again on every member, one at a time
 (the peers sections, templates naming `.Member.Address` or `.Peers`);
 the replacement comes into service. Here the member's share of the
 traffic goes to the others while the address moves, so a cluster of
-one member refuses it. A failure after the old member's drain puts the
+one member refuses it, and so does a cluster whose `firewall.nft`
+renders differently for the replacement at its own address and at the
+old member's (a template naming `.Member.Address`): no node changes its
+address and its ruleset in one trial, and the ruleset for one could
+refuse the confirmation at the other after the old member is gone. A
+failure after the old member's drain puts the
 replacement in service on its own address (`AddressError`), for
 `Engine.Readdress` - drain, trial, every member told, undrain; `POST
 /api/clusters/{id}/members/{name}/address`, `janusctl cluster

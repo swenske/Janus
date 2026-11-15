@@ -96,6 +96,7 @@ func openClusterCtl(globalCtx string) *clusterCtl {
 		Advisory:    true,
 		MoveNetwork: o.moveNetwork,
 		Release:     o.release,
+		Forget:      o.forget,
 	}
 	return o
 }
@@ -228,6 +229,27 @@ func (o *clusterCtl) moved(m clusters.Member, endpoint string) error {
 		}
 	}
 	return o.cfg.save()
+}
+
+// forget is the engine's Forget: member m's node, released, out of the
+// context - the entry would name its replacement's address.
+func (o *clusterCtl) forget(_ context.Context, m clusters.Member) error {
+	o.mu.Lock()
+	if c, ok := o.conns[m.Name]; ok {
+		c.Close()
+		delete(o.conns, m.Name)
+	}
+	o.mu.Unlock()
+	n := len(o.c.Nodes)
+	o.c.Nodes = slices.DeleteFunc(o.c.Nodes, func(x ctxNode) bool { return x.Name == m.NodeID })
+	if len(o.c.Nodes) == n {
+		return nil
+	}
+	if err := o.cfg.save(); err != nil {
+		return err
+	}
+	fmt.Printf("  %s is out of context %s: powered off, its address %s its replacement's now (janusctl fleet adopt to bring it back once reinstalled)\n", m.NodeID, o.ctxName, m.Address)
+	return nil
 }
 
 // release is the engine's Release: member m, out of the cluster, gives
@@ -698,7 +720,7 @@ func runClusterCtl(globalCtx string, args []string) {
 		o.report(c.ID, since)
 		check("cluster replace", err)
 		if *keep {
-			fmt.Printf("%s replaced %s, at its address. %s is powered off: janusctl fleet forget %s once it's gone for good\n", node, old, old, old)
+			fmt.Printf("%s replaced %s, at its address. %s is powered off, out of the context\n", node, old, old)
 		} else {
 			fmt.Printf("%s replaced %s. %s is on its own, still drained until it reboots (janusctl -n %s cluster undrain to use it again)\n", node, old, old, old)
 		}

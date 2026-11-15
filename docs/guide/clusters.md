@@ -632,7 +632,11 @@ instead of keeping its own:
 3. The newcomer's interface gets the member's static addressing - every
    address on that interface, IPv4 and IPv6, and its gateways - on
    trial, confirmed where it answers then: the Controller follows it,
-   its machine's record too.
+   its machine's record too. The node announces the addresses - a
+   gratuitous ARP, an unsolicited Neighbour Advertisement -: the router
+   and the other members take its MAC for them at once. A powered-off
+   member is then no longer one of the Controller's nodes: its record
+   named the address the newcomer holds.
 4. Every member is told its address and the cluster's version is applied
    again on each, one at a time, its stick tables learnt: the peers
    sections, and templates naming `.Member.Address` or `.Peers` -
@@ -647,8 +651,18 @@ then - `temporary_address`, in CIDR form, or `dhcp` -; one is enough for
 several members, each giving it back as it takes its member's. Only the
 interface holding the member's address moves: a machine with another
 static interface is recycled into a node you name. The newcomer has its
-own MAC: the router learns it from the newcomer's first packets, or once
-its entry for the old MAC fails.
+own MAC - two machines can't share one while both run -; its
+announcement updates the neighbours' entries for the address.
+
+A cluster whose `firewall.nft` names the member's own address -
+`ip daddr {{ .Member.Address }} tcp dport 9505 accept`, say - is
+refused before anything is touched: the ruleset rendered for the
+newcomer's address could refuse it at the member's, the move's
+confirmation with the rest, before the cluster applies it again - and
+nothing changes a node's address and its ruleset in one trial. Match the
+interface (`iifname`) or the subnet instead, apply that version, then
+recycle. A template naming the other members' addresses (`.Peers`) is
+fine: every member gets it again once the address moved.
 
 A failure before the member's drain takes the newcomer out again, the
 cluster as it was. After it, the newcomer is a member: when the address
@@ -662,15 +676,16 @@ drained first, its interface's addressing on trial and confirmed, every
 member told, back in service. The first address given is the member's.
 
 Without a Controller, `-keep-address` on `janusctl cluster replace` does
-the same, the old node powered off; the context follows a node that
-moves when it reaches it at its member address, and a node reached
-another way (a NAT, a port forward) keeps its entry.
+the same, the old node powered off and taken out of the context once
+the newcomer holds its address (`janusctl fleet adopt` brings it back
+once reinstalled); the context follows a node that moves when it
+reaches it at its member address, and a node reached another way (a
+NAT, a port forward) keeps its entry.
 
 ```sh
 janusctl cluster replace edge lb-2 lb-5 -address 192.0.2.15 -keep-address
 janusctl cluster readdress edge lb-5 192.0.2.12/24 2001:db8::12/64 \
   -gateway 192.0.2.1 -gateway6 2001:db8::1
-janusctl fleet forget lb-2          # once it's gone for good
 ```
 
 ## Scaling

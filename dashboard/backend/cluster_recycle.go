@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/netip"
 	"slices"
@@ -180,6 +181,22 @@ func (a *app) releaseMember(ctx context.Context, m clusters.Member) error {
 	if err := nodes.Shutdown(sctx, n); err != nil {
 		return fmt.Errorf("powering %s off: %v", n.Name, err)
 	}
+	return nil
+}
+
+// forgetReleased is the cluster engine's Forget: member m, released -
+// powered off, its address its replacement's now -, removed from the
+// Controller's nodes like a node deleted (its page, its connection, its
+// metrics). A machine's went with the machine.
+func (a *app) forgetReleased(ctx context.Context, m clusters.Member) error {
+	n, ok := a.store.Get(m.NodeID)
+	if !ok {
+		return nil
+	}
+	if err := a.removeNode(ctx, n.ID); err != nil {
+		return err
+	}
+	log.Printf("cluster member %s: node %s (%s) forgotten - powered off, its address its replacement's", m.Name, n.Name, n.ID)
 	return nil
 }
 
@@ -363,7 +380,7 @@ func (a *app) recycle(ctx context.Context, id string, req recycleRequest, actor 
 			a.destroyMachine(oldMachine.ID)
 			a.clusters.Journal(id, actor, "recycle", name, 0, "%s replaced by %s: its machine destroyed", name, repl.Name)
 		case req.keepAddress():
-			a.clusters.Journal(id, actor, "recycle", name, 0, "%s replaced by %s at its address: it stays one of the Controller's nodes, powered off - remove it", name, repl.Name)
+			a.clusters.Journal(id, actor, "recycle", name, 0, "%s replaced by %s at its address: powered off, no longer one of the Controller's nodes", name, repl.Name)
 		default:
 			a.clusters.Journal(id, actor, "recycle", name, 0, "%s replaced by %s: it stays one of the Controller's nodes, drained until it reboots", name, repl.Name)
 		}

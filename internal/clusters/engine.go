@@ -57,6 +57,11 @@ type Engine struct {
 	// ReleaseTimeout bounds the wait for a released member's address to
 	// stop answering; 0: 3 minutes.
 	ReleaseTimeout time.Duration
+	// Forget drops the orchestrator's own record of member m, released
+	// and out of the cluster, once its replacement holds its address: the
+	// record would name the replacement's address (a Controller's node, a
+	// janusctl context's). Nil: kept.
+	Forget func(ctx context.Context, m Member) error
 }
 
 // waitLearnt waits until member m's HAProxy, just reloaded, has learnt
