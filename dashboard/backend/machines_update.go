@@ -48,7 +48,9 @@ import (
 // node - a variable so tests give a fake.
 type nodeAPI interface {
 	Shutdown(ctx context.Context, node *store.Node) error
-	ApplyNetwork(ctx context.Context, node *store.Node, st *store.Store, cfg *janusv1alpha1.NetworkConfig) error
+	// ApplyNetwork: cfg on trial, confirmed within window where the node
+	// answers then - the store following it.
+	ApplyNetwork(ctx context.Context, node *store.Node, st *store.Store, cfg *janusv1alpha1.NetworkConfig, window time.Duration) error
 	Upgrade(ctx context.Context, node *store.Node, source *janusv1alpha1.ImageSource, mode janusv1alpha1.RebootMode) (string, error)
 	Info(ctx context.Context, node *store.Node) (*nodeproxy.NodeInfo, error)
 	Network(ctx context.Context, node *store.Node) (*janusv1alpha1.NetworkConfig, error)
@@ -71,8 +73,8 @@ func (realNodeAPI) Shutdown(ctx context.Context, node *store.Node) error {
 	return nodeproxy.Shutdown(ctx, node)
 }
 
-func (realNodeAPI) ApplyNetwork(ctx context.Context, node *store.Node, st *store.Store, cfg *janusv1alpha1.NetworkConfig) error {
-	return nodeproxy.ApplyNetwork(ctx, node, st, cfg)
+func (realNodeAPI) ApplyNetwork(ctx context.Context, node *store.Node, st *store.Store, cfg *janusv1alpha1.NetworkConfig, window time.Duration) error {
+	return nodeproxy.ApplyNetworkWithin(ctx, node, st, cfg, window)
 }
 
 func (realNodeAPI) Upgrade(ctx context.Context, node *store.Node, source *janusv1alpha1.ImageSource, mode janusv1alpha1.RebootMode) (string, error) {
@@ -711,7 +713,7 @@ func (r *machineRunner) updateSteps(ctx context.Context, id string, p *updatePla
 		if err != nil {
 			return fmt.Errorf("read the node's network configuration: %w", err)
 		}
-		if err := nodes.ApplyNetwork(nctx, node, a.store, mergeNetwork(cur, p.next, p.removed, skip)); err != nil {
+		if err := nodes.ApplyNetwork(nctx, node, a.store, mergeNetwork(cur, p.next, p.removed, skip), time.Minute); err != nil {
 			return fmt.Errorf("network: %w", err)
 		}
 		r.logEvent(id, "network configuration confirmed - the node is at %s", node.Addr())

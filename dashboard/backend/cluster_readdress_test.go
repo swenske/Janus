@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -41,15 +42,17 @@ type movingNodes struct {
 	// (a machine's destruction then powers it off without waiting).
 	cutShutdown bool
 	applied     map[string]*janusv1alpha1.NetworkConfig // by node id
+	windows     []time.Duration                         // each apply's confirmation window
 	shutdown    []string                                // node names
 }
 
-func (m *movingNodes) ApplyNetwork(_ context.Context, node *store.Node, st *store.Store, cfg *janusv1alpha1.NetworkConfig) error {
+func (m *movingNodes) ApplyNetwork(_ context.Context, node *store.Node, st *store.Store, cfg *janusv1alpha1.NetworkConfig, window time.Duration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.fail != nil {
 		return m.fail
 	}
+	m.windows = append(m.windows, window)
 	host, port, _ := net.SplitHostPort(node.Addr())
 	at := ""
 	for _, i := range cfg.GetInterfaces() {
@@ -156,7 +159,7 @@ func TestClusterReaddress(t *testing.T) {
 	if err := a.clusters.Readdress(ctx, c.ID, "lb-2", to, "admin"); err != nil {
 		t.Fatal(err)
 	}
-	if !inOrder(f.callsSince(mark), "lb-2 ClusterDrain", "lb-2 NetworkStatus", "lb-1 ClusterSet lb-1,lb-2,lb-3", "lb-2 ClusterSet lb-1,lb-2,lb-3", "lb-3 ClusterSet lb-1,lb-2,lb-3", "lb-2 ClusterUndrain") {
+	if !inOrder(f.callsSince(mark), "lb-2 ClusterDrain", "lb-2 NetworkStatus", "lb-1 ClusterSet lb-1,lb-2,lb-3", "lb-3 ClusterSet lb-1,lb-2,lb-3", "lb-2 ClusterSet lb-1,lb-2,lb-3", "lb-2 ClusterUndrain") {
 		t.Errorf("the order: %v", f.callsSince(mark))
 	}
 	cur, _ := a.clusters.Store.Get(c.ID)
@@ -238,6 +241,10 @@ func TestClusterReplaceKeepingAddress(t *testing.T) {
 	if !inOrder(f.callsOf("lb-4", mark), "ClusterDrain", "Probe 10.0.0.1:9505", "ClusterUndrain") {
 		t.Errorf("lb-4: %v", f.callsOf("lb-4", mark))
 	}
+	// Its address not taken, lb-1 stays one of the Controller's nodes.
+	if _, ok := a.store.Get(nodesByName["lb-1"].ID); !ok {
+		t.Error("lb-1 forgotten although lb-4 didn't take its address")
+	}
 
 	// For real, lb-2 replaced by lb-3 (a node of the Controller's, powered
 	// off for its address).
@@ -267,6 +274,14 @@ func TestClusterReplaceKeepingAddress(t *testing.T) {
 	if n, _ := a.store.Get(nodesByName["lb-3"].ID); n.Addr() != "10.0.0.2:9505" {
 		t.Errorf("the Controller reaches lb-3 at %s", n.Addr())
 	}
+	// lb-2, powered off, its address lb-3's: no longer one of the
+	// Controller's nodes, and the journal says so.
+	if _, ok := a.store.Get(nodesByName["lb-2"].ID); ok {
+		t.Error("lb-2 still one of the Controller's nodes, at lb-3's address")
+	}
+	if !journalSays(t, a, c.ID, "lb-2 forgotten: released, its address 10.0.0.2 is lb-3's now") {
+		t.Errorf("the journal doesn't say lb-2 was forgotten: %v", a.clusters.Store.Entries(c.ID, 20))
+	}
 	f.mu.Lock()
 	lan := f.nodes["lb-3"].netcfg.GetInterfaces()[0]
 	f.mu.Unlock()
@@ -285,6 +300,62 @@ func TestClusterReplaceKeepingAddress(t *testing.T) {
 	}
 	if err := a.clusters.Replace(ctx, c.ID, "lb-3", clusters.Member{NodeID: nodesByName["lb-1"].ID, Name: "lb-1", Address: "10.0.0.1"}, keep, "admin"); err == nil || !strings.Contains(err.Error(), "only member") {
 		t.Errorf("a cluster of one: %v", err)
+	}
+}
+
+// A cluster whose firewall template names the member's own address: a
+// move would apply the ruleset for one address and confirm at the
+// other - refused before anything is touched, a replacement taking an
+// address over and a move alike; a template naming only the peers'
+// addresses goes on.
+func TestClusterTakeoverAndAFirewallOnTheAddress(t *testing.T) {
+	a, f, nodesByName := clusterApp(t, "lb-1", "lb-2", "lb-3")
+	useMovingNodes(t, f)
+	c, err := a.clusters.Store.Create("edge", 0, []string{"haproxy", "files", "firewall"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err = a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error {
+		c.Members = []clusters.Member{{NodeID: nodesByName["lb-1"].ID, Name: "lb-1", Address: "10.0.0.1"}, {NodeID: nodesByName["lb-2"].ID, Name: "lb-2", Address: "10.0.0.2"}}
+		c.SecretsFrom = "lb-1"
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := func(fw string) {
+		t.Helper()
+		v, err := a.clusters.Store.NewVersion(c.ID, "admin", "", map[string][]byte{"haproxy.cfg": []byte("global\n"), "firewall.nft": []byte(fw)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error { c.Desired = v.Version; return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx := context.Background()
+	lb3 := clusters.Member{NodeID: nodesByName["lb-3"].ID, Name: "lb-3", Address: "10.0.0.3"}
+	version("table inet filter {\n  chain input {\n    type filter hook input priority 0; policy drop;\n    ip daddr {{ .Member.Address }} tcp dport 9505 accept\n  }\n}\n")
+	mark := f.mark()
+	err = a.clusters.Replace(ctx, c.ID, "lb-2", lb3, clusters.ReplaceOptions{KeepAddress: true}, "admin")
+	if err == nil || !strings.Contains(err.Error(), "firewall.nft depends on lb-3's own address") || !strings.Contains(err.Error(), "iifname") {
+		t.Errorf("a takeover under a firewall on the member's address: %v", err)
+	}
+	if calls := f.callsSince(mark); slices.ContainsFunc(calls, func(c string) bool { return !strings.HasSuffix(c, " NetworkConfig") }) {
+		t.Errorf("touched before refusing: %v", calls)
+	}
+	err = a.clusters.Readdress(ctx, c.ID, "lb-2", clusters.Addressing{Addresses: []string{"10.0.0.40/24"}}, "admin")
+	if err == nil || !strings.Contains(err.Error(), "firewall.nft depends on lb-2's own address") {
+		t.Errorf("a move under a firewall on the member's address: %v", err)
+	}
+	if calls := f.callsSince(mark); slices.ContainsFunc(calls, func(c string) bool { return !strings.HasSuffix(c, " NetworkConfig") }) {
+		t.Errorf("touched before refusing: %v", calls)
+	}
+
+	// The peers' addresses only: the takeover goes on.
+	version("table inet filter {\n  chain input {\n    type filter hook input priority 0; policy accept;\n{{- range .Peers }}\n    ip saddr {{ .Address }} tcp dport 10057 accept\n{{- end }}\n  }\n}\n")
+	if err := a.clusters.Readdress(ctx, c.ID, "lb-2", clusters.Addressing{Addresses: []string{"10.0.0.40/24"}}, "admin"); err != nil {
+		t.Errorf("a move under a firewall naming the peers only: %v", err)
 	}
 }
 
@@ -474,5 +545,134 @@ func TestCloneTakingOver(t *testing.T) {
 	old.NICs = append(old.NICs, machines.NIC{Name: "back", Mode: "static", Addresses: []string{"10.9.0.11/24"}})
 	if _, err := cloneTakingOver(old, "edge-1", "", "192.0.2.11", "192.0.2.30/24"); err == nil || !strings.Contains(err.Error(), "back") {
 		t.Errorf("another static interface: %v", err)
+	}
+}
+
+// A member moving keeps its VRRP out from before its address changes
+// until every other member names it at its new one (#515's Proxmox
+// proof: unicast VRRP, the others still naming the newcomer at its old
+// address - neither heard the other, both went MASTER): stopped first,
+// the others re-rendered, then its own keepalived back; a move that
+// fails puts it back where it was.
+func TestClusterMoveKeepsVRRPOut(t *testing.T) {
+	a, f, nodesByName := clusterApp(t, "lb-1", "lb-2", "lb-3")
+	mn := useMovingNodes(t, f)
+	c, err := a.clusters.Store.Create("edge", 0, []string{"haproxy", "files", "vrrp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error {
+		for i, n := range []string{"lb-1", "lb-2", "lb-3"} {
+			c.Members = append(c.Members, clusters.Member{NodeID: nodesByName[n].ID, Name: n, Address: fmt.Sprintf("10.0.0.%d", i+1)})
+		}
+		c.SecretsFrom = "lb-1"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	v, err := a.clusters.Store.NewVersion(c.ID, "admin", "", map[string][]byte{"haproxy.cfg": []byte("global\n"),
+		"keepalived.conf": []byte("vrrp_instance front {\n  unicast_src_ip {{ .Member.Address }}\n  unicast_peer {\n{{- range .Peers }}\n    {{ .Address }}\n{{- end }}\n  }\n}\n")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error { c.Desired = v.Version; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	to := clusters.Addressing{Addresses: []string{"10.0.0.40/24"}}
+
+	// The move fails: its keepalived back, as it was.
+	mn.fail = errors.New("couldn't confirm before the node reverts")
+	mark := f.mark()
+	if err := a.clusters.Readdress(ctx, c.ID, "lb-2", to, "admin"); err == nil {
+		t.Fatal("a failed move succeeded")
+	}
+	if got := f.callsOf("lb-2", mark); !inOrder(got, "ClusterDrain", "ModuleApply vrrp stop", "ModuleApply vrrp", "ClusterUndrain") {
+		t.Errorf("lb-2 after a failed move: %v", got)
+	}
+	f.mu.Lock()
+	kept := string(f.nodes["lb-2"].modules["vrrp"])
+	f.mu.Unlock()
+	if !strings.Contains(kept, "unicast_src_ip 10.0.0.2") {
+		t.Errorf("lb-2's keepalived.conf after a failed move: %q", kept)
+	}
+	mn.fail = nil
+
+	mark = f.mark()
+	if err := a.clusters.Readdress(ctx, c.ID, "lb-2", to, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	calls := f.callsSince(mark)
+	if !inOrder(calls, "lb-2 ClusterDrain", "lb-2 ModuleApply vrrp stop", "lb-1 ModuleApply vrrp", "lb-3 ModuleApply vrrp", "lb-2 ModuleApply vrrp", "lb-2 ClusterUndrain") {
+		t.Errorf("the order: %v", calls)
+	}
+	// Nothing started lb-2's keepalived before the others named it at its
+	// new address.
+	stop := slices.Index(calls, "lb-2 ModuleApply vrrp stop")
+	back := slices.Index(calls[stop+1:], "lb-2 ModuleApply vrrp") + stop + 1
+	for _, o := range []string{"lb-1 ModuleApply vrrp", "lb-3 ModuleApply vrrp"} {
+		if i := slices.Index(calls[stop:], o); i < 0 || stop+i > back {
+			t.Errorf("%s not before lb-2's keepalived came back: %v", o, calls)
+		}
+	}
+	f.mu.Lock()
+	lb1, lb2 := string(f.nodes["lb-1"].modules["vrrp"]), string(f.nodes["lb-2"].modules["vrrp"])
+	f.mu.Unlock()
+	if !strings.Contains(lb1, "10.0.0.40") || !strings.Contains(lb2, "unicast_src_ip 10.0.0.40") {
+		t.Errorf("keepalived.conf after: lb-1 %q, lb-2 %q", lb1, lb2)
+	}
+	if !slices.Contains(mn.windows, clusters.MoveWindow) {
+		t.Errorf("the move's confirmation windows: %v", mn.windows)
+	}
+}
+
+// A member joining a cluster whose keepalived.conf names the peers: the
+// others' rendered again first - only the modules that changed, no
+// HAProxy reload - so its VRRP never starts unnamed (it would hear no
+// advertisement and take the virtual IP).
+func TestClusterJoinRendersTheOthersFirst(t *testing.T) {
+	a, f, nodesByName := clusterApp(t, "lb-1", "lb-2", "lb-3")
+	c, err := a.clusters.Store.Create("edge", 0, []string{"haproxy", "files", "vrrp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error {
+		c.Members = []clusters.Member{{NodeID: nodesByName["lb-1"].ID, Name: "lb-1", Address: "10.0.0.1"}, {NodeID: nodesByName["lb-2"].ID, Name: "lb-2", Address: "10.0.0.2"}}
+		c.SecretsFrom = "lb-1"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	v, err := a.clusters.Store.NewVersion(c.ID, "admin", "", map[string][]byte{"haproxy.cfg": []byte("global\n"),
+		"keepalived.conf": []byte("vrrp_instance front {\n  unicast_src_ip {{ .Member.Address }}\n  unicast_peer {\n{{- range .Peers }}\n    {{ .Address }}\n{{- end }}\n  }\n}\n")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := a.clusters.Apply(ctx, c.ID, v.Version, nil, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	mark := f.mark()
+	if err := a.clusters.AddMember(ctx, c.ID, clusters.Member{NodeID: nodesByName["lb-3"].ID, Name: "lb-3", Address: "10.0.0.3"}, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	calls := f.callsSince(mark)
+	if !inOrder(calls, "lb-1 ModuleApply vrrp", "lb-2 ModuleApply vrrp", "lb-3 ModuleApply vrrp") {
+		t.Errorf("the others not rendered before lb-3's VRRP: %v", calls)
+	}
+	for _, o := range []string{"lb-1", "lb-2"} {
+		if slices.Contains(f.callsOf(o, mark), "HAProxyApply") {
+			t.Errorf("%s's HAProxy reloaded for a join: %v", o, f.callsOf(o, mark))
+		}
+	}
+	f.mu.Lock()
+	lb1 := string(f.nodes["lb-1"].modules["vrrp"])
+	f.mu.Unlock()
+	if !strings.Contains(lb1, "10.0.0.3") {
+		t.Errorf("lb-1's keepalived.conf doesn't name lb-3: %q", lb1)
+	}
+	// Its state says so: no drift reported for it.
+	if h := a.clusters.Store.State(c.ID).Members["lb-1"].Hashes["vrrp"]; h != clusters.Sum([]byte(lb1)) {
+		t.Errorf("lb-1's recorded VRRP hash %s isn't what it runs", h)
 	}
 }

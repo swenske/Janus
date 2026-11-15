@@ -38,6 +38,7 @@ func newClusterEngine(a *app, st *clusters.Store) *clusterEngine {
 		// Controller follows the node, and frees an old member's.
 		MoveNetwork: a.moveMemberNetwork,
 		Release:     a.releaseMember,
+		Forget:      a.forgetReleased,
 	}
 	return e
 }

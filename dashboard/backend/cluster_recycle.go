@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/netip"
 	"slices"
@@ -183,6 +184,22 @@ func (a *app) releaseMember(ctx context.Context, m clusters.Member) error {
 	return nil
 }
 
+// forgetReleased is the cluster engine's Forget: member m, released -
+// powered off, its address its replacement's now -, removed from the
+// Controller's nodes like a node deleted (its page, its connection, its
+// metrics). A machine's went with the machine.
+func (a *app) forgetReleased(ctx context.Context, m clusters.Member) error {
+	n, ok := a.store.Get(m.NodeID)
+	if !ok {
+		return nil
+	}
+	if err := a.removeNode(ctx, n.ID); err != nil {
+		return err
+	}
+	log.Printf("cluster member %s: node %s (%s) forgotten - powered off, its address its replacement's", m.Name, n.Name, n.ID)
+	return nil
+}
+
 // moveMemberNetwork is the cluster engine's MoveNetwork: cfg on trial on
 // member m's node, confirmed where it answers then - the Controller
 // follows it there (its record's address), and reads a machine's
@@ -192,9 +209,9 @@ func (a *app) moveMemberNetwork(ctx context.Context, m clusters.Member, cfg *jan
 	if err != nil {
 		return err
 	}
-	nctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	nctx, cancel := context.WithTimeout(ctx, clusters.MoveWindow+time.Minute)
 	defer cancel()
-	if err := nodes.ApplyNetwork(nctx, n, a.store, cfg); err != nil {
+	if err := nodes.ApplyNetwork(nctx, n, a.store, cfg, clusters.MoveWindow); err != nil {
 		return err
 	}
 	if mach := a.machineOf(n.ID); mach != nil {
@@ -363,7 +380,7 @@ func (a *app) recycle(ctx context.Context, id string, req recycleRequest, actor 
 			a.destroyMachine(oldMachine.ID)
 			a.clusters.Journal(id, actor, "recycle", name, 0, "%s replaced by %s: its machine destroyed", name, repl.Name)
 		case req.keepAddress():
-			a.clusters.Journal(id, actor, "recycle", name, 0, "%s replaced by %s at its address: it stays one of the Controller's nodes, powered off - remove it", name, repl.Name)
+			a.clusters.Journal(id, actor, "recycle", name, 0, "%s replaced by %s at its address: powered off, no longer one of the Controller's nodes", name, repl.Name)
 		default:
 			a.clusters.Journal(id, actor, "recycle", name, 0, "%s replaced by %s: it stays one of the Controller's nodes, drained until it reboots", name, repl.Name)
 		}

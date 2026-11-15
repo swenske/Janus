@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"net"
 	"slices"
 	"strings"
@@ -58,6 +59,11 @@ type Engine struct {
 	// ReleaseTimeout bounds the wait for a released member's address to
 	// stop answering; 0: 3 minutes.
 	ReleaseTimeout time.Duration
+	// Forget drops the orchestrator's own record of member m, released
+	// and out of the cluster, once its replacement holds its address: the
+	// record would name the replacement's address (a Controller's node, a
+	// janusctl context's). Nil: kept.
+	Forget func(ctx context.Context, m Member) error
 }
 
 // waitLearnt waits until member m's HAProxy, just reloaded, has learnt
@@ -654,6 +660,10 @@ func (e *Engine) addMember(ctx context.Context, id string, m Member, actor strin
 		e.setDrained(id, m.Name, true)
 		e.Journal(id, actor, "drain", m.Name, 0, "%s joins drained: %s", m.Name, msg)
 	}
+	// The others name it before its own VRRP starts.
+	if err := e.renderOthers(ctx, id, m.Name, actor); err != nil {
+		return err
+	}
 	if err := e.SecretsAndVersion(ctx, id, c.Desired, []string{m.Name}, actor); err != nil {
 		return err
 	}
@@ -665,6 +675,72 @@ func (e *Engine) addMember(ctx context.Context, id string, m Member, actor strin
 	}
 	e.setDrained(id, m.Name, false)
 	_ = e.announce(ctx, id, "in", m.Name, actor) // journaled; Reconcile calls again
+	return nil
+}
+
+// renderOthers applies again on cluster id's members, but except, the
+// modules - the firewall, VRRP, BGP - whose rendering differs from what
+// it runs, its members having changed:
+// templates naming .Peers. A member joins: its VRRP starts once the
+// others name it - unicast keepalived sends its advertisements to the
+// peers it names, and a member none names hears none of them and takes
+// the virtual IP (drained, its priority is only lowered), the master
+// keeping it too; a firewall letting the peers in lets it in. HAProxy's
+// peers come from ClusterSet, not the version: no reload here. A member
+// not running the version yet is left to the next apply.
+func (e *Engine) renderOthers(ctx context.Context, id, except, actor string) error {
+	c, ok := e.Store.Get(id)
+	if !ok {
+		return ErrNotFound
+	}
+	if c.Desired == 0 {
+		return nil
+	}
+	v, err := e.Store.Version(id, c.Desired)
+	if err != nil {
+		return err
+	}
+	st := e.Store.State(id)
+	for _, o := range c.Members {
+		ms := st.Members[o.Name]
+		if o.Name == except || ms.Applied != c.Desired {
+			continue
+		}
+		r, err := Render(v, c, o.Name)
+		if err != nil {
+			return fmt.Errorf("%s: %v", o.Name, err)
+		}
+		h := r.Hashes()
+		var changed []string
+		for _, d := range []string{"firewall", "vrrp", "bgp"} {
+			if !c.Manages(d) {
+				continue
+			}
+			if have, err := e.Nodes.ModuleConfig(ctx, o, d); err == nil && bytes.Equal(have, r.Modules[d]) {
+				continue // what it runs already
+			}
+			if err := e.Nodes.ModuleApply(ctx, o, d, r.Modules[d], false); err != nil {
+				return fmt.Errorf("%s's %s with the members now: %v", o.Name, d, err)
+			}
+			changed = append(changed, d)
+		}
+		if len(changed) == 0 {
+			continue
+		}
+		_ = e.Store.UpdateState(id, func(s *State) {
+			ms := s.Members[o.Name]
+			hashes := maps.Clone(ms.Hashes)
+			if hashes == nil {
+				hashes = map[string]string{}
+			}
+			for _, d := range changed {
+				hashes[d] = h[d]
+			}
+			ms.Hashes = hashes
+			s.Members[o.Name] = ms
+		})
+		e.Journal(id, actor, "apply", o.Name, c.Desired, "%s's %s rendered again for the members now (version %d)", o.Name, strings.Join(changed, ", "), c.Desired)
+	}
 	return nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -70,7 +71,14 @@ type FactoryCatalogView = factoryCatalogView
 // moved. Unconfirmed, the node goes back to its previous configuration
 // by itself, and this says why.
 func ApplyNetwork(ctx context.Context, node *store.Node, st *store.Store, cfg *janusv1alpha1.NetworkConfig) error {
-	res, _, err := applyNetwork(ctx, node, cfg, 60)
+	return ApplyNetworkWithin(ctx, node, st, cfg, time.Minute)
+}
+
+// ApplyNetworkWithin is ApplyNetwork, the node waiting window for the
+// confirmation (5 s to 5 min) - confirmations tried until shortly before
+// it ends, each over a new connection.
+func ApplyNetworkWithin(ctx context.Context, node *store.Node, st *store.Store, cfg *janusv1alpha1.NetworkConfig, window time.Duration) error {
+	res, _, err := applyNetwork(ctx, node, cfg, uint32(window/time.Second))
 	if err != nil {
 		return err
 	}

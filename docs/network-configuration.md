@@ -148,6 +148,16 @@ the document as a form or as JSON; the diff is shown before applying.
 When the node answers on a new address after the change, the Controller
 records it and keeps managing the node there.
 
+Each address the node adds - a change, a revert, a DHCP lease - is
+announced on its interface, three times a second apart: a gratuitous
+ARP for an IPv4 address, an unsolicited Neighbour Advertisement for an
+IPv6 one (once duplicate address detection is over). Neighbours that
+already have an entry for it - the router, a cluster's other members -
+take the node's MAC at once instead of the MAC of whatever held the
+address before: an address taken over from a node gone answers straight
+away. A single address (`/32`, `/128`) isn't announced: it's an anycast
+or service address other nodes may hold too.
+
 The node's TLS server certificate follows its addresses and hostname: it
 is reissued (from the node's own CA) whenever they change, so clients
 dialing the new address verify it. It is also renewed 30 days before it

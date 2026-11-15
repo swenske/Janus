@@ -142,7 +142,7 @@ func (f *fakeNodes) Shutdown(context.Context, *store.Node) error {
 	return nil
 }
 
-func (f *fakeNodes) ApplyNetwork(_ context.Context, _ *store.Node, _ *store.Store, cfg *janusv1alpha1.NetworkConfig) error {
+func (f *fakeNodes) ApplyNetwork(_ context.Context, _ *store.Node, _ *store.Store, cfg *janusv1alpha1.NetworkConfig, _ time.Duration) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	// A configuration naming an interface the machine hasn't got is what

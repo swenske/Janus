@@ -616,6 +616,8 @@ func (f *clusterFake) ModuleApply(_ context.Context, m clusters.Member, domain s
 	detail := domain
 	if validateOnly {
 		detail += " check"
+	} else if len(cfg) == 0 {
+		detail += " stop"
 	}
 	if err := f.call(m, "ModuleApply", detail); err != nil {
 		return err

@@ -1,6 +1,7 @@
 package clusters
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -25,6 +26,20 @@ import (
 // a replacement taking an old member's address over (ReplaceOptions.
 // KeepAddress) is a Readdress to the old member's addressing once that
 // one is gone.
+
+// MoveWindow is how long a moving member's node waits for its new
+// network configuration's confirmation before going back by itself: the
+// orchestrator confirms over a new connection where the node answers,
+// again every second until shortly before then. What it covers: the node
+// taking the addresses and announcing them (netmgr: a gratuitous ARP, an
+// unsolicited NA - a router whose entry still had the old member's MAC
+// takes the new one at once; one ignoring them relearns it once that
+// entry fails), its server certificate reissued for them, and the
+// orchestrator's way back to it - a router in between included. Twice an
+// ordinary change's minute: a takeover lets the old member go first,
+// and a slow router mustn't revert it (#515's Proxmox proof: 44 s before
+// announcements).
+const MoveWindow = 2 * time.Minute
 
 // Addressing is a member's interface's static addressing.
 type Addressing struct {
@@ -242,6 +257,9 @@ func (e *Engine) Readdress(ctx context.Context, id, name string, to Addressing, 
 	if err := e.canReaddress(c, *m, to); err != nil {
 		return err
 	}
+	if err := e.firewallFollows(c, name, m.Address, to.Address()); err != nil {
+		return err
+	}
 	drained := e.Store.State(id).Members[name].Drained
 	if !drained {
 		dctx, cancel := context.WithTimeout(ctx, 90*time.Second)
@@ -317,8 +335,29 @@ func (e *Engine) moveMember(ctx context.Context, id, name string, to Addressing,
 		return false, fmt.Errorf("%s: %v", name, err)
 	}
 	from := m.Address
+	// Its VRRP out while it moves, back once every other member knows its
+	// new address: from the moment its address changes, its keepalived
+	// and the others' - each naming the other by the addresses they had,
+	// unicast - no longer hear each other, and both would be MASTER
+	// (#515's Proxmox proof: the virtual IP flapping 16 s between the
+	// remaining member and the drained newcomer). A drained member's
+	// priority is lowered, not nothing: alone, it takes the virtual IP.
+	vrrpOut := c.Manages("vrrp") && c.Desired > 0
+	if vrrpOut {
+		if err := e.Nodes.ModuleApply(ctx, *m, "vrrp", nil, false); err != nil {
+			return false, fmt.Errorf("%s's keepalived stopped before its address moves: %v", name, err)
+		}
+		e.Journal(id, actor, "address", name, 0, "%s's keepalived stopped while its address moves: it can't hear the others there until they know it", name)
+	}
 	if err := e.MoveNetwork(ctx, *m, next); err != nil {
-		return false, fmt.Errorf("%s moving to %s: %v", name, to, err)
+		err = fmt.Errorf("%s moving to %s: %v", name, to, err)
+		if vrrpOut {
+			// Where it was: its keepalived back with the version.
+			if aerr := e.Apply(ctx, id, c.Desired, []string{name}, actor); aerr != nil {
+				err = fmt.Errorf("%v; and its keepalived back: %v", err, aerr)
+			}
+		}
+		return false, err
 	}
 	e.Journal(id, actor, "address", name, 0, "%s moved from %s to %s: its network configuration confirmed there", name, from, to)
 	addr := to.Address()
@@ -337,9 +376,22 @@ func (e *Engine) moveMember(ctx context.Context, id, name string, to Addressing,
 	if err != nil {
 		return true, err
 	}
-	// Every member told: the peers section names it, the templates may.
+	// Every member told: the peers section names it, the templates may -
+	// the others first, then it: its keepalived starts once they all
+	// name it where it is.
 	if c.Desired > 0 {
-		if err := e.Apply(ctx, id, c.Desired, nil, actor); err != nil {
+		var others []string
+		for _, o := range c.Members {
+			if o.Name != name {
+				others = append(others, o.Name)
+			}
+		}
+		if len(others) > 0 {
+			if err := e.Apply(ctx, id, c.Desired, others, actor); err != nil {
+				return true, err
+			}
+		}
+		if err := e.Apply(ctx, id, c.Desired, []string{name}, actor); err != nil {
 			return true, err
 		}
 	} else {
@@ -421,6 +473,12 @@ func (e *Engine) replaceKeepingAddress(ctx context.Context, c *Cluster, old, rep
 			return fmt.Errorf("%s joins on an address of its own - it runs beside %s until that one leaves -, not %s: it takes %s's then", repl.Name, old.Name, repl.Address, to.Address())
 		}
 	}
+	// The composition once old has left: repl in it, wherever it is.
+	after := *c
+	after.Members = append(slices.DeleteFunc(slices.Clone(c.Members), func(m Member) bool { return m.Name == old.Name }), repl)
+	if err := e.firewallFollows(&after, repl.Name, repl.Address, to.Address()); err != nil {
+		return err
+	}
 	e.Journal(id, actor, "replace", old.Name, 0, "%s to be replaced by %s, which joins drained on %s and takes %s's address %s once %s left", old.Name, repl.Name, repl.Address, old.Name, to, old.Name)
 	if err := e.addMember(ctx, id, repl, actor, true, opts.NewImage); err != nil {
 		return e.undoJoin(ctx, id, repl.Name, actor, fmt.Errorf("%s joining: %v", repl.Name, err))
@@ -460,6 +518,9 @@ func (e *Engine) replaceKeepingAddress(ctx context.Context, c *Cluster, old, rep
 		return e.addressFailed(ctx, id, old.Name, repl.Name, to, false, err, actor)
 	}
 	moved, err := e.moveMember(ctx, id, repl.Name, to, actor)
+	if moved {
+		e.forget(ctx, id, old, repl.Name, actor)
+	}
 	if err != nil {
 		return e.addressFailed(ctx, id, old.Name, repl.Name, to, moved, err, actor)
 	}
@@ -467,6 +528,66 @@ func (e *Engine) replaceKeepingAddress(ctx context.Context, c *Cluster, old, rep
 		return fmt.Errorf("%s replaced %s at its address %s, but: %w", repl.Name, old.Name, to.Address(), err)
 	}
 	e.Journal(id, actor, "replace", repl.Name, 0, "%s replaced %s, at its address %s", repl.Name, old.Name, to.Address())
+	return nil
+}
+
+// forget drops the orchestrator's record of old, released, now that
+// repl holds its address - journaled, a failure too (it doesn't undo the
+// replacement).
+func (e *Engine) forget(ctx context.Context, id string, old Member, repl, actor string) {
+	if e.Forget == nil {
+		return
+	}
+	if err := e.Forget(ctx, old); err != nil {
+		e.Journal(id, actor, "forget", old.Name, 0, "%s, released, still recorded as a node: %v - its record names %s's address now: remove it", old.Name, err, repl)
+		return
+	}
+	e.Journal(id, actor, "forget", old.Name, 0, "%s forgotten: released, its address %s is %s's now", old.Name, old.Address, repl)
+}
+
+// firewallFollows reports a cluster whose firewall template depends on
+// member name's own address: rendered for it at from and at to (c's
+// composition, name in it), its firewall.nft differs. Such a ruleset -
+// say, the API accepted only on daddr {{ .Member.Address }} - applied
+// for from could refuse the member at to, the confirmation of its move
+// among it, before the cluster's version is applied again with to: the
+// node would revert, and a replacement taking an address over would have
+// let the old member go for nothing. Nothing on a node can change the
+// address and its ruleset in one trial, so it's refused before anything
+// is touched.
+func (e *Engine) firewallFollows(c *Cluster, name, from, to string) error {
+	if !c.Manages("firewall") || c.Desired == 0 {
+		return nil
+	}
+	v, err := e.Store.Version(c.ID, c.Desired)
+	if err != nil {
+		return err
+	}
+	render := func(addr string) ([]byte, error) {
+		probe := *c
+		probe.Members = slices.Clone(c.Members)
+		for i := range probe.Members {
+			if probe.Members[i].Name == name {
+				probe.Members[i].Address = addr
+			}
+		}
+		r, err := Render(v, &probe, name)
+		if err != nil {
+			return nil, err
+		}
+		return r.Modules["firewall"], nil
+	}
+	a, err := render(from)
+	if err != nil {
+		return fmt.Errorf("%s at %s: %v", name, from, err)
+	}
+	b, err := render(to)
+	if err != nil {
+		return fmt.Errorf("%s at %s: %v", name, to, err)
+	}
+	if !bytes.Equal(a, b) {
+		return fmt.Errorf("version %d's firewall.nft depends on %s's own address (.Member.Address): its ruleset for %s could refuse it at %s - the confirmation of its move among the rest - before the cluster applies it again: match the interface (iifname) or the subnet instead of .Member.Address, apply that version, then move it", c.Desired, name, from, to)
+	}
 	return nil
 }
 
