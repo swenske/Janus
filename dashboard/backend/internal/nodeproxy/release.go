@@ -402,9 +402,26 @@ type releaseFetch struct {
 	known   chan struct{} // closed once the releases are known, or the fetch over
 	done    chan struct{} // closed when the fetch is over
 	once    sync.Once
+	// offers is what the releases offer, once known, their security.json
+	// still being read (releaseCache.mu): an answer meanwhile takes the
+	// ones read so far (currentRelease).
+	offers *ReleaseInfo
 }
 
 func (f *releaseFetch) answer() { f.once.Do(func() { close(f.known) }) }
+
+// currentRelease is releaseCache's list (releaseCache.mu held) - with
+// the security.json a running fetch has read since the releases were
+// known: newest first, the files a 🔒 badge depends on come in its first
+// round. Against GitHub 4 s away, the answers lacked the badge until the
+// 63rd file, 70 s after the one that mattered (#627's follow-up).
+func currentRelease() *ReleaseInfo {
+	c := &releaseCache
+	if f := c.fetch; f != nil && f.offers != nil && c.data != nil && c.data.partial {
+		return f.offers.withSecurity(c.list)
+	}
+	return c.data
+}
 
 func registerReleaseRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/latest-release", func(w http.ResponseWriter, r *http.Request) {
@@ -438,7 +455,7 @@ func getLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 		f = nil // another list's (a test's): not this one
 	}
 	if f != nil && same && c.data != nil && !fresh {
-		data := c.data
+		data := currentRelease()
 		c.mu.Unlock()
 		return data, nil
 	}
@@ -501,7 +518,7 @@ func getLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.url == url && c.data != nil {
-		return c.data, nil
+		return currentRelease(), nil
 	}
 	select {
 	case <-f.known:
@@ -524,8 +541,20 @@ func (f *releaseFetch) run(ctx context.Context, list []ghRelease, listedAt time.
 	if list == nil {
 		var err error
 		if list, err = fetchReleaseList(ctx, f.url); err != nil {
-			f.fail(err)
-			return
+			// GitHub 4 s away reset the list's stream ~27 s into it (#627's
+			// follow-up, twice in two measures): read again at once on
+			// the connection then open, faster - not after errorCacheTTL
+			// and a caller. An answer of GitHub's (a status) isn't.
+			var status *listStatusError
+			if errors.As(err, &status) || ctx.Err() != nil {
+				f.fail(err)
+				return
+			}
+			log.Printf("releases: %v - reading the list again", err)
+			if list, err = fetchReleaseList(ctx, f.url); err != nil {
+				f.fail(err)
+				return
+			}
 		}
 		listedAt = time.Now()
 	}
@@ -535,21 +564,24 @@ func (f *releaseFetch) run(ctx context.Context, list []ghRelease, listedAt time.
 		return
 	}
 	if missingSecurities(list) {
-		f.publish(info.withSecurity(list), list, listedAt, false)
+		f.publish(info, list, listedAt, false)
 		fetchSecurities(ctx, list)
 	}
-	f.publish(info.withSecurity(list), list, listedAt, true)
+	f.publish(info, list, listedAt, true)
 }
 
-// publish puts what f read in releaseCache - final once the fetch is
-// over - unless the cache was set otherwise meanwhile (a test's).
-func (f *releaseFetch) publish(info *ReleaseInfo, list []ghRelease, listedAt time.Time, final bool) {
+// publish puts what f read in releaseCache - the offers with the
+// security.json read so far, final once the fetch is over - unless the
+// cache was set otherwise meanwhile (a test's).
+func (f *releaseFetch) publish(offers *ReleaseInfo, list []ghRelease, listedAt time.Time, final bool) {
 	c := &releaseCache
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.fetch != f {
 		return
 	}
+	info := offers.withSecurity(list)
+	f.offers = offers
 	c.url, c.data, c.list, c.fetchedAt = f.url, info, list, listedAt
 	c.err, c.failed, c.retryAt = nil, false, time.Time{}
 	if final {
@@ -652,7 +684,7 @@ func fetchReleaseList(ctx context.Context, listURL string) ([]ghRelease, error) 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API returned %s", resp.Status)
+		return nil, &listStatusError{resp.Status}
 	}
 	var releases []ghRelease
 	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
@@ -661,6 +693,11 @@ func fetchReleaseList(ctx context.Context, listURL string) ([]ghRelease, error) 
 	calver.SortNewestFirst(releases, func(r ghRelease) string { return r.TagName })
 	return releases, nil
 }
+
+// listStatusError is GitHub's answer to the list, not 200.
+type listStatusError struct{ status string }
+
+func (e *listStatusError) Error() string { return "GitHub API returned " + e.status }
 
 // releaseOffers is what releases (newest first) offer - the newest
 // release, the pre-release newer than it, the maintenance releases -

@@ -997,8 +997,10 @@ both tests.
   an hour without a token. The list is read in the background, one read
   shared by every page (`releaseFetch`, up to 3 minutes - GitHub slow
   takes more than 30 s to bring it): a page waits 30 s at most, and is
-  answered once the releases are known, the `security.json` following.
-  A file that didn't come (a `security.json`, a pre-release's checksum)
+  answered once the releases are known, the `security.json` following -
+  an answer meanwhile has those read so far, newest first (a 🔒 badge
+  needs the newest ones). A list cut short (GitHub 4 s away reset it) is
+  read again at once. A file that didn't come (a `security.json`, a pre-release's checksum)
   is read again 3 minutes later from the same list, GitHub's API not
   asked again.
 - **Metrics history** lives in `MetricsProvider`, app-wide, so charts
