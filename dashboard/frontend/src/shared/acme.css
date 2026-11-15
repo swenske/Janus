@@ -16,3 +16,4 @@
 .acme-proxy-ca textarea { width: 100%; }
 .acme-needs { margin-top: 0.85rem; padding-top: 0.75rem; border-top: 1px solid var(--border); }
 .acme-needs ul { margin: 0.35rem 0 0; padding-left: 1.2rem; }
+.acme-check-members { display: inline-flex; flex-wrap: wrap; gap: 0.3rem; margin-left: 0.4rem; }

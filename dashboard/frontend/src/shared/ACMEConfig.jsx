@@ -314,7 +314,8 @@ const CONTROLLER_TAB = '/#/letsencrypt'
 
 // PathCard: controller is the Controller's relay and ordering (a node
 // page's /api/haproxy/acme/controller); onCheckPath(path) tries a way to
-// the CA - none: no Test.
+// the CA - none: no Test; its answer's members, when there are several
+// (a cluster's), each said.
 export function PathCard({ cfg, st, canApply, canCheck, busy, run, apply, controller, onCheckPath, words = NODE_WORDS }) {
   const saved = cfg.path || {}
   const [draft, setDraft] = useState(null) // the path being edited
@@ -436,6 +437,15 @@ export function PathCard({ cfg, st, canApply, canCheck, busy, run, apply, contro
               <span className="small" role="status">
                 <Badge tone={check.ok ? 'ok' : 'danger'}>{check.ok ? 'reached' : 'failed'}</Badge>{' '}
                 {check.ok ? `${check.directory} ${check.via}, in ${check.milliseconds} ms.` : `${check.directory || 'The CA'} ${check.via || ''}: ${check.error}`}
+                {check.members && (
+                  <span className="acme-check-members">
+                    {check.members.map((m) => (
+                      <Badge key={m.member} tone={m.ok ? 'ok' : 'danger'} dot>
+                        {m.member} {m.text}
+                      </Badge>
+                    ))}
+                  </span>
+                )}
               </span>
             )}
           </div>

@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -61,7 +63,7 @@ func TestClusterLetsEncryptManaged(t *testing.T) {
 		t.Fatal("a new cluster manages Let's Encrypt")
 	}
 	mark := f.mark()
-	n, err := a.clusters.ConfigureACME(ctx, c.ID, acmeTestConfig("tok-2", "pw-2"), "", "admin")
+	n, err := a.clusters.ConfigureACME(ctx, c.ID, acmeTestConfig("tok-2", "pw-2"), clusters.ACMEOptions{}, "admin")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,8 +92,11 @@ func TestClusterLetsEncryptManaged(t *testing.T) {
 	}
 	for _, name := range []string{"lb-2", "lb-3"} {
 		calls := f.callsOf(name, mark)
-		if !inOrder(calls, "ClusterPull lb-1 acme_config", "ACMEApply proxy site wild", "HAProxyApply") {
-			t.Errorf("%s: the secrets pulled, then the version's configuration, then HAProxy - got %v", name, calls)
+		// It ran that configuration already, pulled at the cluster's
+		// creation, its secrets aside: the apply leaves it - no reload -
+		// and the new secrets are pulled after.
+		if !inOrder(calls, "ClusterSet lb-1,lb-2,lb-3", "ClusterPull lb-1 acme_config") || slices.Contains(calls, "HAProxyApply") {
+			t.Errorf("%s: the version, then the secrets pulled, no reload - got %v", name, calls)
 		}
 		fm := f.node(clusters.Member{Name: name})
 		if p := fm.acmeCfg.GetPath(); p.GetMode() != janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_PROXY || p.GetProxyPassword() != "pw-2" {
@@ -120,7 +125,7 @@ func TestClusterLetsEncryptManaged(t *testing.T) {
 
 	// Secrets alone: no version, the others pull them.
 	mark = f.mark()
-	if n, err := a.clusters.ConfigureACME(ctx, c.ID, acmeTestConfig("tok-3", ""), "", "admin"); err != nil || n != 0 {
+	if n, err := a.clusters.ConfigureACME(ctx, c.ID, acmeTestConfig("tok-3", ""), clusters.ACMEOptions{}, "admin"); err != nil || n != 0 {
 		t.Fatalf("secrets alone: version %d, %v", n, err)
 	}
 	if c, _ = a.clusters.Store.Get(c.ID); c.Desired != 2 {
@@ -188,7 +193,7 @@ func TestClusterLetsEncryptCertificateGone(t *testing.T) {
 	if err := a.clusters.Apply(ctx, c.ID, 2, nil, "admin"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.clusters.ConfigureACME(ctx, c.ID, acmeTestConfig("tok-1", ""), "", "admin"); err != nil {
+	if _, err := a.clusters.ConfigureACME(ctx, c.ID, acmeTestConfig("tok-1", ""), clusters.ACMEOptions{}, "admin"); err != nil {
 		t.Fatal(err)
 	}
 	c, _ = a.clusters.Store.Get(c.ID)
@@ -302,7 +307,7 @@ func TestClusterLetsEncryptRoutes(t *testing.T) {
 func TestClusterLetsEncryptDriftedBack(t *testing.T) {
 	a, f, c := acmeCluster(t)
 	ctx := context.Background()
-	if _, err := a.clusters.ConfigureACME(ctx, c.ID, acmeTestConfig("tok-1", ""), "", "admin"); err != nil {
+	if _, err := a.clusters.ConfigureACME(ctx, c.ID, acmeTestConfig("tok-1", ""), clusters.ACMEOptions{}, "admin"); err != nil {
 		t.Fatal(err)
 	}
 	c, _ = a.clusters.Store.Get(c.ID)
@@ -314,7 +319,7 @@ func TestClusterLetsEncryptDriftedBack(t *testing.T) {
 		t.Fatalf("lb-2's drift: %v", d)
 	}
 	mark := f.mark()
-	if n, err := a.clusters.ConfigureACME(ctx, c.ID, acmeTestConfig("", ""), "", "admin"); err != nil || n != 0 {
+	if n, err := a.clusters.ConfigureACME(ctx, c.ID, acmeTestConfig("", ""), clusters.ACMEOptions{}, "admin"); err != nil || n != 0 {
 		t.Fatalf("version %d, %v", n, err)
 	}
 	if c, _ := a.clusters.Store.Get(c.ID); c.Desired != 2 {
@@ -336,7 +341,7 @@ func TestClusterLetsEncryptOldRelease(t *testing.T) {
 	f.nodes["lb-3"].oldRelease = true
 	f.mu.Unlock()
 	mark := f.mark()
-	_, err := a.clusters.ConfigureACME(context.Background(), c.ID, acmeTestConfig("tok-2", ""), "", "admin")
+	_, err := a.clusters.ConfigureACME(context.Background(), c.ID, acmeTestConfig("tok-2", ""), clusters.ACMEOptions{}, "admin")
 	if err == nil || !strings.Contains(err.Error(), "lb-3's release can't lock Let's Encrypt's configuration") {
 		t.Fatalf("an old member: %v", err)
 	}
@@ -345,5 +350,184 @@ func TestClusterLetsEncryptOldRelease(t *testing.T) {
 	}
 	if got := f.callsSince(mark); slices.ContainsFunc(got, func(s string) bool { return strings.Contains(s, "ACMEApply") || strings.Contains(s, "ClusterSet") }) {
 		t.Errorf("touched: %v", got)
+	}
+}
+
+// An apply touches only what changed on a member: a Let's Encrypt-only
+// version reloads no HAProxy and waits for no table; the same version
+// again changes nothing; a file changed reloads HAProxy, which reads it
+// as it starts.
+func TestClusterApplyOnlyWhatChanged(t *testing.T) {
+	a, f, c := acmeCluster(t)
+	ctx := context.Background()
+	mark := f.mark()
+	if _, err := a.clusters.ConfigureACME(ctx, c.ID, acmeTestConfig("tok-1", ""), clusters.ACMEOptions{}, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	got := f.callsSince(mark)
+	if slices.ContainsFunc(got, func(s string) bool { return strings.HasSuffix(s, " HAProxyApply") }) {
+		t.Errorf("HAProxy applied for a Let's Encrypt change: %v", got)
+	}
+	// lb-1, the orderer, ran it already (given whole first): nothing; the
+	// others took Let's Encrypt's - which may reload HAProxy - and waited.
+	if calls := f.callsOf("lb-1", mark); len(slices.DeleteFunc(slices.Clone(calls), func(s string) bool { return s != "ACMEApply proxy site wild" })) != 1 {
+		t.Errorf("lb-1 should be given it once, the apply leaving it alone: %v", calls)
+	}
+	c, _ = a.clusters.Store.Get(c.ID)
+	mark = f.mark()
+	if err := a.clusters.Apply(ctx, c.ID, c.Desired, nil, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range f.callsSince(mark) {
+		if strings.HasSuffix(s, " check") {
+			continue // the version checked on the orderer first
+		}
+		for _, w := range []string{"HAProxyApply", "ACMEApply", "ModuleApply", "FilePut", "ClusterStatus"} {
+			if strings.HasSuffix(s, " "+w) || strings.Contains(s, " "+w+" ") {
+				t.Errorf("the same version again: %s", s)
+			}
+		}
+	}
+	if st := a.clusters.Store.State(c.ID).Members["lb-2"]; st.Applied != c.Desired || st.Hashes["haproxy"] == "" || st.Hashes["acme"] == "" {
+		t.Errorf("lb-2's state after an apply that changed nothing: %+v", st)
+	}
+	v, _ := a.clusters.Store.Version(c.ID, c.Desired)
+	files := maps.Clone(v.Content)
+	files["files/maps/hosts.map"] = []byte("a b\n")
+	v3, err := a.clusters.Store.NewVersion(c.ID, "admin", "", files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mark = f.mark()
+	if err := a.clusters.Apply(ctx, c.ID, v3.Version, nil, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"lb-1", "lb-2", "lb-3"} {
+		if calls := f.callsOf(n, mark); !inOrder(calls, "FilePut maps/hosts.map", "HAProxyApply", "ClusterStatus") || slices.Contains(calls, "ACMEApply proxy site wild") {
+			t.Errorf("%s with a file changed: %v", n, calls)
+		}
+	}
+}
+
+// A newer version than the members' waits, not applied: the cluster's
+// Let's Encrypt configuration says which it starts from - refused until
+// told, then from the members' (the other stays aside) or from the newer
+// (its change applied with it).
+func TestClusterLetsEncryptUnappliedVersion(t *testing.T) {
+	a, f, c := acmeCluster(t)
+	ctx := context.Background()
+	v2, err := a.clusters.Store.NewVersion(c.ID, "admin", "not yet", map[string][]byte{"haproxy.cfg": []byte("global # v2\n")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = a.clusters.ConfigureACME(ctx, c.ID, acmeTestConfig("", ""), clusters.ACMEOptions{}, "admin")
+	var ue *clusters.UnappliedError
+	if !errors.As(err, &ue) || ue.Newest != v2.Version || ue.Desired != 1 {
+		t.Fatalf("a newer version waiting: %v", err)
+	}
+	rec := call(t, a.handleClusterACMESet, "PUT", "/api/clusters/"+c.ID+"/letsencrypt", "PUT /api/clusters/{id}/letsencrypt", map[string]any{"config": map[string]any{}})
+	if rec.Code != 409 || !strings.Contains(rec.Body.String(), `"unapplied":2`) || !strings.Contains(rec.Body.String(), `"desired":1`) {
+		t.Errorf("the route: %d %s", rec.Code, rec.Body)
+	}
+	if c, _ := a.clusters.Store.Get(c.ID); c.Manages("acme") {
+		t.Error("managed after a refusal")
+	}
+	// From the members' version: v2 stays aside.
+	n, err := a.clusters.ConfigureACME(ctx, c.ID, acmeTestConfig("", ""), clusters.ACMEOptions{Base: 1}, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, _ := a.clusters.Store.Version(c.ID, n)
+	if string(v.Content["haproxy.cfg"]) != "global # lb-1\n" || v.Content[clusters.ACMEFile] == nil {
+		t.Errorf("from version 1: %s", v.Content["haproxy.cfg"])
+	}
+	// From the newer one: its change with it.
+	if _, err := a.clusters.Store.NewVersion(c.ID, "admin", "later", map[string][]byte{"haproxy.cfg": []byte("global # later\n"), clusters.ACMEFile: v.Content[clusters.ACMEFile]}); err != nil {
+		t.Fatal(err)
+	}
+	vs, _ := a.clusters.Store.Versions(c.ID)
+	cfg := acmeTestConfig("", "")
+	cfg.Account.Email = "other@example.com"
+	n, err = a.clusters.ConfigureACME(ctx, c.ID, cfg, clusters.ACMEOptions{Base: vs[0].Version}, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, _ = a.clusters.Store.Version(c.ID, n)
+	if string(v.Content["haproxy.cfg"]) != "global # later\n" || !strings.Contains(v.Note, "not applied before") {
+		t.Errorf("from the newer version: %s, note %q", v.Content["haproxy.cfg"], v.Note)
+	}
+	if string(f.node(clusters.Member{Name: "lb-3"}).cfg) != "global # later\n" {
+		t.Error("the newer version's change not applied with it")
+	}
+	if _, err := a.clusters.ConfigureACME(ctx, c.ID, cfg, clusters.ACMEOptions{Base: 1}, "admin"); err == nil || !strings.Contains(err.Error(), "older than the one the members run") {
+		t.Errorf("a base older than the members': %v", err)
+	}
+}
+
+// An account key goes to every member - whoever orders uses it, its
+// thumbprint told at once -; never into a version or the journal.
+func TestClusterLetsEncryptAccountKey(t *testing.T) {
+	a, f, c := acmeCluster(t)
+	ctx := context.Background()
+	const key = "-----BEGIN EC PRIVATE KEY-----\nkey-569\n-----END EC PRIVATE KEY-----"
+	n, err := a.clusters.ConfigureACME(ctx, c.ID, acmeTestConfig("", ""), clusters.ACMEOptions{AccountKey: key}, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"lb-1", "lb-2", "lb-3"} {
+		if fm := f.node(clusters.Member{Name: name}); fm.acmeKey != key {
+			t.Errorf("%s's account key: %q", name, fm.acmeKey)
+		}
+	}
+	if s := f.node(clusters.Member{Name: "lb-2"}).set; s.GetAcmeThumbprint() != "thumb-of-"+key {
+		t.Errorf("lb-2 told the thumbprint %q", s.GetAcmeThumbprint())
+	}
+	v, _ := a.clusters.Store.Version(c.ID, n)
+	for p, b := range v.Content {
+		if strings.Contains(string(b), "key-569") {
+			t.Errorf("the key in the version's %s", p)
+		}
+	}
+	for _, e := range a.clusters.Store.Entries(c.ID, 100) {
+		if strings.Contains(e.Message, "key-569") {
+			t.Errorf("the key in the journal: %s", e.Message)
+		}
+	}
+	if !journalSays(t, a, c.ID, "the account key given to every member") {
+		t.Errorf("the journal: %+v", a.clusters.Store.Entries(c.ID, 10))
+	}
+}
+
+// The way to the CA tried on every member; a renewal through the orderer.
+func TestClusterLetsEncryptCheckPathAndRenew(t *testing.T) {
+	a, f, c := acmeCluster(t)
+	path := "/api/clusters/" + c.ID + "/letsencrypt"
+	rec := call(t, a.handleClusterACMECheckPath, "POST", path+"/check-path", "POST /api/clusters/{id}/letsencrypt/check-path", map[string]any{"path": map[string]any{"mode": "ACME_PATH_MODE_PROXY", "proxy_url": "http://unreachable:3128"}})
+	var out struct {
+		OK      bool `json:"ok"`
+		Members []struct {
+			Member string `json:"member"`
+			Result struct {
+				OK    bool   `json:"ok"`
+				Error string `json:"error"`
+			} `json:"result"`
+		} `json:"members"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || rec.Code != 200 || out.OK || len(out.Members) != 3 || out.Members[1].Result.Error != "connection refused" {
+		t.Errorf("a proxy none reaches: %d %s", rec.Code, rec.Body)
+	}
+	if got := f.callsSince(0); !slices.Contains(got, "lb-3 ACMECheckPath proxy") {
+		t.Errorf("lb-3 not asked: %v", got)
+	}
+	rec = call(t, a.handleClusterACMECheckPath, "POST", path+"/check-path", "POST /api/clusters/{id}/letsencrypt/check-path", map[string]any{})
+	if !strings.Contains(rec.Body.String(), `"ok":true`) {
+		t.Errorf("the way set: %s", rec.Body)
+	}
+	rec = call(t, a.handleClusterACMERenew, "POST", path+"/renew", "POST /api/clusters/{id}/letsencrypt/renew", map[string]any{"names": []string{"site"}})
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"site"`) {
+		t.Errorf("renew: %d %s", rec.Code, rec.Body)
+	}
+	if r := f.node(clusters.Member{Name: "lb-1"}).renewed; !slices.Equal(r, []string{"site"}) || f.node(clusters.Member{Name: "lb-2"}).renewed != nil {
+		t.Errorf("renewed on lb-1 %v, lb-2 %v", r, f.node(clusters.Member{Name: "lb-2"}).renewed)
 	}
 }

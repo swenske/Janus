@@ -454,8 +454,12 @@ var commands = &command{name: "janusctl", subs: []*command{
 			boolFlag("off", "no hook any more"),
 			boolFlag("sync", "call it with the members now"),
 		}, pos: []argKind{argNone}, required: 1},
-		{name: "letsencrypt", args: "NAME [FILE]", help: "the cluster's Let's Encrypt: FILE (janusctl haproxy acme get's JSON, secrets in it) given to the member that orders, the rest the cluster's next version, the same on every member and locked there - they pull the secrets from it; shown without FILE", flags: []flagDef{
+		{name: "letsencrypt", args: "NAME [FILE]", help: "the cluster's Let's Encrypt: FILE (janusctl haproxy acme get's JSON, secrets in it) given to the member that orders, the rest the cluster's next version, the same on every member and locked there - they pull the secrets from it; shown without FILE; -test tries the way to the CA on every member, -renew renews through the member that orders", flags: []flagDef{
 			valFlag("m", "TEXT", "what this version changes", argNone),
+			valFlag("account-key", "FILE", "an existing account's private key (PEM), for every member", argFile),
+			valFlag("base", "N", "the version the new one starts from (default: the members', refused when a newer one waits)", argNone),
+			valFlag("renew", "LIST", "obtain these certificates now on the member that orders (comma-separated, or all)", argNone),
+			boolFlag("test", "every member fetches the CA's directory the way it is set"),
 		}, pos: []argKind{argNone, argFile}, required: 1},
 		{name: "journal", args: "NAME", help: "what was done to the cluster, by whom", flags: []flagDef{
 			valFlag("n", "N", "the newest N entries (50)", argNone),

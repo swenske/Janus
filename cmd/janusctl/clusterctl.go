@@ -1007,6 +1007,10 @@ func runClusterCtl(globalCtx string, args []string) {
 	case "letsencrypt":
 		fs := flag.NewFlagSet("cluster letsencrypt", flag.ExitOnError)
 		note := fs.String("m", "", "what this version changes")
+		keyFile := fs.String("account-key", "", "an existing account's private key (PEM), for every member")
+		base := fs.Int("base", 0, "the version the new one starts from (default: the members', refused when a newer one waits)")
+		renew := fs.String("renew", "", "obtain these certificates now on the member that orders (comma-separated, or all)")
+		test := fs.Bool("test", false, "every member fetches the CA's directory the way it is set")
 		parseAnywhere(fs, args[1:])
 		if fs.NArg() < 1 || fs.NArg() > 2 {
 			clusterCtlUsage("letsencrypt")
@@ -1014,7 +1018,42 @@ func runClusterCtl(globalCtx string, args []string) {
 		o := openClusterCtl(globalCtx)
 		defer o.close()
 		c := o.cluster(fs.Arg(0))
-		if fs.NArg() == 1 {
+		switch {
+		case *test:
+			ctx, cancel := forCluster(c.ID, time.Minute)
+			defer cancel()
+			failed := false
+			tw := table("MEMBER", "REACHED", "HOW", "")
+			for _, ch := range o.CheckACMEPath(ctx, c, nil) {
+				r := ch.Result
+				switch {
+				case ch.Error != "":
+					failed = true
+					fmt.Fprintf(tw, "%s\tno\t\t%s\n", ch.Member, ch.Error)
+				case !r.GetOk():
+					failed = true
+					fmt.Fprintf(tw, "%s\tno\t%s\t%s\n", ch.Member, r.GetVia(), r.GetError())
+				default:
+					fmt.Fprintf(tw, "%s\tyes\t%s\t%s in %d ms\n", ch.Member, r.GetVia(), r.GetDirectory(), r.GetMilliseconds())
+				}
+			}
+			_ = tw.Flush()
+			if failed {
+				os.Exit(1)
+			}
+			return
+		case *renew != "":
+			var names []string
+			if *renew != "all" {
+				names = strings.Split(*renew, ",")
+			}
+			ctx, cancel := forCluster(c.ID, time.Minute)
+			defer cancel()
+			got, err := o.RenewACME(ctx, c, names, actor(o))
+			check("cluster letsencrypt", err)
+			fmt.Printf("Cluster %s: %s obtaining %s now; the others pull it at the next janusctl cluster check %s\n", c.Name, c.SecretsFrom, clusters.ListOrNone(got), c.Name)
+			return
+		case fs.NArg() == 1:
 			showClusterACME(o, c)
 			return
 		}
@@ -1024,12 +1063,22 @@ func runClusterCtl(globalCtx string, args []string) {
 		if err != nil {
 			log.Fatalf("janusctl cluster letsencrypt: %s: %v", fs.Arg(1), err)
 		}
+		opts := clusters.ACMEOptions{Note: *note, Base: *base}
+		if *keyFile != "" {
+			key, err := os.ReadFile(*keyFile)
+			check("cluster letsencrypt", err)
+			opts.AccountKey = string(key)
+		}
 		defer o.exclusive(c.ID)()
 		since := time.Now()
 		ctx, cancel := forCluster(c.ID, 10*time.Minute)
 		defer cancel()
-		n, err := o.ConfigureACME(ctx, c.ID, cfg, *note, actor(o))
+		n, err := o.ConfigureACME(ctx, c.ID, cfg, opts, actor(o))
 		o.report(c.ID, since)
+		var ue *clusters.UnappliedError
+		if errors.As(err, &ue) {
+			log.Fatalf("janusctl cluster letsencrypt: version %d is newer than the one the members run (%d) and isn't applied: -base %d to start from it (its changes applied with Let's Encrypt's), -base %d to leave it aside", ue.Newest, ue.Desired, ue.Newest, ue.Desired)
+		}
 		check("cluster letsencrypt", err)
 		if n > 0 {
 			fmt.Printf("Cluster %s: Let's Encrypt's configuration in version %d, on every member - its secrets on %s, which orders, pulled by the others\n", c.Name, n, c.SecretsFrom)
