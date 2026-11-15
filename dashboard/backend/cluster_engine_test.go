@@ -66,6 +66,9 @@ type fakeMember struct {
 	oldRelease bool
 	flows      int
 	handoffs   map[string]time.Time
+	// netcfg: its network configuration; nil: its member address,
+	// static, on "lan" (fakeNetwork).
+	netcfg *janusv1alpha1.NetworkConfig
 }
 
 // clusterFake answers the cluster engine for every node, and keeps what
@@ -77,6 +80,7 @@ type clusterFake struct {
 	fail     map[string]error       // "node method" -> error
 	unreach  map[[2]string]bool     // node -> target name
 	byAddr   map[string]string      // API address -> node name
+	silent   map[string]bool        // API addresses nothing answers at
 	notAfter time.Time              // the member certificates' expiry ClusterGet reports
 }
 
@@ -167,8 +171,8 @@ func (f *clusterFake) Probe(_ context.Context, m clusters.Member, target string)
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.unreach[[2]string{m.Name, f.byAddr[target]}] {
-		return errors.New("connection timed out")
+	if f.unreach[[2]string{m.Name, f.byAddr[target]}] || f.silent[target] {
+		return &clusters.ProbeError{Msg: "connection timed out"}
 	}
 	return nil
 }
@@ -1393,6 +1397,40 @@ func (f *clusterFake) Prefixes(_ context.Context, m clusters.Member) ([]netip.Pr
 		out = append(out, netip.PrefixFrom(a, 24))
 	}
 	return append(out, netip.MustParsePrefix("10.0.2.15/24")), nil
+}
+
+// fakeNetwork is m's network configuration: its own, or its member
+// address static on "lan".
+func (f *clusterFake) fakeNetwork(m clusters.Member) *janusv1alpha1.NetworkConfig {
+	if cfg := f.node(m).netcfg; cfg != nil {
+		return proto.Clone(cfg).(*janusv1alpha1.NetworkConfig)
+	}
+	return &janusv1alpha1.NetworkConfig{Interfaces: []*janusv1alpha1.NetworkInterface{{Name: "lan", Mac: "52:54:00:aa:00:01",
+		Mode: janusv1alpha1.AddressingMode_ADDRESSING_MODE_STATIC, Addresses: []string{m.Address + "/24"}, Gateway: "10.0.0.254"}}}
+}
+
+func (f *clusterFake) NetworkConfig(_ context.Context, m clusters.Member) (*janusv1alpha1.NetworkConfig, error) {
+	if err := f.call(m, "NetworkConfig", ""); err != nil {
+		return nil, err
+	}
+	return f.fakeNetwork(m), nil
+}
+
+// NetworkStatus: its configuration's interfaces, a DHCP one holding the
+// member address.
+func (f *clusterFake) NetworkStatus(_ context.Context, m clusters.Member) (*janusv1alpha1.NetworkStatusResponse, error) {
+	if err := f.call(m, "NetworkStatus", ""); err != nil {
+		return nil, err
+	}
+	st := &janusv1alpha1.NetworkStatusResponse{Managed: true, DnsServers: []string{"10.0.0.53"}}
+	for _, i := range f.fakeNetwork(m).GetInterfaces() {
+		is := &janusv1alpha1.NetworkInterfaceStatus{Name: i.GetName(), Kind: "physical", Mac: i.GetMac(), Mode: i.GetMode(), Addresses: i.GetAddresses()}
+		if i.GetMode() == janusv1alpha1.AddressingMode_ADDRESSING_MODE_DHCP {
+			is.Addresses = []string{m.Address + "/24"}
+		}
+		st.Interfaces = append(st.Interfaces, is)
+	}
+	return st, nil
 }
 
 func (f *clusterFake) Addresses(_ context.Context, m clusters.Member) ([]netip.Addr, error) {

@@ -7,8 +7,10 @@
 // appearance and the sidebar do: a palette chosen in one tab followed by
 // another, the T shortcut, no animation frame under "reduce motion", the
 // charts moving otherwise, the sidebar opening over the page and pinned;
-// cluster edge's configuration, the change an apply would make, its
-// editor, journal and Let's Encrypt, and the new-cluster form. Run by
+// cluster edge's recycle form (keeping the member's address too) and
+// a member's move to another address, its configuration, the change an
+// apply would make, its editor, journal and Let's Encrypt, and the
+// new-cluster form. Run by
 // hack/ui-preview.sh in the browser image, on the preview's network.
 import AxeBuilder from '@axe-core/playwright'
 import { chromium } from 'playwright'
@@ -266,6 +268,22 @@ for (const palette of PALETTES) {
   await page.waitForSelector('.card-title:has-text("Recycle")')
   if (!(await page.getByRole('radio', { name: /A new machine like it/ }).isDisabled())) problems.push('cluster recycle: a new machine offered for a node that is no machine')
   await look('cluster-recycle')
+  // Keeping the member's address (#515): said what happens - a node that
+  // is no machine is powered off; no temporary address asked for it.
+  await page.getByRole('checkbox', { name: /takes .* address/ }).check()
+  const said = await page.locator('form p.muted').last().textContent()
+  if (!said.includes('is powered off') || (await page.getByPlaceholder('192.0.2.30/24').count()) !== 0) problems.push(`cluster recycle keeping the address: ${JSON.stringify(said)}`)
+  await look('cluster-recycle-keep')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  // A member moved to another address: the form, refusing an address
+  // without its prefix before anything is sent.
+  await page.getByRole('button', { name: 'Address' }).first().click()
+  await page.waitForSelector('.card-title:has-text("Move")')
+  await page.getByPlaceholder('192.0.2.11/24').fill('10.0.30.40')
+  await page.getByRole('button', { name: /^Move / }).click()
+  const refused = await page.locator('.card:has(.card-title:has-text("Move"))').textContent()
+  if (!refused.includes('CIDR')) problems.push(`cluster readdress: an address without its prefix not refused: ${JSON.stringify(refused.slice(0, 300))}`)
+  await look('cluster-readdress')
   await page.getByRole('button', { name: 'Cancel' }).click()
   await page.getByRole('tab', { name: 'Configuration' }).click()
   await page.waitForSelector('.version-list button')
@@ -305,6 +323,30 @@ for (const palette of PALETTES) {
   // No hypervisor in the preview: a cluster of new machines isn't offered.
   if (!(await page.getByRole('radio', { name: /New machines/ }).isDisabled())) problems.push('new cluster: new machines offered without a hypervisor')
   await look('cluster-new')
+  await ctx.close()
+}
+
+// The recycle form keeping the address and the move form, in the dark
+// mode too.
+{
+  const ctx = await context({}, 'janus', 'dark')
+  const page = await ctx.newPage()
+  let at = 'cluster forms, dark'
+  watch(page, () => at)
+  await signIn(ctx)
+  await page.goto(`${CONTROLLER}/#/clusters/${edge}`)
+  await settle(page)
+  await page.getByRole('button', { name: 'Recycle' }).first().click()
+  await page.getByRole('checkbox', { name: /takes .* address/ }).check()
+  at = 'cluster-recycle-keep-dark'
+  await axe(page, at)
+  await page.screenshot({ path: `${OUT}/${at}.png`, fullPage: true })
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await page.getByRole('button', { name: 'Address' }).first().click()
+  await page.waitForSelector('.card-title:has-text("Move")')
+  at = 'cluster-readdress-dark'
+  await axe(page, at)
+  await page.screenshot({ path: `${OUT}/${at}.png`, fullPage: true })
   await ctx.close()
 }
 

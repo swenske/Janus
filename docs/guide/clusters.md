@@ -557,8 +557,8 @@ monitoring, inventories - and needs no room for one more machine.
 Recycle for what an update can't do: fresh disks, another hypervisor or
 size, a member created from an image URL, a node that isn't one of the
 Controller's machines and has no spare to take its place... A member
-with a static address keeps it either way, recycled into a node you
-name, or updated in place.
+with a static address keeps it either way: updated in place, or
+recycled [keeping its address](#keeping-a-members-address).
 
 Through the API: `POST /api/clusters/{id}/upgrade` `{"version":
 "v2026.10.29"}` - `members`, `new_image` with `extensions`, `haproxy`,
@@ -600,9 +600,11 @@ image, a VM on fresh disks - and the traffic moves once:
 When the member is one of the Controller's [machines](../hypervisors.md),
 the newcomer is a **new machine like it** - same hypervisor, size,
 networks (new MACs), extensions - named `<cluster>-<n>`, at the release
-you give or the member's. A member with a static address, or a node
-that isn't a machine, is recycled into a node you name: one of the
-Controller's, trusting the fleet, in no cluster.
+you give or the member's. A member with a static address is recycled
+[keeping its address](#keeping-a-members-address), the new machine on a
+temporary one until then; a node that isn't a machine is recycled into a
+node you name: one of the Controller's, trusting the fleet, in no
+cluster.
 
 A failure while the newcomer joins takes it out again - and destroys
 it when the Controller made it -: the cluster is as it was. Its
@@ -612,6 +614,64 @@ changes extensions, HAProxy branch or kernel, member by member.
 
 The member left out stays drained until it reboots (`janusctl -n NODE
 cluster undrain` to use it again).
+
+### Keeping a member's address
+
+A load balancer's address is known outside the cluster: a router's BGP
+neighbours, firewall rules, a NAT, the monitoring. **It takes its
+address** - `keep_address` - has the newcomer take the member's over
+instead of keeping its own:
+
+1. The newcomer joins **drained** on an address of its own, as above,
+   and **stays drained**: on that address it isn't what the routers,
+   firewalls and peers know.
+2. The member is drained - the other members serve -, leaves, and gives
+   its address up: its machine destroyed, or - a node the Controller
+   didn't make - powered off. The newcomer checks that nothing answers
+   there any more.
+3. The newcomer's interface gets the member's static addressing - every
+   address on that interface, IPv4 and IPv6, and its gateways - on
+   trial, confirmed where it answers then: the Controller follows it,
+   its machine's record too.
+4. Every member is told its address and the cluster's version is applied
+   again on each, one at a time, its stick tables learnt: the peers
+   sections, and templates naming `.Member.Address` or `.Peers` -
+   keepalived's `unicast_src_ip` and `unicast_peer`, BIRD's router ID, a
+   firewall rule.
+5. The newcomer comes into service.
+
+The traffic moves twice, the member's share going to the other members
+while its address moves; a cluster of one member can't do it. A new
+machine needs **a temporary address** on the member's network until
+then - `temporary_address`, in CIDR form, or `dhcp` -; one is enough for
+several members, each giving it back as it takes its member's. Only the
+interface holding the member's address moves: a machine with another
+static interface is recycled into a node you name. The newcomer has its
+own MAC: the router learns it from the newcomer's first packets, or once
+its entry for the old MAC fails.
+
+A failure before the member's drain takes the newcomer out again, the
+cluster as it was. After it, the newcomer is a member: when the address
+can't be taken - still answering, not confirmed (the node reverts by
+itself) -, it comes into service on its own address and the error says
+so; once the cause is fixed, **Address** moves it there.
+
+**Address** - `POST /api/clusters/{id}/members/{name}/address`, `janusctl
+cluster readdress` - moves any member to another address the same way:
+drained first, its interface's addressing on trial and confirmed, every
+member told, back in service. The first address given is the member's.
+
+Without a Controller, `-keep-address` on `janusctl cluster replace` does
+the same, the old node powered off; the context follows a node that
+moves when it reaches it at its member address, and a node reached
+another way (a NAT, a port forward) keeps its entry.
+
+```sh
+janusctl cluster replace edge lb-2 lb-5 -address 192.0.2.15 -keep-address
+janusctl cluster readdress edge lb-5 192.0.2.12/24 2001:db8::12/64 \
+  -gateway 192.0.2.1 -gateway6 2001:db8::1
+janusctl fleet forget lb-2          # once it's gone for good
+```
 
 ## Scaling
 
@@ -929,7 +989,8 @@ janusctl cluster delete edge
 | `vars NAME MEMBER KEY=VALUE...` | A member's template variables (`KEY=` unsets one) |
 | `certificate NAME FILE` | A certificate and its key for every member (`-crt-list`, `-sni`) |
 | `add`, `remove NAME NODE` | A member in, out (drained first; `-force` for a node gone) |
-| `replace NAME OLD NEW` | NEW, a node of the context, takes OLD's place: joins drained, learns the tables, comes into service as OLD is drained and leaves (`-var`, `-new-image`) |
+| `replace NAME OLD NEW` | NEW, a node of the context, takes OLD's place: joins drained, learns the tables, comes into service as OLD is drained and leaves (`-var`, `-new-image`; `-keep-address`: NEW [takes OLD's address](#keeping-a-members-address), OLD powered off) |
+| `readdress NAME MEMBER CIDR...` | A member [moved to another address](#keeping-a-members-address): drained, its interface's addressing on trial and confirmed, every member told, back in service (`-gateway`, `-gateway6`) |
 | `upgrade NAME VERSION\|URL` | The members [updated in place](#updating-a-cluster), one at a time, from the release's assets or a bundle's URL (`-members`, `-kexec`, `-allow-schematic-change`, `-version` for a URL's bundle) |
 | `tickets NAME` | A new TLS ticket key, pulled by the members (`-renew`: every key replaced - what a member's departure does) |
 | `list`, `journal NAME`, `delete NAME` | The clusters; what was done; every member leaves |
@@ -958,13 +1019,14 @@ Readers see clusters, administrators change them.
 | `GET`, `PATCH`, `DELETE /api/clusters/{id}` | one; change `secrets_from` or members' `vars`; delete (every member leaves; `?force=true`: even those that don't answer; `?machines=destroy`: the members that are the Controller's machines destroyed too, once they left) |
 | `POST /api/clusters/{id}/members`, `DELETE .../members/{name}` | add one; remove one (`?force=true`) |
 | `POST .../members/{name}/drain`, `.../undrain` | out of service, back |
+| `POST .../members/{name}/address` | [move it to another address](#keeping-a-members-address) (`{addresses, gateway, gateway6}`, the first address the member's) |
 | `POST /api/clusters/{id}/scale` | bring a cluster made on hypervisors to `{members}`, one step at a time |
 | `PUT /api/clusters/{id}/autoscale` | its auto-scaling: `{mode, min_members, max_members, max_vcpus, max_memory_mib, ...thresholds}` |
 | `PUT /api/clusters/{id}/balancer` | its [balancer hook](#a-balancer-in-front): `{kind, url, ca_cert, fingerprint, drain_delay_seconds, secret}` - a [RouterOS](#routeros) router's also `{user, prefixes, distance, routing_table, check_gateway, allow_http, read_only}`; the secret write-only (a router's: its user's password), left out to keep it, `""` to remove it; the hook is called at once |
 | `DELETE /api/clusters/{id}/balancer` | no hook any more |
 | `POST /api/clusters/{id}/balancer/sync` | call the hook with the members now (502 with its failure) |
 | `POST /api/clusters/{id}/upgrade` | [update the members in place](#updating-a-cluster), one at a time (`{members, version, new_image, extensions, haproxy, kernel, reboot_mode}`) |
-| `POST /api/clusters/{id}/recycle` | replace members one at a time (`{members, with: {member: {node_id, name, address}}, version, new_image}`; a member without `with` gets a new machine like its own) |
+| `POST /api/clusters/{id}/recycle` | replace members one at a time (`{members, with: {member: {node_id, name, address}}, version, new_image, keep_address, temporary_address}`; a member without `with` gets a new machine like its own; `keep_address`: [it takes the member's address](#keeping-a-members-address), a new machine on `temporary_address` until then) |
 | `GET`, `POST /api/clusters/{id}/versions`, `GET .../versions/{n}` | the versions; a new one (`{base, files, delete, note}`); one, with its files |
 | `POST /api/clusters/{id}/apply` | apply a version (`{version, managed}`) |
 | `POST /api/clusters/{id}/certificates` | a certificate for every member (`{name, pem, crt_list, sni}`) |

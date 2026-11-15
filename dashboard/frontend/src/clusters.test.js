@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { acmeCertStates, acmeInStep, behindLatest, clusterNameError, domainsOf, groupByCluster, health, memberDefaults, memberNameError, parseVars, pathError, releaseError, upgradeRows, varsText, versionChanges, versionOf } from './clusters.js'
+import { acmeCertStates, acmeInStep, behindLatest, clusterNameError, domainsOf, groupByCluster, health, memberDefaults, memberNameError, parseAddressing, parseVars, pathError, releaseError, temporaryAddressError, upgradeRows, varsText, versionChanges, versionOf } from './clusters.js'
 
 test('a node gives its member name and address when it can', () => {
   assert.deepEqual(memberDefaults({ name: 'LB-1', address: '192.0.2.11:9505' }), { name: 'lb-1', address: '192.0.2.11' })
@@ -17,6 +17,18 @@ test('names', () => {
   assert.notEqual(clusterNameError(''), '')
   assert.equal(memberNameError('lb-1'), '')
   assert.notEqual(memberNameError('lb_1'), '')
+})
+
+test('a member’s addresses', () => {
+  assert.equal(temporaryAddressError('192.0.2.30/24'), '')
+  assert.equal(temporaryAddressError('DHCP'), '')
+  assert.equal(temporaryAddressError('2001:db8::30/64'), '')
+  assert.notEqual(temporaryAddressError('192.0.2.30'), '')
+  assert.notEqual(temporaryAddressError(''), '')
+  assert.deepEqual(parseAddressing('192.0.2.11/24, 2001:db8::11/64', ' 192.0.2.1 ', ''), { addresses: ['192.0.2.11/24', '2001:db8::11/64'], gateway: '192.0.2.1' })
+  assert.deepEqual(parseAddressing('192.0.2.11/24\n', '', '2001:db8::1'), { addresses: ['192.0.2.11/24'], gateway6: '2001:db8::1' })
+  assert.throws(() => parseAddressing('', '', ''))
+  assert.throws(() => parseAddressing('192.0.2.11', '', ''), /CIDR/)
 })
 
 test('a cluster’s health', () => {

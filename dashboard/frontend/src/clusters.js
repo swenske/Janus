@@ -48,6 +48,34 @@ export function memberNameError(name) {
   return LABEL.test(name) ? '' : 'lowercase letters, digits and dashes'
 }
 
+// CIDR is an address with its prefix length, IPv4 or IPv6 - roughly:
+// the Controller checks it.
+const CIDR = /^(\d{1,3}(\.\d{1,3}){3}\/\d{1,2}|[0-9a-fA-F:]*:[0-9a-fA-F:.]*\/\d{1,3})$/
+
+// temporaryAddressError is why s can't be a recycled machine's address
+// until it takes its member's - CIDR, or dhcp -, '' when it can.
+export function temporaryAddressError(s) {
+  if (!s) return 'a temporary address'
+  if (s.toLowerCase() === 'dhcp' || CIDR.test(s)) return ''
+  return 'an address in CIDR form (192.0.2.30/24), or dhcp'
+}
+
+// parseAddressing is a member's new addressing (POST
+// /api/clusters/{id}/members/{name}/address) from the form: addresses
+// separated by spaces, commas or lines - the first the member's -, and
+// the gateways. It throws what's wrong.
+export function parseAddressing(text, gateway, gateway6) {
+  const addresses = String(text || '')
+    .split(/[\s,]+/)
+    .filter(Boolean)
+  if (addresses.length === 0) throw new Error('at least the member’s address, in CIDR form (192.0.2.11/24)')
+  for (const a of addresses) if (!CIDR.test(a)) throw new Error(`${a}: an address in CIDR form (192.0.2.11/24)`)
+  const out = { addresses }
+  if (gateway?.trim()) out.gateway = gateway.trim()
+  if (gateway6?.trim()) out.gateway6 = gateway6.trim()
+  return out
+}
+
 // health is a cluster's badge.
 export function health(c) {
   if (c.busy || c.phase) return { tone: 'info', label: c.phase || 'working', busy: true }

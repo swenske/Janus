@@ -24,7 +24,8 @@ import (
 type Nodes interface {
 	Version(ctx context.Context, m Member) (*janusv1alpha1.VersionResponse, error)
 	Healthy(ctx context.Context, m Member) error
-	// Probe: m reaches target (host:port) over TCP.
+	// Probe: m reaches target (host:port) over TCP; a *ProbeError when it
+	// can't connect.
 	Probe(ctx context.Context, m Member, target string) error
 	CertificateRequest(ctx context.Context, m Member) ([]byte, error)
 	// ACMEStatus: m's letsencrypt extension - its certificates, the
@@ -62,6 +63,10 @@ type Nodes interface {
 	// on trial, confirmed.
 	ModuleConfig(ctx context.Context, m Member, domain string) ([]byte, error)
 	ModuleApply(ctx context.Context, m Member, domain string, cfg []byte, validateOnly bool) error
+	// NetworkConfig and NetworkStatus: m's network configuration, and
+	// what its interfaces hold (Readdress).
+	NetworkConfig(ctx context.Context, m Member) (*janusv1alpha1.NetworkConfig, error)
+	NetworkStatus(ctx context.Context, m Member) (*janusv1alpha1.NetworkStatusResponse, error)
 	// Addresses: every address on m's interfaces, link-local ones too -
 	// a router's route through m names one of them (RouterRoles).
 	Addresses(ctx context.Context, m Member) ([]netip.Addr, error)
@@ -205,8 +210,14 @@ func (g GRPC) Probe(ctx context.Context, m Member, target string) error {
 	if last == "" {
 		last = "no connection"
 	}
-	return errors.New(last)
+	return &ProbeError{Msg: last}
 }
+
+// ProbeError: the member asked couldn't connect to the target - an
+// answer, not a failure to ask.
+type ProbeError struct{ Msg string }
+
+func (e *ProbeError) Error() string { return e.Msg }
 
 func (g GRPC) CertificateRequest(ctx context.Context, m Member) ([]byte, error) {
 	c, err := g.system(ctx, m)
@@ -611,7 +622,21 @@ func (g GRPC) Addresses(ctx context.Context, m Member) ([]netip.Addr, error) {
 	return out, nil
 }
 
-func (g GRPC) Prefixes(ctx context.Context, m Member) ([]netip.Prefix, error) {
+func (g GRPC) NetworkConfig(ctx context.Context, m Member) (*janusv1alpha1.NetworkConfig, error) {
+	c, err := g.network(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.NetworkConfigGetResponse, error) {
+		return c.NetworkConfigGet(ctx, &emptypb.Empty{}, opts...)
+	})
+	if err != nil {
+		return nil, nodeError(err)
+	}
+	return resp.GetConfig(), nil
+}
+
+func (g GRPC) NetworkStatus(ctx context.Context, m Member) (*janusv1alpha1.NetworkStatusResponse, error) {
 	c, err := g.network(ctx, m)
 	if err != nil {
 		return nil, err
@@ -619,8 +644,13 @@ func (g GRPC) Prefixes(ctx context.Context, m Member) ([]netip.Prefix, error) {
 	st, err := onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.NetworkStatusResponse, error) {
 		return c.NetworkStatus(ctx, &emptypb.Empty{}, opts...)
 	})
+	return st, nodeError(err)
+}
+
+func (g GRPC) Prefixes(ctx context.Context, m Member) ([]netip.Prefix, error) {
+	st, err := g.NetworkStatus(ctx, m)
 	if err != nil {
-		return nil, nodeError(err)
+		return nil, err
 	}
 	var out []netip.Prefix
 	for _, i := range st.GetInterfaces() {

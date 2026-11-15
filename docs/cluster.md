@@ -625,8 +625,9 @@ of a fleet without a Controller):
    the old one's specification - its hypervisor, size, networks with
    new MACs, extensions - under a new name, `<cluster>-<n>`, at
    `version` when given. A static address can't be cloned: such a
-   member is recycled into a node the operator names. The replacement
-   must register and trust the fleet within 20 minutes.
+   member is recycled keeping its address (below), the new machine on a
+   temporary address until then, or into a node the operator names. The
+   replacement must register and trust the fleet within 20 minutes.
 2. **Join it drained**: the checks (section 3; with `new_image` its
    schematic may differ - how a cluster changes image), its member
    certificate, the others told of it (each waits for its tables,
@@ -660,6 +661,29 @@ replacement in service and the old member drained and listed: the
 operator removes it again. Members are recycled one at a time and the
 first failure stops the rest. The cluster never has fewer members in
 service than before: a two-member cluster passes through three.
+
+**Keeping the address** (`keep_address`, `janusctl cluster replace
+-keep-address`; #515): a load balancer's address is known outside the
+cluster - a router's BGP neighbours, firewall rules, NATs, monitoring.
+The replacement joins drained on an address of its own and stays
+drained; the old member is drained - the others serve - and removed,
+then gives its address up (`Engine.Release`: the Controller destroys
+its machine, or powers a node off; janusctl powers it off) and the
+replacement checks nothing answers there any more. The replacement's
+interface holding its address then gets the old member's static
+addressing - read from the old member's own configuration before
+anything, every address on that interface and its gateways - as a
+network trial confirmed where it answers (`Engine.MoveNetwork`: the
+orchestrator follows the node); `Member.Address` changes and the
+cluster's version is applied again on every member, one at a time
+(the peers sections, templates naming `.Member.Address` or `.Peers`);
+the replacement comes into service. Here the member's share of the
+traffic goes to the others while the address moves, so a cluster of
+one member refuses it. A failure after the old member's drain puts the
+replacement in service on its own address (`AddressError`), for
+`Engine.Readdress` - drain, trial, every member told, undrain; `POST
+/api/clusters/{id}/members/{name}/address`, `janusctl cluster
+readdress` - once the cause is fixed.
 
 ## 6. Horizontal auto-scaling
 

@@ -1,9 +1,12 @@
 package nodeproxy
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -39,21 +43,51 @@ func freshAssetCaches(t *testing.T) {
 	})
 }
 
-// keepReleaseCache puts the release cache back as it was after the test.
+// keepReleaseCache puts the release cache back as it was after the test,
+// once a fetch it left running is over.
 func keepReleaseCache(t *testing.T) {
 	t.Helper()
 	freshAssetCaches(t)
-	releaseCache.mu.Lock()
-	prevURL, prevData, prevErr, prevAt, prevTried, prevFailed := releaseCache.url, releaseCache.data, releaseCache.err, releaseCache.fetchedAt, releaseCache.triedAt, releaseCache.failed
-	releaseCache.url, releaseCache.data, releaseCache.err, releaseCache.fetchedAt, releaseCache.triedAt, releaseCache.failed = "", nil, nil, time.Time{}, time.Time{}, false
-	releaseCache.mu.Unlock()
+	c := &releaseCache
+	c.mu.Lock()
+	prev := struct {
+		url                         string
+		data                        *ReleaseInfo
+		err                         error
+		list                        []ghRelease
+		fetchedAt, retryAt, triedAt time.Time
+		failed                      bool
+		fetch                       *releaseFetch
+	}{c.url, c.data, c.err, c.list, c.fetchedAt, c.retryAt, c.triedAt, c.failed, c.fetch}
+	c.url, c.data, c.err, c.list, c.fetchedAt, c.retryAt, c.triedAt, c.failed, c.fetch = "", nil, nil, nil, time.Time{}, time.Time{}, time.Time{}, false, nil
+	c.mu.Unlock()
 	prevPartial, prevStale, prevRetry, prevReleases := partialRetry, staleTTL, staleRetry, ReleasesURL
+	prevWait, prevBudget, prevGrace := releaseWait, releaseFetchBudget, releaseKnownGrace
 	t.Cleanup(func() {
-		releaseCache.mu.Lock()
-		releaseCache.url, releaseCache.data, releaseCache.err, releaseCache.fetchedAt, releaseCache.triedAt, releaseCache.failed = prevURL, prevData, prevErr, prevAt, prevTried, prevFailed
-		releaseCache.mu.Unlock()
+		waitReleaseFetch(t)
+		c.mu.Lock()
+		c.url, c.data, c.err, c.list, c.fetchedAt, c.retryAt, c.triedAt, c.failed, c.fetch = prev.url, prev.data, prev.err, prev.list, prev.fetchedAt, prev.retryAt, prev.triedAt, prev.failed, prev.fetch
+		c.mu.Unlock()
 		partialRetry, staleTTL, staleRetry, ReleasesURL = prevPartial, prevStale, prevRetry, prevReleases
+		releaseWait, releaseFetchBudget, releaseKnownGrace = prevWait, prevBudget, prevGrace
 	})
+}
+
+// waitReleaseFetch waits for the release fetch running in the background,
+// if any, to be over.
+func waitReleaseFetch(t *testing.T) {
+	t.Helper()
+	releaseCache.mu.Lock()
+	f := releaseCache.fetch
+	releaseCache.mu.Unlock()
+	if f == nil {
+		return
+	}
+	select {
+	case <-f.done:
+	case <-time.After(30 * time.Second):
+		t.Error("the release fetch still running after 30 s")
+	}
 }
 
 // TestReleaseOfferedDespiteDownloads: GitHub's API answering, its
@@ -111,19 +145,21 @@ func TestReleaseOfferedDespiteDownloads(t *testing.T) {
 	releaseCache.mu.Lock()
 	releaseCache.triedAt = time.Time{} // releaseRefreshMin (30 s) between two tries
 	releaseCache.mu.Unlock()
+	// What's missing read from the same list: GitHub's API not asked
+	// again (#627).
 	rel, err = getLatestRelease(context.Background())
-	if err != nil || listed.Load() != 2 {
-		t.Fatalf("after partialRetry: %v, %d lists", err, listed.Load())
+	if err != nil || listed.Load() != 1 {
+		t.Fatalf("after partialRetry: %v, %d lists - want the list read then completed", err, listed.Load())
 	}
-	if sev, _ := rel.SecurityUpdate("v2026.11.08", "node", NodeImage{}); sev != "critical" {
-		t.Fatalf("its fix once read: %q", sev)
+	if sev, _ := rel.SecurityUpdate("v2026.11.08", "node", NodeImage{}); sev != "critical" || rel.partial {
+		t.Fatalf("its fix once read: %q, partial %v", sev, rel.partial)
 	}
 	if sums.Load() != 1 {
 		t.Errorf("the checksum downloaded %d times", sums.Load())
 	}
 	// Complete: kept releaseCacheTTL.
 	time.Sleep(250 * time.Millisecond)
-	if _, err := getLatestRelease(context.Background()); err != nil || listed.Load() != 2 || v3json.Load() != 1 {
+	if _, err := getLatestRelease(context.Background()); err != nil || listed.Load() != 1 || v3json.Load() != 1 {
 		t.Fatalf("a complete list fetched again: %v, %d lists, %d security.json", err, listed.Load(), v3json.Load())
 	}
 }
@@ -151,8 +187,13 @@ func TestReleaseListKeptWhileGitHubFails(t *testing.T) {
 	releaseCache.url, releaseCache.data, releaseCache.fetchedAt = ReleasesURL, old, time.Now().Add(-time.Hour)
 	releaseCache.mu.Unlock()
 
+	logged := captureLog(t)
 	if rel, err := getLatestRelease(context.Background()); err != nil || rel != old || calls.Load() != 1 {
 		t.Fatalf("an hour-old list and GitHub failing: %+v %v, %d calls - want the list kept", rel, err, calls.Load())
+	}
+	// Its real age (#627: a partial list's said 7 minutes more).
+	if !strings.Contains(logged.String(), "the list read 1h0m0s ago kept") {
+		t.Errorf("logged %q", logged.String())
 	}
 	if rel, _ := getLatestRelease(context.Background()); rel != old || calls.Load() != 1 {
 		t.Fatalf("tried again before staleRetry: %d calls", calls.Load())
@@ -325,5 +366,294 @@ func TestColdStartSlowGitHub(t *testing.T) {
 	}
 	if _, ok := info.security["v2026.11.01"]; ok {
 		t.Fatal("the oldest read in that time - the order isn't newest first")
+	}
+}
+
+// captureLog sends the log to a buffer for the test.
+func captureLog(t *testing.T) *syncBuffer {
+	t.Helper()
+	var buf syncBuffer
+	prev := log.Writer()
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(prev) })
+	return &buf
+}
+
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.String()
+}
+
+// slowGitHub is a fake GitHub whose list takes list to answer and each
+// file each, the requests counted - the netem of v2026.11.10's lab
+// campaign, scaled down: GitHub 4 s away, the list longer than a read's
+// 30 s. The releases: a pre-release, the newest release, maintenance
+// releases, older releases - all with a checksum, a Controller image and
+// a security.json, the pre-release's and maintenance releases' read
+// before any security.json.
+type slowGitHub struct {
+	srv          *httptest.Server
+	lists, files atomic.Int32
+	down         sync.Map // paths answering 504
+}
+
+func newSlowGitHub(t *testing.T, list, each time.Duration, maintenance, older int) *slowGitHub {
+	t.Helper()
+	g := &slowGitHub{}
+	var body strings.Builder
+	g.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wait := each
+		if r.URL.Path == "/releases" {
+			g.lists.Add(1)
+			wait = list
+		} else {
+			g.files.Add(1)
+		}
+		select {
+		case <-time.After(wait):
+		case <-r.Context().Done():
+			return
+		}
+		if _, down := g.down.Load(r.URL.Path); down {
+			http.Error(w, "gateway timeout", http.StatusGatewayTimeout)
+			return
+		}
+		switch path := strings.TrimPrefix(r.URL.Path, "/"); {
+		case path == "releases":
+			_, _ = io.WriteString(w, body.String())
+		case strings.HasSuffix(path, ".sha256"):
+			_, _ = io.WriteString(w, "sum-"+strings.TrimSuffix(path, ".sha256")+"\n")
+		case strings.HasSuffix(path, ".image"):
+			_, _ = io.WriteString(w, "swenske/janus-controller:"+strings.TrimSuffix(path, ".image")+"\n")
+		case strings.HasSuffix(path, ".json"):
+			_, _ = io.WriteString(w, `{"updates":[{"name":"linux","target":"node","fixes":[{"id":"`+strings.TrimSuffix(path, ".json")+`","severity":"high"}]}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(g.srv.Close)
+	rel := func(tag, name string, pre bool) string {
+		asset := func(file, ext string) string {
+			return fmt.Sprintf(`{"name":%q,"browser_download_url":"%s/%s%s"}`, file, g.srv.URL, tag, ext)
+		}
+		return fmt.Sprintf(`{"tag_name":%q,"name":%q,"prerelease":%v,"html_url":"https://github.invalid/r/releases/tag/%s","assets":[%s,%s,%s]}`,
+			tag, name, pre, tag, asset("rootfs.squashfs.sha256", ".sha256"), asset("controller-image.txt", ".image"), asset("security.json", ".json"))
+	}
+	all := []string{rel("v2026.11.20", "v2026.11.20 (Alpha)", true), rel("v2026.11.19", "v2026.11.19 (Alpha)", false)}
+	for i := range maintenance {
+		// Maintenance of the releases before, tagged after the newest:
+		// v2026.11.18-2 fixes v2026.11.18, and so on.
+		day := 18 - i
+		all = append(all, rel(fmt.Sprintf("v2026.11.%02d-2", day), fmt.Sprintf("v2026.11.%02d-2 (Alpha) - maintenance of v2026.11.%02d", day, day), false))
+	}
+	for i := range older {
+		all = append(all, rel(fmt.Sprintf("v2026.10.%02d", 31-i), "", false))
+	}
+	body.WriteString("[" + strings.Join(all, ",") + "]")
+	ReleasesURL = g.srv.URL + "/releases"
+	return g
+}
+
+// TestColdStartGitHubFourSecondsAway: no release-cache.json, GitHub 4 s
+// away (v2026.11.10's lab campaign, finding 1, here 1/20th of it): the
+// list alone takes longer than a caller waits. The first caller is told
+// it's still being read; the read goes on in the background, every
+// caller sharing it - the list asked once; the newest release, the
+// pre-release and the maintenance releases are known as soon as the list
+// and one round of their files have come - read together, not one after
+// the other -, the security.json following.
+func TestColdStartGitHubFourSecondsAway(t *testing.T) {
+	keepReleaseCache(t)
+	const (
+		rtt  = 200 * time.Millisecond // 4 s
+		list = 2 * time.Second        // 40 s: more than a caller's 30 s
+	)
+	releaseWait, releaseKnownGrace, releaseFetchBudget = 1500*time.Millisecond, 100*time.Millisecond, 9*time.Second
+	g := newSlowGitHub(t, list, rtt, 3, 30)
+
+	start := time.Now()
+	_, err := getLatestRelease(context.Background())
+	if took := time.Since(start); err == nil || !strings.Contains(err.Error(), "still being read") || took > releaseWait+300*time.Millisecond {
+		t.Fatalf("first caller: %v after %s - want told the list is still being read after %s", err, took, releaseWait)
+	}
+	// Callers asking every 50 ms, as pages and the fleet's status do.
+	var rel *ReleaseInfo
+	for rel == nil || rel.Prerelease == nil {
+		if time.Since(start) > 5*time.Second {
+			t.Fatalf("no pre-release after %s (%+v)", time.Since(start), rel)
+		}
+		rel, _ = getLatestRelease(context.Background())
+		if rel == nil {
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	known := time.Since(start)
+	// Ten files (the newest's, the pre-release's, three maintenance
+	// releases' two each): one after the other, 2 s after the list.
+	if bound := list + 3*rtt + releaseKnownGrace + 300*time.Millisecond; known > bound {
+		t.Errorf("the pre-release known after %s, more than %s - its files not read together", known, bound)
+	}
+	if rel.TagName != "v2026.11.19" || rel.SHA256 != "sum-v2026.11.19" || rel.ControllerImage != "swenske/janus-controller:v2026.11.19" ||
+		rel.Prerelease.TagName != "v2026.11.20" || rel.Prerelease.ControllerImage != "swenske/janus-controller:v2026.11.20" {
+		t.Fatalf("known: %+v, pre-release %+v", rel, rel.Prerelease)
+	}
+	if m := rel.MaintenanceFor("v2026.11.17"); m == nil || m.TagName != "v2026.11.17-2" || m.SHA256 != "sum-v2026.11.17-2" {
+		t.Fatalf("maintenance of v2026.11.17: %+v", m)
+	}
+	t.Logf("GitHub 4 s away (scaled 1/20): the pre-release known after %s (the list %s)", known, list)
+
+	// The security.json follow, in the same read: the list asked once.
+	waitReleaseFetch(t)
+	rel, err = getLatestRelease(context.Background())
+	if err != nil || rel.partial {
+		t.Fatalf("after the read: %v, partial %v", err, rel != nil && rel.partial)
+	}
+	if sev, from := rel.SecurityUpdate("v2026.10.31", "node", NodeImage{}); sev != "high" || from != "v2026.11.19" {
+		t.Fatalf("security update for v2026.10.31: %q from %q", sev, from)
+	}
+	if n := g.lists.Load(); n != 1 {
+		t.Errorf("the list asked %d times - want one read shared by every caller", n)
+	}
+	t.Logf("complete after %s, %d files", time.Since(start), g.files.Load())
+}
+
+// TestFirstAnswerBeforeTheSecurities: a cold start with GitHub 1 s away
+// answered after the whole read, 31 s, spent to its end on security.json
+// (v2026.11.10's lab campaign) - now as soon as the releases are known,
+// releaseKnownGrace later, the security.json read in the background; the
+// list answered then is never changed.
+func TestFirstAnswerBeforeTheSecurities(t *testing.T) {
+	keepReleaseCache(t)
+	const rtt = 50 * time.Millisecond
+	releaseKnownGrace = rtt
+	g := newSlowGitHub(t, rtt, rtt, 1, 60)
+
+	start := time.Now()
+	rel, err := getLatestRelease(context.Background())
+	took := time.Since(start)
+	if err != nil || rel.Prerelease == nil || !rel.partial {
+		t.Fatalf("first answer: %+v %v - want the releases, the security.json still coming", rel, err)
+	}
+	// 62 security.json, 8 at once: 400 ms more.
+	if bound := rtt + 2*rtt + releaseKnownGrace + 150*time.Millisecond; took > bound {
+		t.Errorf("first answer after %s, more than %s", took, bound)
+	}
+	fixes := len(rel.security)
+	waitReleaseFetch(t)
+	again, err := getLatestRelease(context.Background())
+	if err != nil || again.partial || len(again.security) != 62 {
+		t.Fatalf("after the read: %v, partial %v, %d security.json", err, again != nil && again.partial, len(again.security))
+	}
+	if len(rel.security) != fixes || again == rel {
+		t.Error("the list answered first was changed by the read")
+	}
+	if g.lists.Load() != 1 {
+		t.Errorf("%d lists", g.lists.Load())
+	}
+}
+
+// TestPartialListCompletedWithoutTheList: the pre-release's Controller
+// image missing the first read, GitHub's list failing after (v2026.11.10's
+// lab campaign: with GitHub 4 s away the list missed every read's end,
+// and the pre-release stayed missing 16 minutes) - completed from the
+// list read then, not asked again.
+func TestPartialListCompletedWithoutTheList(t *testing.T) {
+	keepReleaseCache(t)
+	partialRetry = 100 * time.Millisecond
+	g := newSlowGitHub(t, 0, 0, 0, 2)
+	g.down.Store("/v2026.11.20.image", true)
+	rel, err := getLatestRelease(context.Background())
+	if err != nil || rel.Prerelease != nil || !rel.partial {
+		t.Fatalf("pre-release's image missing: %+v %v - want the list, partial, no pre-release", rel, err)
+	}
+	g.down.Delete("/v2026.11.20.image")
+	g.down.Store("/releases", true)
+	logged := captureLog(t)
+	time.Sleep(150 * time.Millisecond)
+	releaseCache.mu.Lock()
+	releaseCache.triedAt = time.Time{} // releaseRefreshMin (30 s) between two tries
+	releaseCache.mu.Unlock()
+	rel, err = getLatestRelease(context.Background())
+	if err != nil || rel.Prerelease == nil || rel.Prerelease.ControllerImage == "" || rel.partial {
+		t.Fatalf("completed: %+v %v", rel, err)
+	}
+	if g.lists.Load() != 1 || strings.Contains(logged.String(), "kept") {
+		t.Errorf("the list asked %d times, logged %q", g.lists.Load(), logged.String())
+	}
+	// Past releaseCacheTTL, the list read again: failing, the one known
+	// kept, its real age said.
+	releaseCache.mu.Lock()
+	releaseCache.fetchedAt = releaseCache.fetchedAt.Add(-releaseCacheTTL - 30*time.Second)
+	releaseCache.triedAt = time.Time{}
+	releaseCache.mu.Unlock()
+	if again, err := getLatestRelease(context.Background()); err != nil || again != rel {
+		t.Fatalf("GitHub's list failing: %v - want the list kept", err)
+	}
+	if !strings.Contains(logged.String(), "the list read 10m30s ago kept") {
+		t.Errorf("logged %q", logged.String())
+	}
+}
+
+// TestCallersShareTheFetch: callers arriving while the list is read wait
+// for that read - one request to GitHub -, and once a list is known, a
+// caller is answered from it at once while a new read runs.
+func TestCallersShareTheFetch(t *testing.T) {
+	keepReleaseCache(t)
+	g := newSlowGitHub(t, 300*time.Millisecond, 0, 0, 1)
+	var wg sync.WaitGroup
+	errs := make(chan error, 10)
+	for range 10 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if rel, err := getLatestRelease(context.Background()); err != nil || rel.TagName != "v2026.11.19" {
+				errs <- errors.Join(err, fmt.Errorf("got %+v", rel))
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
+	if g.lists.Load() != 1 {
+		t.Fatalf("%d lists for 10 callers", g.lists.Load())
+	}
+	// Stale: one caller starts a read (and waits for it); another,
+	// arriving meanwhile, gets the list known at once.
+	releaseCache.mu.Lock()
+	known := releaseCache.data
+	releaseCache.fetchedAt = releaseCache.fetchedAt.Add(-releaseCacheTTL)
+	releaseCache.triedAt = time.Time{}
+	releaseCache.mu.Unlock()
+	go func() { _, _ = getLatestRelease(context.Background()) }()
+	for {
+		releaseCache.mu.Lock()
+		running := releaseCache.fetch != nil
+		releaseCache.mu.Unlock()
+		if running {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	start := time.Now()
+	if rel, err := getLatestRelease(context.Background()); err != nil || rel != known || time.Since(start) > 100*time.Millisecond {
+		t.Fatalf("while a read runs: %v after %s - want the list known, at once", err, time.Since(start))
+	}
+	waitReleaseFetch(t)
+	if g.lists.Load() != 2 {
+		t.Errorf("%d lists", g.lists.Load())
 	}
 }

@@ -45,6 +45,18 @@ type Engine struct {
 	// LearnTimeout bounds the wait for a reloaded member to learn its
 	// stick tables from its peers (waitLearnt); 0: 30 s.
 	LearnTimeout time.Duration
+	// MoveNetwork puts network configuration cfg on member m's node on
+	// trial and confirms it where the node answers then - another address
+	// -, the orchestrator following the node there (Readdress). Nil: a
+	// member's address can't be moved.
+	MoveNetwork func(ctx context.Context, m Member, cfg *janusv1alpha1.NetworkConfig) error
+	// Release frees the address of member m, out of the cluster - its
+	// machine destroyed, its node powered off - for a replacement to take
+	// it over (ReplaceOptions.KeepAddress). Nil: none can.
+	Release func(ctx context.Context, m Member) error
+	// ReleaseTimeout bounds the wait for a released member's address to
+	// stop answering; 0: 3 minutes.
+	ReleaseTimeout time.Duration
 }
 
 // waitLearnt waits until member m's HAProxy, just reloaded, has learnt
@@ -651,6 +663,12 @@ type ReplaceOptions struct {
 	// NewImage: the replacement may run another image than the members'
 	// - the cluster changing image member by member.
 	NewImage bool
+	// KeepAddress: the replacement takes the old member's address over -
+	// its interface's static addressing - once the old member has left
+	// and its address is free (Release): it joins on an address of its
+	// own, stays drained while the others serve, moves, and comes into
+	// service at the old member's address.
+	KeepAddress bool
 }
 
 // Replace puts repl in member old's place in cluster id
@@ -679,6 +697,9 @@ func (e *Engine) Replace(ctx context.Context, id, old string, repl Member, opts 
 		for k, v := range om.Vars {
 			repl.Vars[k] = v
 		}
+	}
+	if opts.KeepAddress {
+		return e.replaceKeepingAddress(ctx, c, *om, repl, opts, actor)
 	}
 	e.Journal(id, actor, "replace", old, 0, "%s to be replaced by %s, which joins drained", old, repl.Name)
 	if err := e.addMember(ctx, id, repl, actor, true, opts.NewImage); err != nil {
@@ -735,9 +756,15 @@ func (e *Engine) Replace(ctx context.Context, id, old string, repl Member, opts 
 type NotRemovedError struct {
 	Old, New string
 	Err      error
+	// Address: the replacement was to take the old member's address
+	// over - it serves on its own meanwhile.
+	Address string
 }
 
 func (e *NotRemovedError) Error() string {
+	if e.Address != "" {
+		return fmt.Sprintf("%s is in service on its own address, but %s's removal failed: %v - %s stays drained: remove it again, free %s, then move %s there (readdress)", e.New, e.Old, e.Err, e.Old, e.Address, e.New)
+	}
 	return fmt.Sprintf("%s is in service, but %s's removal failed: %v - %s stays drained: remove it again", e.New, e.Old, e.Err, e.Old)
 }
 

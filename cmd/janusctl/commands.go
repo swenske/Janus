@@ -403,7 +403,12 @@ var commands = &command{name: "janusctl", subs: []*command{
 			valFlag("address", "IP", "the address the other members reach NEW on (default: the context's)", argNone),
 			valFlag("var", "KEY=VALUE", "a variable the cluster's templates use for NEW, repeatable (default: OLD's)", argNone),
 			boolFlag("new-image", "NEW may run another image - the cluster changing image member by member"),
+			boolFlag("keep-address", "NEW takes OLD's address over once OLD has left: NEW stays drained meanwhile, OLD is powered off"),
 		}, pos: []argKind{argNone, argFleetNode, argFleetNode}, required: 3},
+		{name: "readdress", args: "NAME MEMBER CIDR...", help: "a member moved to another address: drained, its interface's static addressing on trial and confirmed there - the context following it -, every member told, back in service; the first address is the member's", flags: []flagDef{
+			valFlag("gateway", "IP", "the interface's IPv4 default gateway", argNone),
+			valFlag("gateway6", "IP", "its IPv6 default gateway", argNone),
+		}, pos: []argKind{argNone, argFleetNode, argNone}, required: 3, variadic: true},
 		{name: "upgrade", args: "NAME VERSION|URL", help: "the members updated in place to a release, one at a time: each drained, its own A/B update (reverted unless healthy), back on its other slot, its stick tables learnt, undrained; a member already on it is skipped, so running it again resumes", flags: []flagDef{
 			valFlag("members", "MEMBER,...", "these members, in this order (default: every member, a VRRP cluster's MASTERs last)", argNone),
 			boolFlag("kexec", "each member reboots into its new slot through kexec, not the firmware"),

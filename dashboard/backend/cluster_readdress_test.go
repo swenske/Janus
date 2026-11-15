@@ -1,0 +1,478 @@
+package main
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/netip"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"google.golang.org/protobuf/proto"
+
+	"github.com/swenske/Janus/dashboard/backend/internal/machines"
+	"github.com/swenske/Janus/dashboard/backend/internal/nodeproxy"
+	"github.com/swenske/Janus/dashboard/backend/internal/store"
+	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/clusters"
+	"github.com/swenske/Janus/internal/nocloud"
+)
+
+// movingNodes: a node takes the network configuration it's given at once
+// and answers at its new address - the Controller's record following
+// it, as nodeproxy's confirmation does -; a node shut down answers no
+// more.
+type movingNodes struct {
+	answeringNodes
+	f    *clusterFake
+	mu   sync.Mutex
+	fail error
+	// cutShutdown: a shutdown's answer lost - the connection closed first
+	// (a machine's destruction then powers it off without waiting).
+	cutShutdown bool
+	applied     map[string]*janusv1alpha1.NetworkConfig // by node id
+	shutdown    []string                                // node names
+}
+
+func (m *movingNodes) ApplyNetwork(_ context.Context, node *store.Node, st *store.Store, cfg *janusv1alpha1.NetworkConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.fail != nil {
+		return m.fail
+	}
+	host, port, _ := net.SplitHostPort(node.Addr())
+	at := ""
+	for _, i := range cfg.GetInterfaces() {
+		for _, a := range i.GetAddresses() {
+			p := netip.MustParsePrefix(a)
+			if p.Addr().String() == host {
+				at = host
+			} else if at == "" && p.Addr().Is4() {
+				at = p.Addr().String()
+			}
+		}
+	}
+	if err := st.SetAddress(node.ID, net.JoinHostPort(at, port)); err != nil {
+		return err
+	}
+	if m.applied == nil {
+		m.applied = map[string]*janusv1alpha1.NetworkConfig{}
+	}
+	m.applied[node.ID] = proto.Clone(cfg).(*janusv1alpha1.NetworkConfig)
+	m.f.mu.Lock()
+	m.f.nodes[node.Name].netcfg = proto.Clone(cfg).(*janusv1alpha1.NetworkConfig)
+	m.f.byAddr[net.JoinHostPort(at, port)] = node.Name
+	delete(m.f.silent, net.JoinHostPort(at, port))
+	m.f.mu.Unlock()
+	return nil
+}
+
+func (m *movingNodes) Network(_ context.Context, node *store.Node) (*janusv1alpha1.NetworkConfig, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if cfg := m.applied[node.ID]; cfg != nil {
+		return proto.Clone(cfg).(*janusv1alpha1.NetworkConfig), nil
+	}
+	return nil, errors.New("not configured by this test")
+}
+
+func (m *movingNodes) Shutdown(_ context.Context, node *store.Node) error {
+	m.mu.Lock()
+	m.shutdown = append(m.shutdown, node.Name)
+	m.mu.Unlock()
+	m.f.mu.Lock()
+	if m.f.silent == nil {
+		m.f.silent = map[string]bool{}
+	}
+	m.f.silent[node.Addr()] = true
+	m.f.mu.Unlock()
+	if m.cutShutdown {
+		return errors.New("connection closed")
+	}
+	return nil
+}
+
+func (m *movingNodes) Info(context.Context, *store.Node) (*nodeproxy.NodeInfo, error) {
+	return &nodeproxy.NodeInfo{}, nil
+}
+
+func useMovingNodes(t *testing.T, f *clusterFake) *movingNodes {
+	t.Helper()
+	mn := &movingNodes{f: f}
+	prev := nodes
+	nodes = mn
+	t.Cleanup(func() { nodes = prev })
+	return mn
+}
+
+// A member moved to another address: drained, its interface changed on
+// trial - the Controller following it -, every member told (the peers,
+// the templates), back in service.
+func TestClusterReaddress(t *testing.T) {
+	a, f, nodesByName := clusterApp(t, "lb-1", "lb-2", "lb-3")
+	mn := useMovingNodes(t, f)
+	c := newCluster(t, a, nodesByName, "lb-1", "lb-2", "lb-3")
+	ctx := context.Background()
+	if err := a.clusters.Create(ctx, c.ID, "lb-1", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	to := clusters.Addressing{Addresses: []string{"10.0.0.40/24"}, Gateway: "10.0.0.254"}
+
+	for _, bad := range []clusters.Addressing{
+		{Addresses: []string{"10.0.0.1/24"}}, // lb-1's
+		{Addresses: []string{"10.0.0.2/24"}}, // its own
+		{Addresses: []string{"10.0.0.40"}},
+	} {
+		if err := a.clusters.Readdress(ctx, c.ID, "lb-2", bad, "admin"); err == nil {
+			t.Errorf("%v accepted", bad)
+		}
+	}
+
+	// The node can't be confirmed there: back in service where it was.
+	mn.fail = errors.New("couldn't confirm before the node reverts")
+	mark := f.mark()
+	if err := a.clusters.Readdress(ctx, c.ID, "lb-2", to, "admin"); err == nil || !strings.Contains(err.Error(), "couldn't confirm") {
+		t.Errorf("a move that fails: %v", err)
+	}
+	if !inOrder(f.callsOf("lb-2", mark), "ClusterDrain", "ClusterUndrain") {
+		t.Errorf("lb-2 not back in service: %v", f.callsOf("lb-2", mark))
+	}
+	if cur, _ := a.clusters.Store.Get(c.ID); cur.Member("lb-2").Address != "10.0.0.2" {
+		t.Errorf("lb-2's address changed: %s", cur.Member("lb-2").Address)
+	}
+	mn.fail = nil
+
+	mark = f.mark()
+	if err := a.clusters.Readdress(ctx, c.ID, "lb-2", to, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if !inOrder(f.callsSince(mark), "lb-2 ClusterDrain", "lb-2 NetworkStatus", "lb-1 ClusterSet lb-1,lb-2,lb-3", "lb-2 ClusterSet lb-1,lb-2,lb-3", "lb-3 ClusterSet lb-1,lb-2,lb-3", "lb-2 ClusterUndrain") {
+		t.Errorf("the order: %v", f.callsSince(mark))
+	}
+	cur, _ := a.clusters.Store.Get(c.ID)
+	if cur.Member("lb-2").Address != "10.0.0.40" {
+		t.Errorf("lb-2's member address: %s", cur.Member("lb-2").Address)
+	}
+	if n, _ := a.store.Get(nodesByName["lb-2"].ID); n.Addr() != "10.0.0.40:9505" {
+		t.Errorf("the Controller reaches lb-2 at %s", n.Addr())
+	}
+	f.mu.Lock()
+	set := f.nodes["lb-3"].set
+	lan := f.nodes["lb-2"].netcfg.GetInterfaces()[0]
+	f.mu.Unlock()
+	if i := slices.IndexFunc(set.GetMembers(), func(m *janusv1alpha1.ClusterMember) bool { return m.GetName() == "lb-2" }); set.GetMembers()[i].GetAddress() != "10.0.0.40" {
+		t.Errorf("lb-3 was told %v", set.GetMembers())
+	}
+	if strings.Join(lan.GetAddresses(), " ") != "10.0.0.40/24" || lan.GetMode() != janusv1alpha1.AddressingMode_ADDRESSING_MODE_STATIC {
+		t.Errorf("lb-2's interface: %v", lan)
+	}
+	if st := a.clusters.Store.State(c.ID); st.Members["lb-2"].Drained || st.Members["lb-2"].Applied != cur.Desired {
+		t.Errorf("lb-2's state after: %+v", st.Members["lb-2"])
+	}
+
+	// Through the API.
+	rec := call(t, a.handleClusterReaddress, "POST", "/api/clusters/"+c.ID+"/members/lb-3/address", "POST /api/clusters/{id}/members/{name}/address", clusters.Addressing{Addresses: []string{"nope"}})
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("a bad address: %d %s", rec.Code, rec.Body)
+	}
+	rec = call(t, a.handleClusterReaddress, "POST", "/api/clusters/"+c.ID+"/members/lb-3/address", "POST /api/clusters/{id}/members/{name}/address", clusters.Addressing{Addresses: []string{"10.0.0.43/24"}})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("moving lb-3: %d %s", rec.Code, rec.Body)
+	}
+	a.clusters.wait()
+	if cur, _ := a.clusters.Store.Get(c.ID); cur.Member("lb-3").Address != "10.0.0.43" || cur.Error != "" {
+		t.Errorf("lb-3 after the API's move: %s %q", cur.Member("lb-3").Address, cur.Error)
+	}
+}
+
+// A replacement keeping the old member's address: it joins drained on
+// its own and stays so - the others serve - while the old member is
+// drained, leaves and is powered off; it then moves to the old member's
+// address, every member told, and comes into service there.
+func TestClusterReplaceKeepingAddress(t *testing.T) {
+	a, f, nodesByName := clusterApp(t, "lb-1", "lb-2", "lb-3", "lb-4")
+	mn := useMovingNodes(t, f)
+	c := newCluster(t, a, nodesByName, "lb-1", "lb-2")
+	ctx := context.Background()
+	if err := a.clusters.Create(ctx, c.ID, "lb-1", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	lb4 := clusters.Member{NodeID: nodesByName["lb-4"].ID, Name: "lb-4", Address: "10.0.0.4"}
+	keep := clusters.ReplaceOptions{KeepAddress: true}
+
+	// An address DHCP gives can't be taken over: nothing touched.
+	f.nodes["lb-1"].netcfg = &janusv1alpha1.NetworkConfig{Interfaces: []*janusv1alpha1.NetworkInterface{{Name: "lan", Mode: janusv1alpha1.AddressingMode_ADDRESSING_MODE_DHCP}}}
+	mark := f.mark()
+	if err := a.clusters.Replace(ctx, c.ID, "lb-1", lb4, keep, "admin"); err == nil || !strings.Contains(err.Error(), "DHCP") {
+		t.Errorf("a DHCP address taken over: %v", err)
+	}
+	if len(f.callsOf("lb-4", mark)) > 0 {
+		t.Errorf("lb-4 touched: %v", f.callsOf("lb-4", mark))
+	}
+	f.nodes["lb-1"].netcfg = &janusv1alpha1.NetworkConfig{Interfaces: []*janusv1alpha1.NetworkInterface{{Name: "lan", Mac: "52:54:00:aa:00:01",
+		Mode: janusv1alpha1.AddressingMode_ADDRESSING_MODE_STATIC, Addresses: []string{"10.0.0.1/24", "2001:db8::1/64"}, Gateway: "10.0.0.254", Gateway6: "2001:db8::fe"}}}
+
+	// lb-1 never frees its address: lb-4 in service on its own.
+	a.clusters.Release = func(context.Context, clusters.Member) error { return nil }
+	a.clusters.ReleaseTimeout = 100 * time.Millisecond
+	mark = f.mark()
+	err := a.clusters.Replace(ctx, c.ID, "lb-1", lb4, keep, "admin")
+	var ae *clusters.AddressError
+	if !errors.As(err, &ae) || ae.Moved || !strings.Contains(err.Error(), "still answers at 10.0.0.1:9505") {
+		t.Errorf("an address never freed: %v", err)
+	}
+	cur, _ := a.clusters.Store.Get(c.ID)
+	if cur.Member("lb-1") != nil || cur.Member("lb-4") == nil || cur.Member("lb-4").Address != "10.0.0.4" {
+		t.Errorf("members after: %+v", cur.Members)
+	}
+	if !inOrder(f.callsOf("lb-4", mark), "ClusterDrain", "Probe 10.0.0.1:9505", "ClusterUndrain") {
+		t.Errorf("lb-4: %v", f.callsOf("lb-4", mark))
+	}
+
+	// For real, lb-2 replaced by lb-3 (a node of the Controller's, powered
+	// off for its address).
+	a.clusters.Release = a.releaseMember
+	f.nodes["lb-2"].netcfg = &janusv1alpha1.NetworkConfig{Interfaces: []*janusv1alpha1.NetworkInterface{{Name: "lan", Mac: "52:54:00:aa:00:02",
+		Mode: janusv1alpha1.AddressingMode_ADDRESSING_MODE_STATIC, Addresses: []string{"2001:db8::2/64", "10.0.0.2/24"}, Gateway: "10.0.0.254", Gateway6: "2001:db8::fe"}}}
+	lb3 := clusters.Member{NodeID: nodesByName["lb-3"].ID, Name: "lb-3", Address: "10.0.0.3"}
+	mark = f.mark()
+	if err := a.clusters.Replace(ctx, c.ID, "lb-2", lb3, keep, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	calls := f.callsSince(mark)
+	if !inOrder(calls, "lb-3 ClusterSet lb-2,lb-4,lb-3 +cert", "lb-3 ClusterDrain", "lb-2 ClusterDrain", "lb-2 ClusterLeave", "lb-3 Probe 10.0.0.2:9505",
+		"lb-3 NetworkStatus", "lb-4 ClusterSet lb-4,lb-3", "lb-3 ClusterSet lb-4,lb-3", "lb-3 ClusterUndrain") {
+		t.Errorf("the order: %v", calls)
+	}
+	if n := strings.Count(strings.Join(calls, "\n"), "lb-3 ClusterUndrain"); n != 1 {
+		t.Errorf("lb-3 undrained %d times - in service before it had the address: %v", n, calls)
+	}
+	if !slices.Contains(mn.shutdown, "lb-2") {
+		t.Errorf("lb-2 not powered off: %v", mn.shutdown)
+	}
+	cur, _ = a.clusters.Store.Get(c.ID)
+	if cur.Member("lb-2") != nil || cur.Member("lb-3") == nil || cur.Member("lb-3").Address != "10.0.0.2" {
+		t.Errorf("members after: %+v", cur.Members)
+	}
+	if n, _ := a.store.Get(nodesByName["lb-3"].ID); n.Addr() != "10.0.0.2:9505" {
+		t.Errorf("the Controller reaches lb-3 at %s", n.Addr())
+	}
+	f.mu.Lock()
+	lan := f.nodes["lb-3"].netcfg.GetInterfaces()[0]
+	f.mu.Unlock()
+	if strings.Join(lan.GetAddresses(), " ") != "10.0.0.2/24 2001:db8::2/64" || lan.GetGateway6() != "2001:db8::fe" {
+		t.Errorf("lb-3's interface: %v", lan)
+	}
+
+	// A cluster of one: nothing would serve.
+	c2, _ := a.clusters.Store.Get(c.ID)
+	if _, err := a.clusters.Store.Update(c2.ID, func(c *clusters.Cluster) error {
+		c.Members = c.Members[1:]
+		c.SecretsFrom = c.Members[0].Name
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.clusters.Replace(ctx, c.ID, "lb-3", clusters.Member{NodeID: nodesByName["lb-1"].ID, Name: "lb-1", Address: "10.0.0.1"}, keep, "admin"); err == nil || !strings.Contains(err.Error(), "only member") {
+		t.Errorf("a cluster of one: %v", err)
+	}
+}
+
+// A machine member with a static address, recycled keeping it: a new
+// machine on a temporary address, the old one destroyed, the new one
+// moved to the member's address - its record following.
+func TestClusterRecycleKeepingAddress(t *testing.T) {
+	a, fake := newTestApp(t)
+	h := addTrustedHypervisor(t, a)
+	image := append([]byte("QFI\xfb\x00\x00\x00\x03"), make([]byte, 4096)...)
+	sum := sha256.Sum256(image)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(image) }))
+	defer srv.Close()
+	st, err := clusters.Open(a.dataDir, testSealer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.clusters = newClusterEngine(a, st)
+	f := &clusterFake{nodes: map[string]*fakeMember{}, fail: map[string]error{}, unreach: map[[2]string]bool{}, byAddr: map[string]string{}, silent: map[string]bool{}, notAfter: time.Now().Add(clusters.MemberValidity)}
+	a.clusters.Nodes = f
+	t.Cleanup(a.clusters.wait)
+	useMovingNodes(t, f).cutShutdown = true
+	// The machine destroyed, nothing answers at its address.
+	a.clusters.Release = func(ctx context.Context, m clusters.Member) error {
+		err := a.releaseMember(ctx, m)
+		f.mu.Lock()
+		f.silent[clusters.APIAddress(m)] = true
+		f.mu.Unlock()
+		return err
+	}
+	member := func(name string) {
+		f.mu.Lock()
+		f.nodes[name] = &fakeMember{schematic: "s1", healthy: true, cfg: []byte("global # " + name + "\n"), files: map[string][]byte{}, secret: map[string]bool{}, modules: map[string][]byte{}}
+		f.mu.Unlock()
+	}
+	register := func(id, name, addr string) *machines.Machine {
+		t.Helper()
+		waitPhase(t, a, id, machines.PhaseRegistering)
+		path := filepath.Join(t.TempDir(), "cidata.iso")
+		if err := os.WriteFile(path, fake.ciData, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		ci, err := nocloud.Read(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.mu.Lock()
+		f.byAddr[addr] = name
+		f.mu.Unlock()
+		req := registration(t, name, ci.RegistrationToken)
+		req.Address = addr
+		if rec := call(t, a.handleRegister, "POST", "/register", "/register", req); rec.Code != http.StatusCreated {
+			t.Fatalf("register %s: %d %s", name, rec.Code, rec.Body)
+		}
+		m := waitPhase(t, a, id, machines.PhaseReady)
+		if err := a.store.SetFleet(m.NodeID); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	nicOf := func(addr string) []machines.NIC {
+		return []machines.NIC{{Network: "lab-mgmt", Name: "mgmt", Mode: "static", Addresses: []string{addr}, Gateway: "10.0.0.254"}}
+	}
+	machine := func(name, cidr string) *machines.Machine {
+		t.Helper()
+		rec := call(t, a.handleMachineCreate, "POST", "/api/machines", "POST /api/machines", machines.Spec{
+			Name: name, HypervisorID: h.ID,
+			Image: &machines.ImageSource{URL: srv.URL + "/janus-kvm.qcow2", SHA256: hex.EncodeToString(sum[:])},
+			NICs:  nicOf(cidr),
+		})
+		var v machineView
+		_ = json.Unmarshal(rec.Body.Bytes(), &v)
+		member(name)
+		m := register(v.ID, name, strings.Split(cidr, "/")[0]+":9505")
+		f.mu.Lock()
+		f.nodes[name].netcfg = &janusv1alpha1.NetworkConfig{Interfaces: []*janusv1alpha1.NetworkInterface{{Name: "mgmt", Mac: m.Spec.NICs[0].MAC,
+			Mode: janusv1alpha1.AddressingMode_ADDRESSING_MODE_STATIC, Addresses: []string{cidr}, Gateway: "10.0.0.254"}}}
+		f.mu.Unlock()
+		return m
+	}
+	lb1, lb2 := machine("lb-1", "10.0.0.11/24"), machine("lb-2", "10.0.0.12/24")
+	c, err := a.clusters.Store.Create("edge", 0, []string{"haproxy", "files"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _ = a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error {
+		c.Members = []clusters.Member{{NodeID: lb1.NodeID, Name: "lb-1", Address: "10.0.0.11"}, {NodeID: lb2.NodeID, Name: "lb-2", Address: "10.0.0.12"}}
+		c.SecretsFrom = "lb-1"
+		return nil
+	})
+	ctx := context.Background()
+	if err := a.clusters.Create(ctx, c.ID, "lb-1", "admin"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Without a temporary address, a static one is refused at once.
+	if err := a.recycle(ctx, c.ID, recycleRequest{Members: []string{"lb-1"}}, "admin"); err == nil || !strings.Contains(err.Error(), "a temporary address") {
+		t.Errorf("no temporary address: %v", err)
+	}
+	rec := call(t, a.handleClusterRecycle, "POST", "/api/clusters/"+c.ID+"/recycle", "POST /api/clusters/{id}/recycle", recycleRequest{Members: []string{"lb-1"}, TemporaryAddress: "10.0.0.30"})
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("a temporary address without its prefix: %d %s", rec.Code, rec.Body)
+	}
+
+	member("edge-1")
+	done := make(chan error, 1)
+	go func() {
+		done <- a.recycle(ctx, c.ID, recycleRequest{Members: []string{"lb-1"}, TemporaryAddress: "10.0.0.30/24"}, "admin")
+	}()
+	var repl *machines.Machine
+	deadline := time.Now().Add(10 * time.Second)
+	for repl == nil && time.Now().Before(deadline) {
+		for _, m := range a.machines.List() {
+			if m.Spec.Name == "edge-1" {
+				repl = m
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if repl == nil {
+		t.Fatal("no new machine made")
+	}
+	if n := repl.Spec.NICs[0]; n.Mode != "static" || strings.Join(n.Addresses, " ") != "10.0.0.30/24" || n.Gateway != "10.0.0.254" {
+		t.Errorf("the new machine's interface: %+v", n)
+	}
+	register(repl.ID, "edge-1", "10.0.0.30:9505")
+	repl, _ = a.machines.Get(repl.ID)
+	f.mu.Lock()
+	f.nodes["edge-1"].netcfg = &janusv1alpha1.NetworkConfig{Interfaces: []*janusv1alpha1.NetworkInterface{{Name: "mgmt", Mac: repl.Spec.NICs[0].MAC,
+		Mode: janusv1alpha1.AddressingMode_ADDRESSING_MODE_STATIC, Addresses: []string{"10.0.0.30/24"}, Gateway: "10.0.0.254"}}}
+	f.mu.Unlock()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	cur, _ := a.clusters.Store.Get(c.ID)
+	if cur.Member("lb-1") != nil || cur.Member("edge-1") == nil || cur.Member("edge-1").Address != "10.0.0.11" {
+		t.Errorf("members after: %+v", cur.Members)
+	}
+	if _, ok := a.machines.Get(lb1.ID); ok {
+		t.Error("lb-1's machine not destroyed")
+	}
+	fake.mu.Lock()
+	destroyed := slices.Clone(fake.destroyed)
+	fake.mu.Unlock()
+	if !slices.Contains(destroyed, "janus-lb-1") {
+		t.Errorf("destroyed %v", destroyed)
+	}
+	repl, _ = a.machines.Get(repl.ID)
+	if n := repl.Spec.NICs[0]; strings.Join(n.Addresses, " ") != "10.0.0.11/24" || n.Mode != "static" {
+		t.Errorf("the new machine's record: %+v", n)
+	}
+	if n, _ := a.store.Get(repl.NodeID); n.Addr() != "10.0.0.11:9505" {
+		t.Errorf("the Controller reaches edge-1 at %s", n.Addr())
+	}
+	journal := ""
+	for _, e := range a.clusters.Store.Entries(c.ID, 100) {
+		journal += e.Message + "\n"
+	}
+	if !strings.Contains(journal, "replaced by edge-1 at its address") || !strings.Contains(journal, "every member knows edge-1 at 10.0.0.11") {
+		t.Errorf("the journal: %s", journal)
+	}
+}
+
+// A clone taking its member's address over: the interface holding it on
+// the temporary address until then, the others as cloneSpec makes them.
+func TestCloneTakingOver(t *testing.T) {
+	old := machines.Spec{Name: "lb-1", NICs: []machines.NIC{
+		{Name: "mgmt", Mode: "dhcp", MAC: "52:54:00:00:00:01"},
+		{Name: "lan", Mode: "static", MAC: "52:54:00:00:00:02", Addresses: []string{"192.0.2.11/24"}, Gateway: "192.0.2.1"},
+	}}
+	s, err := cloneTakingOver(old, "edge-1", "", "192.0.2.11", "192.0.2.30/24")
+	if err != nil || s.NICs[1].Addresses[0] != "192.0.2.30/24" || s.NICs[1].Gateway != "192.0.2.1" || s.NICs[1].MAC != "" || old.NICs[1].Addresses[0] != "192.0.2.11/24" {
+		t.Errorf("clone: %+v %v (old %+v)", s, err, old)
+	}
+	if s, err := cloneTakingOver(old, "edge-1", "", "192.0.2.11", "DHCP"); err != nil || s.NICs[1].Mode != "dhcp" || s.NICs[1].Addresses != nil || s.NICs[1].Gateway != "" {
+		t.Errorf("on DHCP: %+v %v", s.NICs, err)
+	}
+	if _, err := cloneTakingOver(old, "edge-1", "", "192.0.2.11", ""); err == nil || !strings.Contains(err.Error(), "temporary address") {
+		t.Errorf("no temporary address: %v", err)
+	}
+	if _, err := cloneTakingOver(old, "edge-1", "", "192.0.2.11", "192.0.2.11/24"); err == nil {
+		t.Error("the member's own address as the temporary one")
+	}
+	if _, err := cloneTakingOver(old, "edge-1", "", "192.0.2.99", "192.0.2.30/24"); err == nil || !strings.Contains(err.Error(), "isn't a static one") {
+		t.Errorf("an address DHCP gave: %v", err)
+	}
+	old.NICs = append(old.NICs, machines.NIC{Name: "back", Mode: "static", Addresses: []string{"10.9.0.11/24"}})
+	if _, err := cloneTakingOver(old, "edge-1", "", "192.0.2.11", "192.0.2.30/24"); err == nil || !strings.Contains(err.Error(), "back") {
+		t.Errorf("another static interface: %v", err)
+	}
+}

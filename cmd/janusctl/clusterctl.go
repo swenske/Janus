@@ -5,8 +5,10 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -20,8 +22,10 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
@@ -44,13 +48,14 @@ import (
 var clusterCtlVerbs = map[string]bool{
 	"create": true, "apply": true, "check": true, "add": true, "remove": true, "replace": true, "upgrade": true, "delete": true,
 	"vars": true, "certificate": true, "tickets": true, "list": true, "journal": true, "checkout": true,
-	"balancer": true, "letsencrypt": true,
+	"balancer": true, "readdress": true, "letsencrypt": true,
 }
 
 // clusterCtl is the orchestrator for one fleet context.
 type clusterCtl struct {
 	*clusters.Engine
 	ctxName string
+	cfg     *cliConfig
 	c       *cliContext
 	cert    tls.Certificate
 
@@ -82,13 +87,15 @@ func openClusterCtl(globalCtx string) *clusterCtl {
 	if err != nil {
 		log.Fatal(err)
 	}
-	o := &clusterCtl{ctxName: name, c: c, cert: cert, conns: map[string]*grpc.ClientConn{}}
+	o := &clusterCtl{ctxName: name, cfg: cfg, c: c, cert: cert, conns: map[string]*grpc.ClientConn{}}
 	o.Engine = &clusters.Engine{
-		Store:     store,
-		Nodes:     clusters.GRPC{Conn: o.conn, ConfirmFirewall: o.confirmFirewall},
-		Ready:     o.ready,
-		ManagedBy: "janusctl fleet " + c.Fleet.Name,
-		Advisory:  true,
+		Store:       store,
+		Nodes:       clusters.GRPC{Conn: o.conn, ConfirmFirewall: o.confirmFirewall},
+		Ready:       o.ready,
+		ManagedBy:   "janusctl fleet " + c.Fleet.Name,
+		Advisory:    true,
+		MoveNetwork: o.moveNetwork,
+		Release:     o.release,
 	}
 	return o
 }
@@ -116,11 +123,127 @@ func (o *clusterCtl) dial(m clusters.Member) (*grpc.ClientConn, error) {
 	if err != nil {
 		return nil, err
 	}
+	return o.dialAt(n, n.Address)
+}
+
+// dialAt is a connection to node n at endpoint.
+func (o *clusterCtl) dialAt(n ctxNode, endpoint string) (*grpc.ClientConn, error) {
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM([]byte(n.CAPEM)) {
 		return nil, fmt.Errorf("%s: no CA in the context", n.Name)
 	}
-	return grpc.NewClient(n.Address, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{Certificates: []tls.Certificate{o.cert}, RootCAs: pool, MinVersion: tls.VersionTLS13})))
+	return grpc.NewClient(endpoint, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{Certificates: []tls.Certificate{o.cert}, RootCAs: pool, MinVersion: tls.VersionTLS13})))
+}
+
+// moveNetwork is the engine's MoveNetwork: cfg on trial on member m's
+// node, confirmed over a new connection where it answers then, and the
+// context's node following it there.
+func (o *clusterCtl) moveNetwork(ctx context.Context, m clusters.Member, cfg *janusv1alpha1.NetworkConfig) error {
+	n, err := o.node(m.NodeID)
+	if err != nil {
+		return err
+	}
+	conn, err := o.conn(ctx, m)
+	if err != nil {
+		return err
+	}
+	actx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	stream, err := janusv1alpha1.NewNetworkServiceClient(conn).NetworkConfigApply(actx, &janusv1alpha1.NetworkConfigApplyRequest{Config: cfg, ConfirmTimeoutSeconds: 60})
+	if err != nil {
+		return err
+	}
+	var addrs []string
+	revertAt := time.Now().Add(60 * time.Second)
+	applying := false
+	for {
+		resp, err := stream.Recv()
+		if err != nil {
+			code := status.Code(err)
+			if errors.Is(err, io.EOF) || (applying && (code == codes.Unavailable || code == codes.DeadlineExceeded || code == codes.Canceled)) {
+				break // the connection lost with the address it came in on: expected
+			}
+			return errors.New(status.Convert(err).Message())
+		}
+		if resp.GetStage() == "applying" {
+			applying = true
+		}
+		if resp.GetRevertAtUnix() != 0 {
+			revertAt = time.Unix(resp.GetRevertAtUnix(), 0)
+		}
+		if len(resp.GetAddresses()) > 0 {
+			addrs = resp.GetAddresses()
+		}
+	}
+	candidates := confirmEndpoints(n.Address, cfg, addrs)
+	var last error
+	for time.Now().Before(revertAt.Add(-time.Second)) {
+		for _, ep := range candidates {
+			if last = o.confirmNetworkAt(n, ep); last == nil {
+				return o.moved(m, ep)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
+	return fmt.Errorf("couldn't confirm over %s before the node reverts (%v) - it goes back to its previous configuration by itself", strings.Join(candidates, ", "), last)
+}
+
+// confirmNetworkAt confirms node n's network configuration on trial over
+// a new connection to endpoint.
+func (o *clusterCtl) confirmNetworkAt(n ctxNode, endpoint string) error {
+	conn, err := o.dialAt(n, endpoint)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	c, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	_, err = janusv1alpha1.NewNetworkServiceClient(conn).NetworkConfigConfirm(c, &emptypb.Empty{}, grpc.WaitForReady(true))
+	if err != nil {
+		return errors.New(status.Convert(err).Message())
+	}
+	return nil
+}
+
+// moved records that member m's node answers at endpoint now: the
+// context's node, and the connection made again there.
+func (o *clusterCtl) moved(m clusters.Member, endpoint string) error {
+	o.mu.Lock()
+	if c, ok := o.conns[m.Name]; ok {
+		c.Close()
+		delete(o.conns, m.Name)
+	}
+	o.mu.Unlock()
+	for i := range o.c.Nodes {
+		if o.c.Nodes[i].Name == m.NodeID {
+			if o.c.Nodes[i].Address == endpoint {
+				return nil
+			}
+			fmt.Printf("  %s moved: the context reaches it at %s now (was %s)\n", m.NodeID, endpoint, o.c.Nodes[i].Address)
+			o.c.Nodes[i].Address = endpoint
+		}
+	}
+	return o.cfg.save()
+}
+
+// release is the engine's Release: member m, out of the cluster, gives
+// its address up - its node powered off.
+func (o *clusterCtl) release(ctx context.Context, m clusters.Member) error {
+	conn, err := o.conn(ctx, m)
+	if err != nil {
+		return err
+	}
+	sctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if _, err := janusv1alpha1.NewSystemServiceClient(conn).Shutdown(sctx, &emptypb.Empty{}); err != nil {
+		return fmt.Errorf("powering %s off: %s", m.Name, status.Convert(err).Message())
+	}
+	fmt.Printf("  %s is powering off: its address goes to its replacement\n", m.Name)
+	return nil
 }
 
 // conn is member m's connection, made once.
@@ -549,6 +672,7 @@ func runClusterCtl(globalCtx string, args []string) {
 		vars := memberVars{}
 		fs.Var(vars, "var", "KEY=VALUE: a variable the cluster's templates use for it, repeatable (default: the old member's)")
 		newImage := fs.Bool("new-image", false, "the new node may run another image - the cluster changing image member by member")
+		keep := fs.Bool("keep-address", false, "NEW takes OLD's address over once OLD has left - OLD is powered off")
 		parseAnywhere(fs, args[1:])
 		if fs.NArg() != 3 {
 			clusterCtlUsage("replace")
@@ -565,11 +689,44 @@ func runClusterCtl(globalCtx string, args []string) {
 		since := time.Now()
 		ctx, cancel := forCluster(c.ID, 20*time.Minute)
 		defer cancel()
-		fmt.Printf("Cluster %s: %s joins drained, learns its stick tables, then takes %s's place\n", c.Name, node, old)
-		err := o.Replace(ctx, c.ID, old, m, clusters.ReplaceOptions{NewImage: *newImage}, actor(o))
+		if *keep {
+			fmt.Printf("Cluster %s: %s joins drained, learns its stick tables; %s is drained, leaves and powers off; %s takes its address and comes into service\n", c.Name, node, old, node)
+		} else {
+			fmt.Printf("Cluster %s: %s joins drained, learns its stick tables, then takes %s's place\n", c.Name, node, old)
+		}
+		err := o.Replace(ctx, c.ID, old, m, clusters.ReplaceOptions{NewImage: *newImage, KeepAddress: *keep}, actor(o))
 		o.report(c.ID, since)
 		check("cluster replace", err)
-		fmt.Printf("%s replaced %s. %s is on its own, still drained until it reboots (janusctl -n %s cluster undrain to use it again)\n", node, old, old, old)
+		if *keep {
+			fmt.Printf("%s replaced %s, at its address. %s is powered off: janusctl fleet forget %s once it's gone for good\n", node, old, old, old)
+		} else {
+			fmt.Printf("%s replaced %s. %s is on its own, still drained until it reboots (janusctl -n %s cluster undrain to use it again)\n", node, old, old, old)
+		}
+	case "readdress":
+		fs := flag.NewFlagSet("cluster readdress", flag.ExitOnError)
+		gateway := fs.String("gateway", "", "the interface's IPv4 default gateway")
+		gateway6 := fs.String("gateway6", "", "its IPv6 default gateway")
+		parseAnywhere(fs, args[1:])
+		if fs.NArg() < 3 {
+			clusterCtlUsage("readdress")
+		}
+		to := clusters.Addressing{Addresses: fs.Args()[2:], Gateway: *gateway, Gateway6: *gateway6}
+		if err := to.Check(); err != nil {
+			log.Fatalf("janusctl cluster readdress: %v", err)
+		}
+		o := openClusterCtl(globalCtx)
+		defer o.close()
+		c := o.cluster(fs.Arg(0))
+		name := fs.Arg(1)
+		defer o.exclusive(c.ID)()
+		since := time.Now()
+		ctx, cancel := forCluster(c.ID, 20*time.Minute)
+		defer cancel()
+		fmt.Printf("Cluster %s: %s drained, moved to %s on trial, the members told, back in service\n", c.Name, name, to)
+		err := o.Readdress(ctx, c.ID, name, to, actor(o))
+		o.report(c.ID, since)
+		check("cluster readdress", err)
+		fmt.Printf("%s is at %s\n", name, to.Address())
 	case "upgrade":
 		runClusterUpgrade(globalCtx, args)
 	case "delete":
