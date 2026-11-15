@@ -56,8 +56,9 @@ const (
 
 // Managed domains a cluster may lock on a member (docs/cluster.md
 // "Locks and drift"): what the orchestrator applies, refused to anyone
-// else while the lock holds.
-var Domains = []string{"haproxy", "files", "vrrp", "bgp", "firewall"}
+// else while the lock holds. acme: the letsencrypt extension's
+// configuration - a release before it refuses a composition naming it.
+var Domains = []string{"haproxy", "files", "vrrp", "bgp", "firewall", "acme"}
 
 var (
 	idPattern     = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)

@@ -1400,7 +1400,7 @@ janusctl cluster apply [-manage LIST] [-dry-run] [-m TEXT] NAME DIR
 
 | Flag | |
 |---|---|
-| `-manage LIST` | what the cluster manages from now on: haproxy,files,vrrp,bgp,firewall (default: as before) |
+| `-manage LIST` | what the cluster manages from now on: haproxy,files,acme,vrrp,bgp,firewall (default: as before) |
 | `-dry-run` | say what would change, change nothing |
 | `-m TEXT` | what this version changes |
 
@@ -1562,6 +1562,18 @@ janusctl cluster balancer [-kind KIND] [-url URL] [-ca FILE] [-fingerprint SHA25
 | `-off` | no hook any more |
 | `-sync` | call it with the members now |
 
+#### janusctl cluster letsencrypt
+
+The cluster's Let's Encrypt: FILE (janusctl haproxy acme get's JSON, secrets in it) given to the member that orders, the rest the cluster's next version, the same on every member and locked there - they pull the secrets from it; shown without FILE.
+
+```text
+janusctl cluster letsencrypt [-m TEXT] NAME [FILE]
+```
+
+| Flag | |
+|---|---|
+| `-m TEXT` | what this version changes |
+
 #### janusctl cluster journal
 
 What was done to the cluster, by whom.
@@ -1615,7 +1627,7 @@ janusctl cluster set [-id UUID] [-name NAME] [-member NAME] [-port N] [-ca FILE]
 | `-ca FILE` | the cluster's CA (PEM): the first time, or to replace it |
 | `-cert FILE` | the member certificate (PEM) for the last csr: the first time, or to renew it |
 | `-managed-by TEXT` | who sets the composition |
-| `-managed LIST` | what the cluster manages here, locked to the orchestrator: haproxy,files,vrrp,bgp,firewall |
+| `-managed LIST` | what the cluster manages here, locked to the orchestrator: haproxy,files,vrrp,bgp,firewall,acme |
 
 #### janusctl cluster leave
 

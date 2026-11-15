@@ -3,10 +3,12 @@ package acme
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 )
@@ -67,11 +69,40 @@ func (m *Manager) ExportConfig() ([]byte, error) {
 
 // InstallPulledConfig makes the configuration another cluster member
 // exported (ExportConfig) this node's, as Apply would: a member another
-// orders for (Follow) holds it for the day it becomes the orderer.
+// orders for (Follow) holds it for the day it becomes the orderer. A
+// certificate it no longer has that this node's haproxy.cfg still uses
+// is kept - the rest, the secrets with it, installed all the same - until
+// this node's configuration no longer uses it: the member that exported
+// it may run a newer haproxy.cfg already (a cluster's version applied
+// member by member, Let's Encrypt's with it).
 func (m *Manager) InstallPulledConfig(data []byte) error {
 	cfg := &janusv1alpha1.ACMEConfig{}
 	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(data, cfg); err != nil {
 		return fmt.Errorf("the pulled configuration: %w", err)
+	}
+	m.mu.Lock()
+	var gone []*janusv1alpha1.ACMECertificate
+	for _, c := range m.cfg.GetCertificates() {
+		if !slices.ContainsFunc(cfg.Certificates, func(n *janusv1alpha1.ACMECertificate) bool { return n.Name == c.Name }) {
+			gone = append(gone, c)
+		}
+	}
+	var kept []string
+	if len(gone) > 0 {
+		names := make([]string, len(gone))
+		for i, c := range gone {
+			names[i] = c.Name
+		}
+		if len(m.checkRemovable(names)) > 0 {
+			for _, c := range gone {
+				cfg.Certificates = append(cfg.Certificates, proto.Clone(c).(*janusv1alpha1.ACMECertificate))
+			}
+			kept = names
+		}
+	}
+	m.mu.Unlock()
+	if len(kept) > 0 {
+		m.logger.Printf("the pulled configuration has no %s: kept while this node's haproxy.cfg uses it", strings.Join(kept, ", "))
 	}
 	errs, err := m.Apply(cfg, "", false)
 	if err != nil {

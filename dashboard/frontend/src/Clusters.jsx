@@ -1,6 +1,7 @@
-import { ChevronLeft, ExternalLink, FileText, History, KeyRound, Loader2, Network, Pencil, Plus, RefreshCw, Rocket, ScrollText, Send, Split, Trash2, Upload, Users } from 'lucide-react'
+import { ChevronLeft, ExternalLink, FileText, History, KeyRound, Loader2, LockKeyhole, Network, Pencil, Plus, RefreshCw, Rocket, ScrollText, Send, Split, Trash2, Upload, Users } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { call, postJSON } from './call.js'
+import ClusterLetsEncrypt from './ClusterLetsEncrypt.jsx'
 import { DOMAINS, STAGES, behindLatest, clusterNameError, domainsOf, health, memberDefaults, memberNameError, parseAddressing, parseVars, pathError, releaseError, temporaryAddressError, upgradeRows, varsText, versionChanges, when } from './clusters.js'
 import { useAct, useCan, useReadOnly } from './me.jsx'
 import { DiffView, Editor } from './shared/Editor.jsx'
@@ -559,6 +560,7 @@ function ClusterPage({ id, nodes }) {
           { id: 'members', label: 'Members', icon: Users },
           { id: 'configuration', label: 'Configuration', icon: FileText },
           { id: 'certificates', label: 'Certificates', icon: KeyRound },
+          { id: 'letsencrypt', label: "Let's Encrypt", icon: LockKeyhole },
           { id: 'journal', label: 'Journal', icon: ScrollText },
         ]}
         active={tab}
@@ -567,6 +569,7 @@ function ClusterPage({ id, nodes }) {
       {tab === 'members' && <Members cluster={cluster} nodes={nodes} act={act} busy={busyAction} reload={() => load(false)} />}
       {tab === 'configuration' && <Configuration cluster={cluster} reload={() => load(false)} />}
       {tab === 'certificates' && <Certificates cluster={cluster} act={act} busy={busyAction} reload={() => load(false)} />}
+      {tab === 'letsencrypt' && <ClusterLetsEncrypt cluster={cluster} reload={() => load(false)} />}
       {tab === 'journal' && <Journal cluster={cluster} />}
     </div>
   )
@@ -1810,7 +1813,7 @@ function Configuration({ cluster, reload }) {
       body: (
         <>
           <p>
-            Checked on {cluster.members[0]?.name} first, then applied one member at a time: the files, HAProxy, the files it no longer has, the firewall (on trial, confirmed), VRRP, BGP.
+            Checked on {cluster.members[0]?.name} first, then applied one member at a time: the files, Let’s Encrypt, HAProxy, the files it no longer has, the firewall (on trial, confirmed), VRRP, BGP.
             The first failure stops it.
           </p>
           <fieldset className="plain">
@@ -1914,7 +1917,7 @@ function Configuration({ cluster, reload }) {
         {draft && (
           <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <label className="field grow">
-              <span>Add a file - haproxy.cfg, files/NAME (no key), keepalived.conf, bird.conf, firewall.nft</span>
+              <span>Add a file - haproxy.cfg, files/NAME (no key), keepalived.conf, bird.conf, firewall.nft, letsencrypt.json (no secret)</span>
               <input className="mono" value={newPath} onChange={(e) => setNewPath(e.target.value.trim())} placeholder="keepalived.conf" />
             </label>
             <button

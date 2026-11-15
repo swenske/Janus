@@ -151,6 +151,47 @@ func Redacted(cfg *janusv1alpha1.ACMEConfig) *janusv1alpha1.ACMEConfig {
 	return out
 }
 
+// ParseConfig reads a configuration in its JSON form (Marshal's, or
+// janusctl haproxy acme get's), refusing a field it doesn't know.
+func ParseConfig(data []byte) (*janusv1alpha1.ACMEConfig, error) {
+	cfg := &janusv1alpha1.ACMEConfig{}
+	if err := protojson.Unmarshal(data, cfg); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+// Canonical is cfg as a cluster keeps it in its versions
+// (internal/clusters): normalized, its secrets emptied, in Marshal's form
+// - what tells whether two members run the same configuration, whatever
+// secrets each holds.
+func Canonical(cfg *janusv1alpha1.ACMEConfig) ([]byte, error) {
+	c := proto.Clone(cfg).(*janusv1alpha1.ACMEConfig)
+	normalize(c)
+	return Marshal(Redacted(c))
+}
+
+// Secrets names the secrets cfg holds: a DNS provider's settings, the
+// EAB key, the proxy's password - what a cluster's version never does
+// (they go to the member that orders, the others pull them from it).
+func Secrets(cfg *janusv1alpha1.ACMEConfig) []string {
+	var out []string
+	if cfg.GetAccount().GetEabHmacKey() != "" {
+		out = append(out, "account.eab_hmac_key")
+	}
+	if cfg.GetPath().GetProxyPassword() != "" {
+		out = append(out, "path.proxy_password")
+	}
+	for _, p := range cfg.GetDnsProviders() {
+		for _, k := range sortedKeys(p.GetSettings()) {
+			if p.GetSettings()[k] != "" {
+				out = append(out, fmt.Sprintf("dns_providers[%s].settings.%s", p.GetName(), k))
+			}
+		}
+	}
+	return out
+}
+
 // Validate checks a (normalized, secrets merged) configuration.
 func Validate(cfg *janusv1alpha1.ACMEConfig) []string {
 	var errs []string

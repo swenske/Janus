@@ -356,6 +356,7 @@ func (c *Cluster) info() *janusv1alpha1.ClusterInfo {
 		info.UndrainedUnix = t.Unix()
 	}
 	info.HandoffSupported, info.HandoffUnavailable = true, c.handoffUnavailable()
+	info.Lockable = slices.Clone(cluster.Domains)
 	if c.Handoff != nil {
 		for _, h := range c.Handoff.List() {
 			info.Handoffs = append(info.Handoffs, handoffState(h))

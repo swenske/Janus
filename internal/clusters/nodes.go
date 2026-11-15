@@ -31,6 +31,11 @@ type Nodes interface {
 	// ACMEStatus: m's letsencrypt extension - its certificates, the
 	// thumbprint it answers HTTP-01 with.
 	ACMEStatus(ctx context.Context, m Member) (*janusv1alpha1.ACMEStatusResponse, error)
+	// ACMEConfig: m's letsencrypt configuration, its secrets empty;
+	// ACMEApply replaces it - an empty secret keeps m's -, its refusal
+	// worded as the node gives it.
+	ACMEConfig(ctx context.Context, m Member) (*janusv1alpha1.ACMEConfig, error)
+	ACMEApply(ctx context.Context, m Member, cfg *janusv1alpha1.ACMEConfig, validateOnly bool) error
 	// A node-to-node state transfer's steps (Seed): a signing request
 	// for m's transfer key; m's grant of one export to it - never the
 	// identity; m pulling from addr with it.
@@ -235,6 +240,38 @@ func (g GRPC) ACMEStatus(ctx context.Context, m Member) (*janusv1alpha1.ACMEStat
 		return c.ACMEStatus(ctx, &emptypb.Empty{}, opts...)
 	})
 	return st, nodeError(err)
+}
+
+func (g GRPC) ACMEConfig(ctx context.Context, m Member) (*janusv1alpha1.ACMEConfig, error) {
+	c, err := g.haproxy(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := onceMore(func(opts ...grpc.CallOption) (*janusv1alpha1.ACMEGetConfigResponse, error) {
+		return c.ACMEGetConfig(ctx, &emptypb.Empty{}, opts...)
+	})
+	if err != nil {
+		return nil, nodeError(err)
+	}
+	if resp.GetConfig() == nil {
+		return &janusv1alpha1.ACMEConfig{}, nil
+	}
+	return resp.GetConfig(), nil
+}
+
+func (g GRPC) ACMEApply(ctx context.Context, m Member, cfg *janusv1alpha1.ACMEConfig, validateOnly bool) error {
+	c, err := g.haproxy(ctx, m)
+	if err != nil {
+		return err
+	}
+	resp, err := c.ACMEApplyConfig(ctx, &janusv1alpha1.ACMEApplyConfigRequest{Config: cfg, ValidateOnly: validateOnly})
+	if err != nil {
+		return nodeError(err)
+	}
+	if !resp.GetAccepted() {
+		return fmt.Errorf("letsencrypt.json: %s", strings.Join(resp.GetErrors(), "; "))
+	}
+	return nil
 }
 
 func (g GRPC) StateTransferRequest(ctx context.Context, m Member) ([]byte, error) {

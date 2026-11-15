@@ -542,6 +542,19 @@ order nothing, and answer HTTP-01 with the orderer's thumbprint
 from every check, tells the members who orders and pulls a member's
 certificates again when they differ from the orderer's (by serial).
 
+What was built next (P7c, #569): the configuration a managed domain,
+`acme` - opt-in like VRRP's, by setting it on the cluster
+(`Engine.ConfigureACME`: checked on the orderer, given to it whole with
+its secrets, relayed). A version carries it as `letsencrypt.json`,
+canonical and without a secret (`acme.Canonical`, refused otherwise);
+each member pulls `CLUSTER_ITEM_ACME_CONFIG` from the orderer before
+taking it - the secrets travel member to member, never through the
+orchestrator -, keeps a certificate the version drops until its new
+`haproxy.cfg` is applied, and is locked (`ACMEApplyConfig` in
+`lockDomains`); drift is the canonical form's hash. Every member then
+runs the same configuration - the way to the CA included -, so a new
+orderer goes on the same way.
+
 ### TLS ticket keys
 
 A TLS session resumes with a ticket the server encrypted; a client that
@@ -1071,6 +1084,7 @@ In phases, each proven on real boots before the next:
 | **P6d - RouterOS** | The balancer's `routeros` kind: the engine keeps a RouterOS 7 router's ECMP routes over its REST API (a route per member in service and service prefix, tagged `janus-cluster:<id>`), a member's route removed before its drain, put back by Reconcile; check-gateway, a pinned certificate | Unit tests against a fake router; `make routeros-hook-test` (MikroTik CHR under QEMU, pinned in versions.mk) |
 | **P7a - a cluster from a node** | New machines `seed_from` a node: the first takes its state node to node (`StateImportFrom`, orchestrated by the Controller, never the identity), the cluster made from it; the node untouched | Unit tests (the calls in order, the node touched only by its grant, refusals, a refused grant destroying the machines); `controller-libvirt-test` part 4g (a cluster seeded from node1 on real machines) |
 | **P7b - Let's Encrypt in a cluster** | The secrets' source orders (`ClusterSetRequest.acme_orderer`); the others hold its configuration (`CLUSTER_ITEM_ACME_CONFIG`), order nothing, answer HTTP-01 with its thumbprint, and pull each renewal (`Engine.SyncACME` in Reconcile); a new source takes over | Unit tests (who is told, a renewal pulled, the take-over); `qemu-cluster-acme-test` (Pebble validating on the follower, its pull and a renewal's, the take-over) |
+| **P7c - the cluster manages Let's Encrypt** | Domain `acme`: `letsencrypt.json` in a version, without its secrets - given to the orderer, pulled by the others -, the same on every member and locked; the Controller's tab and `PUT /api/clusters/{id}/letsencrypt`, `janusctl cluster letsencrypt` | Unit tests (versions refuse secrets, the order of an apply, drift, a certificate dropped, secrets alone, a new orderer keeping the way to the CA); `qemu-cluster-acme-test` (a proxy with a password: the version without it, the follower locked, released and drifted, the new orderer through the same proxy) |
 
 P1 comes early because its need is concrete and its transport is P0's.
 

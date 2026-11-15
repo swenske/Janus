@@ -11,6 +11,10 @@ import (
 	"strings"
 	"testing"
 
+	"google.golang.org/protobuf/proto"
+
+	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/acme"
 	"github.com/swenske/Janus/internal/cluster"
 	"github.com/swenske/Janus/internal/pki"
 )
@@ -269,5 +273,55 @@ func TestJournal(t *testing.T) {
 	}
 	if all := s.Entries(c.ID, 1<<20); len(all) > journalMax {
 		t.Errorf("%d entries kept", len(all))
+	}
+}
+
+// A version's letsencrypt.json: never a secret, the same on every
+// member, hashed in its canonical form - the secrets each member holds,
+// and the way the file is written, don't count.
+func TestVersionLetsEncrypt(t *testing.T) {
+	s, _ := open(t)
+	c, _ := s.Create("edge", 0, []string{"haproxy", "files", "acme"})
+	withMembers(t, s, c.ID, Member{NodeID: "n1", Name: "lb-1", Address: "10.0.0.1"}, Member{NodeID: "n2", Name: "lb-2", Address: "10.0.0.2"})
+	c, _ = s.Get(c.ID)
+	for name, data := range map[string]string{
+		"a DNS provider's token": `{"dns_providers": [{"name": "g", "type": "gandiv5", "settings": {"GANDIV5_PERSONAL_ACCESS_TOKEN": "t"}}]}`,
+		"a proxy's password":     `{"path": {"mode": "ACME_PATH_MODE_PROXY", "proxy_url": "http://p:3128", "proxy_username": "u", "proxy_password": "p"}}`,
+		"the EAB key":            `{"account": {"eab_key_id": "k", "eab_hmac_key": "h"}}`,
+		"an unknown field":       `{"certificates": [], "orderer": "lb-1"}`,
+	} {
+		_, err := s.NewVersion(c.ID, "admin", "", map[string][]byte{"haproxy.cfg": []byte("global\n"), ACMEFile: []byte(data)})
+		if err == nil {
+			t.Errorf("%s accepted", name)
+		} else if name != "an unknown field" && !strings.Contains(err.Error(), "holds secrets") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	text := `{"certificates": [{"name": "site", "domains": ["Example.COM"]}],
+	  "dns_providers": [{"name": "g", "type": "gandiv5", "settings": {"GANDIV5_PERSONAL_ACCESS_TOKEN": ""}}],
+	  "path": {"mode": "ACME_PATH_MODE_PROXY", "proxy_url": "http://p:3128"}}`
+	v, err := s.NewVersion(c.ID, "admin", "", map[string][]byte{"haproxy.cfg": []byte("global\n"), ACMEFile: []byte(text)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	full, _ := s.Version(c.ID, v.Version)
+	r1, err := Render(full, c, "lb-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r2, _ := Render(full, c, "lb-2")
+	if r1.Hashes()["acme"] == "" || r1.Hashes()["acme"] != r2.Hashes()["acme"] {
+		t.Errorf("the acme hashes: %q %q", r1.Hashes()["acme"], r2.Hashes()["acme"])
+	}
+	if r1.ACMEConfig.GetPath().GetProxyUrl() != "http://p:3128" || !strings.Contains(string(r1.ACME), `"example.com"`) {
+		t.Errorf("rendered: %s", r1.ACME)
+	}
+	// What a member holds - its token, its saved form - hashes the same.
+	held := proto.Clone(r1.ACMEConfig).(*janusv1alpha1.ACMEConfig)
+	held.DnsProviders[0].Settings["GANDIV5_PERSONAL_ACCESS_TOKEN"] = "its-token"
+	held.Certificates[0].KeyType, held.Certificates[0].Challenge = "ec256", "http-01"
+	b, _ := acme.Canonical(held)
+	if Sum(b) != r1.Hashes()["acme"] {
+		t.Errorf("a member's own form hashes otherwise:\n%s\n%s", b, r1.ACME)
 	}
 }

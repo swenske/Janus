@@ -11,7 +11,8 @@ import (
 
 // Cluster locks (docs/cluster.md "Locks and drift"): on a cluster member,
 // what the cluster manages - HAProxy's configuration, its files and
-// certificates, VRRP, BGP, the firewall - is changed through the cluster,
+// certificates, VRRP, BGP, the firewall, Let's Encrypt's configuration -
+// is changed through the cluster,
 // on every member alike. A write to a managed domain is refused unless
 // the Controller makes it for that very cluster: its certificate, and the
 // cluster's id in pki.ClusterApplyKey. A cluster without a Controller
@@ -20,9 +21,9 @@ import (
 // casual apply-config off, not an admin. The node's own users release a
 // domain first (ClusterRelease) for an emergency change; the cluster then
 // reports the member as drifted. What runs live - servers' state, maps
-// and ACLs, stick tables, sessions, the firewall's sets, ACME - stays
-// each node's. Secrets pulled from another member (ClusterPull) don't go
-// through these RPCs.
+// and ACLs, stick tables, sessions, the firewall's sets, ACME renewals
+// and the Controller's ordering - stays each node's. Secrets pulled from
+// another member (ClusterPull) don't go through these RPCs.
 
 // ClusterLock is the node's cluster lock on a domain (janusd sets it,
 // internal/cluster.Store.Lock): the cluster's id and name when it manages
@@ -39,6 +40,7 @@ var lockDomains = map[string]string{
 	"/janus.v1alpha1.NetworkService/VRRPApplyConfig":      "vrrp",
 	"/janus.v1alpha1.NetworkService/BGPApplyConfig":       "bgp",
 	"/janus.v1alpha1.NetworkService/FirewallApplyRuleset": "firewall",
+	"/janus.v1alpha1.HAProxyService/ACMEApplyConfig":      "acme",
 }
 
 var domainWords = map[string]string{
@@ -47,6 +49,7 @@ var domainWords = map[string]string{
 	"vrrp":     "VRRP's configuration",
 	"bgp":      "BGP's configuration",
 	"firewall": "the firewall's ruleset",
+	"acme":     "Let's Encrypt's configuration",
 }
 
 // checkClusterLock refuses a write to a domain the node's cluster manages,

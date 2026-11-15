@@ -69,7 +69,7 @@ type ClusterServiceClient interface {
 	// on STATE goes with the membership.
 	ClusterLeave(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ClusterInfo, error)
 	// ClusterRelease lets this member's own configuration be changed again,
-	// by domain - haproxy, files, vrrp, bgp, firewall; none named: all -,
+	// by domain - haproxy, files, vrrp, bgp, firewall, acme; none named: all -,
 	// for an emergency change on one node while its cluster manages it.
 	// The orchestrator then reports the member as drifted, and takes the
 	// domains back with its next apply.
@@ -325,7 +325,7 @@ type ClusterServiceServer interface {
 	// on STATE goes with the membership.
 	ClusterLeave(context.Context, *emptypb.Empty) (*ClusterInfo, error)
 	// ClusterRelease lets this member's own configuration be changed again,
-	// by domain - haproxy, files, vrrp, bgp, firewall; none named: all -,
+	// by domain - haproxy, files, vrrp, bgp, firewall, acme; none named: all -,
 	// for an emergency change on one node while its cluster manages it.
 	// The orchestrator then reports the member as drifted, and takes the
 	// domains back with its next apply.

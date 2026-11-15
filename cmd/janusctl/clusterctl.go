@@ -29,6 +29,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/acme"
 	"github.com/swenske/Janus/internal/clusters"
 	"github.com/swenske/Janus/internal/pki"
 )
@@ -47,7 +48,7 @@ import (
 var clusterCtlVerbs = map[string]bool{
 	"create": true, "apply": true, "check": true, "add": true, "remove": true, "replace": true, "upgrade": true, "delete": true,
 	"vars": true, "certificate": true, "tickets": true, "list": true, "journal": true, "checkout": true,
-	"balancer": true, "readdress": true,
+	"balancer": true, "readdress": true, "letsencrypt": true,
 }
 
 // clusterCtl is the orchestrator for one fleet context.
@@ -542,7 +543,7 @@ func runClusterCtl(globalCtx string, args []string) {
 		writeVersion(o, c.ID, n, fs.Arg(1))
 	case "apply":
 		fs := flag.NewFlagSet("cluster apply", flag.ExitOnError)
-		manage := fs.String("manage", "", "what the cluster manages from now on: haproxy,files,vrrp,bgp,firewall (default: as before)")
+		manage := fs.String("manage", "", "what the cluster manages from now on: haproxy,files,acme,vrrp,bgp,firewall (default: as before)")
 		dryRun := fs.Bool("dry-run", false, "say what would change, change nothing")
 		note := fs.String("m", "", "what this version changes")
 		parseAnywhere(fs, args[1:])
@@ -1003,6 +1004,38 @@ func runClusterCtl(globalCtx string, args []string) {
 			fmt.Fprintf(tw, "%s\t%s\t%s\n", m.Name, m.Address, map[bool]string{true: "yes", false: "no"}[m.InService])
 		}
 		_ = tw.Flush()
+	case "letsencrypt":
+		fs := flag.NewFlagSet("cluster letsencrypt", flag.ExitOnError)
+		note := fs.String("m", "", "what this version changes")
+		parseAnywhere(fs, args[1:])
+		if fs.NArg() < 1 || fs.NArg() > 2 {
+			clusterCtlUsage("letsencrypt")
+		}
+		o := openClusterCtl(globalCtx)
+		defer o.close()
+		c := o.cluster(fs.Arg(0))
+		if fs.NArg() == 1 {
+			showClusterACME(o, c)
+			return
+		}
+		data, err := os.ReadFile(fs.Arg(1))
+		check("cluster letsencrypt", err)
+		cfg, err := acme.ParseConfig(data)
+		if err != nil {
+			log.Fatalf("janusctl cluster letsencrypt: %s: %v", fs.Arg(1), err)
+		}
+		defer o.exclusive(c.ID)()
+		since := time.Now()
+		ctx, cancel := forCluster(c.ID, 10*time.Minute)
+		defer cancel()
+		n, err := o.ConfigureACME(ctx, c.ID, cfg, *note, actor(o))
+		o.report(c.ID, since)
+		check("cluster letsencrypt", err)
+		if n > 0 {
+			fmt.Printf("Cluster %s: Let's Encrypt's configuration in version %d, on every member - its secrets on %s, which orders, pulled by the others\n", c.Name, n, c.SecretsFrom)
+		} else {
+			fmt.Printf("Cluster %s: version %d has this configuration already, on every member - its secrets given to %s, pulled by the others\n", c.Name, c.Desired, c.SecretsFrom)
+		}
 	case "journal":
 		fs := flag.NewFlagSet("cluster journal", flag.ExitOnError)
 		n := fs.Int("n", 50, "the newest N entries")
@@ -1028,6 +1061,43 @@ func runClusterCtl(globalCtx string, args []string) {
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", e.Time.Local().Format("2006-01-02 15:04:05"), e.Actor, e.Action, e.Member, v, msg)
 		}
 		_ = tw.Flush()
+	}
+}
+
+// showClusterACME prints cluster c's Let's Encrypt: who orders, whether
+// the cluster manages the configuration, each member's way to the CA,
+// and the orderer's configuration - its secrets empty.
+func showClusterACME(o *clusterCtl, c *clusters.Cluster) {
+	ctx, cancel := forCluster(c.ID, time.Minute)
+	defer cancel()
+	managed := "no - each member's own; janusctl cluster letsencrypt " + c.Name + " FILE makes it the cluster's"
+	if c.Manages("acme") {
+		managed = fmt.Sprintf("yes - version %d's letsencrypt.json, the same on every member, locked there", c.Desired)
+	}
+	fmt.Printf("Ordered by:  %s\n", c.SecretsFrom)
+	fmt.Printf("Managed:     %s\n", managed)
+	tw := table("MEMBER", "STATE", "REACHES THE CA", "ORDERED BY", "CERTIFICATES")
+	for _, m := range c.Members {
+		st, err := o.Nodes.ACMEStatus(ctx, m)
+		if err != nil {
+			fmt.Fprintf(tw, "%s\t%s\t\t\t\n", m.Name, err)
+			continue
+		}
+		var certs []string
+		for _, cs := range st.GetCertificates() {
+			certs = append(certs, cs.GetName()+" "+cs.GetState())
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", m.Name, strings.ToLower(strings.TrimPrefix(st.GetState().String(), "MODULE_STATE_")),
+			strings.ToLower(strings.TrimPrefix(st.GetPathMode().String(), "ACME_PATH_MODE_")), or(st.GetOrderedBy(), "-"), or(strings.Join(certs, ", "), "-"))
+	}
+	_ = tw.Flush()
+	if m := c.Member(c.SecretsFrom); m != nil {
+		cfg, err := o.Nodes.ACMEConfig(ctx, *m)
+		check("cluster letsencrypt", err)
+		out, err := acme.Marshal(cfg)
+		check("cluster letsencrypt", err)
+		fmt.Printf("\n%s's configuration (secrets empty - kept when applied empty):\n", m.Name)
+		os.Stdout.Write(out)
 	}
 }
 
