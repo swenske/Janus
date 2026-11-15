@@ -436,19 +436,28 @@ export function PathCard({ cfg, st, canApply, canCheck, busy, run, apply, contro
             {check && (
               <span className="small" role="status">
                 <Badge tone={check.ok ? 'ok' : 'danger'}>{check.ok ? 'reached' : 'failed'}</Badge>{' '}
-                {check.ok ? `${check.directory} ${check.via}, in ${check.milliseconds} ms.` : `${check.directory || 'The CA'} ${check.via || ''}: ${check.error}`}
-                {check.members && (
-                  <span className="acme-check-members">
-                    {check.members.map((m) => (
-                      <Badge key={m.member} tone={m.ok ? 'ok' : 'danger'} dot>
-                        {m.member} {m.text}
-                      </Badge>
-                    ))}
-                  </span>
-                )}
+                {check.members
+                  ? check.ok
+                    ? `${check.directory} ${check.via}, from every member.`
+                    : `${check.members.filter((m) => !m.ok).length} of ${check.members.length} members didn't reach ${check.directory || 'the CA'}.`
+                  : check.ok
+                    ? `${check.directory} ${check.via}, in ${check.milliseconds} ms.`
+                    : `${check.directory || 'The CA'} ${check.via || ''}: ${check.error}`}
               </span>
             )}
           </div>
+          {check?.members && (
+            <ul className="acme-check-members small">
+              {check.members.map((m) => (
+                <li key={m.member}>
+                  <Badge tone={m.ok ? 'ok' : 'danger'} dot>
+                    {m.member}
+                  </Badge>{' '}
+                  {m.text}
+                </li>
+              ))}
+            </ul>
+          )}
         </>
       )}
       <Needs cfg={cfg} st={st} mode={old ? 'ACME_PATH_MODE_DIRECT' : modeOf(path)} proxy={path.proxy_url} relay={relay} ordering={ordering} choosing={!!draft} certsWord={words.certs} />
