@@ -318,7 +318,10 @@ check "lb-3's priority rendered" "priority 50" "$(alice -n lb-3 network vrrp get
 check "lb-3 a member again" "Cluster: +edge " "$(alice -n lb-3 cluster get)"
 # Joining again puts it back in service: its VRRP priority whole.
 if alice -n lb-3 cluster get | grep -q "Drained"; then fail "lb-3 joined again drained: $(alice -n lb-3 cluster get)"; fi
-check "lb-3's VRRP priority whole" " 50/50 " "$(alice -n lb-3 network vrrp status)"
+# keepalived takes the health file's change as it comes; its status is a
+# snapshot - read until it says so.
+whole() { grep -q " 50/50 " <<<"$(alice -n lb-3 network vrrp status 2>/dev/null)"; }
+wait_for 10 "lb-3's VRRP priority whole ($(alice -n lb-3 network vrrp status 2>&1 | tail -1))" whole
 for i in $MEMBERS; do wait_for 60 "lb-$i's peers up again" peers_up "$i" 2; done
 out="$(alice cluster tickets edge 2>&1)" || fail "tickets: $out"
 check "the ring pulled" "pulled from lb-1" "$out"
