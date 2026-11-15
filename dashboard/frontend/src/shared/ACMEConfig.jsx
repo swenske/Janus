@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Badge, Card, Loading } from './ui.jsx'
 import { Editor } from './Editor.jsx'
 import { NODE_WORDS, lines, pretty } from './acmeConfig.js'
+import './acme.css'
 
 // The letsencrypt extension's configuration as a page edits it - a
 // node's (node/views/LetsEncrypt.jsx) or a cluster's (Clusters.jsx, its
