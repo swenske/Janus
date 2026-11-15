@@ -10,6 +10,9 @@ test('a write to what the cluster manages here is locked, the rest is not', () =
   assert.equal(lockedDomain(member, 'HAProxyService/CertificateUpload'), 'files')
   assert.equal(lockedDomain(member, 'NetworkService/VRRPApplyConfig'), 'vrrp')
   assert.equal(lockedDomain(member, 'NetworkService/BGPApplyConfig'), '') // BGP isn't managed
+  assert.equal(lockedDomain(member, 'HAProxyService/ACMEApplyConfig'), '') // nor Let's Encrypt
+  assert.equal(lockedDomain({ ...member, managed: ['acme'] }, 'HAProxyService/ACMEApplyConfig'), 'acme')
+  assert.equal(lockedDomain({ ...member, managed: ['acme'] }, 'HAProxyService/ACMERenew'), '') // renewals stay the node's
   assert.equal(lockedDomain(member, 'HAProxyService/GetConfig'), '') // a read
   assert.equal(lockedDomain(member, 'HAProxyService/ServerSetState'), '') // runtime stays the node's
   assert.equal(lockedDomain(null, 'HAProxyService/ApplyConfig'), '')
@@ -19,7 +22,7 @@ test('a write to what the cluster manages here is locked, the rest is not', () =
 })
 
 test('every locked write names a domain the node knows', () => {
-  for (const d of Object.values(LOCKED_WRITES)) assert.ok(['haproxy', 'files', 'vrrp', 'bgp', 'firewall'].includes(d), d)
+  for (const d of Object.values(LOCKED_WRITES)) assert.ok(['haproxy', 'files', 'vrrp', 'bgp', 'firewall', 'acme'].includes(d), d)
 })
 
 test("the cluster's page is the Controller's, not a janusctl cluster's", () => {

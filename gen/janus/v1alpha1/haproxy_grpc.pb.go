@@ -146,7 +146,8 @@ type HAProxyServiceClient interface {
 	// provider's settings, the EAB key): their values come back empty.
 	ACMEGetConfig(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ACMEGetConfigResponse, error)
 	// ACMEApplyConfig replaces the configuration; an empty secret keeps the
-	// saved one.
+	// saved one. On a member of a cluster that manages Let's Encrypt
+	// (domain acme), refused unless the cluster makes it.
 	ACMEApplyConfig(ctx context.Context, in *ACMEApplyConfigRequest, opts ...grpc.CallOption) (*ACMEApplyConfigResponse, error)
 	// ACMERenew obtains the named certificates (every one if none is named)
 	// now, whether or not they're due, in the background: ACMEStatus says
@@ -655,7 +656,8 @@ type HAProxyServiceServer interface {
 	// provider's settings, the EAB key): their values come back empty.
 	ACMEGetConfig(context.Context, *emptypb.Empty) (*ACMEGetConfigResponse, error)
 	// ACMEApplyConfig replaces the configuration; an empty secret keeps the
-	// saved one.
+	// saved one. On a member of a cluster that manages Let's Encrypt
+	// (domain acme), refused unless the cluster makes it.
 	ACMEApplyConfig(context.Context, *ACMEApplyConfigRequest) (*ACMEApplyConfigResponse, error)
 	// ACMERenew obtains the named certificates (every one if none is named)
 	// now, whether or not they're due, in the background: ACMEStatus says

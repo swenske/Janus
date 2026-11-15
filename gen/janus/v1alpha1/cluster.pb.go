@@ -167,7 +167,8 @@ type ClusterInfo struct {
 	// The TCP port of every member's peers listener.
 	PeersPort uint32 `protobuf:"varint,6,opt,name=peers_port,json=peersPort,proto3" json:"peers_port,omitempty"`
 	// The configuration domains the cluster manages on this node, locked
-	// to the orchestrator's calls: haproxy, files, vrrp, bgp, firewall.
+	// to the orchestrator's calls: haproxy, files, vrrp, bgp, firewall,
+	// acme (the letsencrypt extension's configuration).
 	Managed []string `protobuf:"bytes,7,rep,name=managed,proto3" json:"managed,omitempty"`
 	// Who set the composition last (free text the orchestrator writes).
 	ManagedBy   string `protobuf:"bytes,8,opt,name=managed_by,json=managedBy,proto3" json:"managed_by,omitempty"`
@@ -208,8 +209,13 @@ type ClusterInfo struct {
 	// says whether it can now. False: a release before it, which says
 	// nothing (handoff_unavailable empty) and can't.
 	HandoffSupported bool `protobuf:"varint,23,opt,name=handoff_supported,json=handoffSupported,proto3" json:"handoff_supported,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The domains this node's release can lock - what managed may name. An
+	// orchestrator tells a release that can't lock a domain from one that
+	// can before asking it to; empty: a release before this field, which
+	// locks haproxy, files, vrrp, bgp and firewall.
+	Lockable      []string `protobuf:"bytes,24,rep,name=lockable,proto3" json:"lockable,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ClusterInfo) Reset() {
@@ -401,6 +407,13 @@ func (x *ClusterInfo) GetHandoffSupported() bool {
 		return x.HandoffSupported
 	}
 	return false
+}
+
+func (x *ClusterInfo) GetLockable() []string {
+	if x != nil {
+		return x.Lockable
+	}
+	return nil
 }
 
 type ClusterFlowsRequest struct {
@@ -1704,7 +1717,7 @@ const file_janus_v1alpha1_cluster_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x1f\n" +
 	"\vapi_address\x18\x03 \x01(\tR\n" +
-	"apiAddress\"\x9c\a\n" +
+	"apiAddress\"\xb8\a\n" +
 	"\vClusterInfo\x12\x16\n" +
 	"\x06member\x18\x01 \x01(\bR\x06member\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x12\n" +
@@ -1732,7 +1745,8 @@ const file_janus_v1alpha1_cluster_proto_rawDesc = "" +
 	"\bhandoffs\x18\x14 \x03(\v2#.janus.v1alpha1.ClusterHandoffStateR\bhandoffs\x125\n" +
 	"\x17handoff_hold_until_unix\x18\x15 \x01(\x03R\x14handoffHoldUntilUnix\x129\n" +
 	"\x19handoff_refuse_until_unix\x18\x16 \x01(\x03R\x16handoffRefuseUntilUnix\x12+\n" +
-	"\x11handoff_supported\x18\x17 \x01(\bR\x10handoffSupported\"3\n" +
+	"\x11handoff_supported\x18\x17 \x01(\bR\x10handoffSupported\x12\x1a\n" +
+	"\blockable\x18\x18 \x03(\tR\blockable\"3\n" +
 	"\x13ClusterFlowsRequest\x12\x1c\n" +
 	"\taddresses\x18\x01 \x03(\tR\taddresses\"s\n" +
 	"\x11ClusterFlowsChunk\x12\x16\n" +

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"strings"
 	"testing"
 
 	"google.golang.org/grpc/codes"
@@ -109,6 +110,37 @@ func TestClusterLockAdvisory(t *testing.T) {
 		}
 		if got := status.Code(err); got != c.want {
 			t.Errorf("%s: %v (%v), want %v", c.name, got, err, c.want)
+		}
+	}
+}
+
+// A cluster that manages Let's Encrypt locks its configuration: an
+// admin's apply is refused, a check isn't, renewals stay the node's.
+func TestClusterLockACME(t *testing.T) {
+	const id = "7f3c2a1e-5b6d-4c8e-9f01-23456789abcd"
+	defer func(prev func(string) (string, string, bool, bool)) { ClusterLock = prev }(ClusterLock)
+	ClusterLock = func(domain string) (string, string, bool, bool) { return id, "edge", domain == "acme", false }
+	admin := peerWith(&x509.Certificate{Subject: pkix.Name{CommonName: "admin", Organization: []string{pki.RoleAdmin}}})
+	const apply, renew = "/janus.v1alpha1.HAProxyService/ACMEApplyConfig", "/janus.v1alpha1.HAProxyService/ACMERenew"
+	for _, c := range []struct {
+		name   string
+		method string
+		req    any
+		want   codes.Code
+	}{
+		{"applying", apply, &janusv1alpha1.ACMEApplyConfigRequest{}, codes.FailedPrecondition},
+		{"checking", apply, &janusv1alpha1.ACMEApplyConfigRequest{ValidateOnly: true}, codes.OK},
+		{"a renewal", renew, &janusv1alpha1.ACMERenewRequest{}, codes.OK},
+	} {
+		caller, err := authorize(admin, c.method)
+		if err == nil {
+			err = checkClusterLock(c.method, c.req, caller)
+		}
+		if got := status.Code(err); got != c.want {
+			t.Errorf("%s: %v (%v), want %v", c.name, got, err, c.want)
+		}
+		if c.want != codes.OK && !strings.Contains(status.Convert(err).Message(), "Let's Encrypt's configuration is managed by cluster edge") {
+			t.Errorf("%s: %v", c.name, err)
 		}
 	}
 }

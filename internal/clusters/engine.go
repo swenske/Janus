@@ -376,6 +376,9 @@ func (e *Engine) Apply(ctx context.Context, id string, n int, only []string, act
 		}
 		rendered[m.Name] = r
 	}
+	if c.Manages("acme") && v.Content[ACMEFile] == nil {
+		return fmt.Errorf("version %d has no %s, and the cluster manages Let's Encrypt's configuration", n, ACMEFile)
+	}
 	targets := c.Members
 	if only != nil {
 		targets = slices.DeleteFunc(slices.Clone(c.Members), func(m Member) bool { return !slices.Contains(only, m.Name) })
@@ -383,12 +386,36 @@ func (e *Engine) Apply(ctx context.Context, id string, n int, only []string, act
 	if len(targets) == 0 {
 		return nil
 	}
+	if c.Manages("acme") {
+		if err := e.lockable(ctx, targets, "acme"); err != nil {
+			return err
+		}
+		// The member that orders first: the others pull the secrets
+		// from it, as it holds them for this version.
+		if i := slices.IndexFunc(targets, func(m Member) bool { return m.Name == c.SecretsFrom }); i > 0 {
+			targets = append([]Member{targets[i]}, slices.Delete(slices.Clone(targets), i, i+1)...)
+		}
+	}
 	// Checked on the first member before any is touched.
 	first := targets[0]
 	r := rendered[first.Name]
 	if c.Manages("haproxy") {
 		if err := e.Nodes.HAProxyValidate(ctx, first, r.HAProxy); err != nil {
 			return fmt.Errorf("version %d, checked on %s: %v", n, first.Name, err)
+		}
+	}
+	if c.Manages("acme") {
+		// On the member that orders - it has the secrets -, with the
+		// certificates its haproxy.cfg may still use until the version's
+		// own is applied.
+		if o := c.Member(c.SecretsFrom); o != nil {
+			have, err := e.Nodes.ACMEConfig(ctx, *o)
+			if err == nil {
+				err = e.Nodes.ACMEApply(ctx, *o, withKept(r.ACMEConfig, have), true)
+			}
+			if err != nil {
+				return fmt.Errorf("version %d's %s, checked on %s: %v", n, ACMEFile, o.Name, err)
+			}
 		}
 	}
 	for _, d := range modules {
@@ -479,6 +506,13 @@ func (e *Engine) applyMember(ctx context.Context, c *Cluster, v *Version, m Memb
 			}
 		}
 	}
+	var acmeFinal *janusv1alpha1.ACMEConfig
+	if c.Manages("acme") {
+		var err error
+		if acmeFinal, err = e.acmeBefore(ctx, c, m, r.ACMEConfig); err != nil {
+			return err
+		}
+	}
 	if c.Manages("haproxy") {
 		if err := e.Nodes.HAProxyApply(ctx, m, r.HAProxy); err != nil {
 			return err
@@ -487,6 +521,11 @@ func (e *Engine) applyMember(ctx context.Context, c *Cluster, v *Version, m Memb
 	for _, name := range obsolete {
 		if err := e.Nodes.FileDelete(ctx, m, name); err != nil {
 			return fmt.Errorf("file %s, gone from the version: %v", name, err)
+		}
+	}
+	if acmeFinal != nil {
+		if err := e.Nodes.ACMEApply(ctx, m, acmeFinal, false); err != nil {
+			return fmt.Errorf("the certificates gone from letsencrypt.json: %v", err)
 		}
 	}
 	for _, d := range []string{"firewall", "vrrp", "bgp"} {

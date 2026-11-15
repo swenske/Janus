@@ -104,6 +104,15 @@ await until('the application servers to be up', async () => {
   }
   return true
 })
+// edge-1's Let's Encrypt: a certificate - never obtained, no CA reached
+// from here - for the cluster's Let's Encrypt tab: edge-1 orders, edge-2
+// pulls its configuration.
+await call('POST', `/nodes/${ids['edge-1']}/api/haproxy/acme/apply`, {
+  config: {
+    account: { directory: 'letsencrypt-staging', email: 'ops@example.test', accept_terms: true },
+    certificates: [{ name: 'www', domains: ['www.example.test', 'example.test'] }],
+  },
+})
 // A cluster, edge: edge-1 and edge-2, edge-1's configuration its
 // version 1 - and a version 2, not applied, for its page to show a
 // change (Clusters.jsx). edge-3 stays alone: its many backends.

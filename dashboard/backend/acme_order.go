@@ -175,7 +175,7 @@ func (a *app) orderFor(ctx context.Context, n *store.Node, set acmeorder.Setting
 	node.Directory = st.GetDirectory()
 	if st.GetAccountThumbprint() != thumb {
 		node.State = "another account"
-		node.Error = "the node answers HTTP-01 for another account (" + st.GetAccountThumbprint() + "): choose \"Ordered by this Controller\" again on its page"
+		node.Error = "the node answers HTTP-01 for another account (" + st.GetAccountThumbprint() + "): choose \"Ordered by this Controller\" again on " + a.acmePageOf(n)
 		return node, true
 	}
 	cctx, cancel = call()
@@ -413,4 +413,17 @@ func (a *app) handleACMEOrderingRun(w http.ResponseWriter, r *http.Request) {
 	}
 	a.ordering.poke()
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// acmePageOf is where node n's Let's Encrypt configuration is changed: its
+// cluster's page when the cluster manages it, else its own.
+func (a *app) acmePageOf(n *store.Node) string {
+	if a.clusters != nil {
+		if id := a.clusters.Store.ClusterOf(n.ID); id != "" {
+			if c, ok := a.clusters.Store.Get(id); ok && c.Manages("acme") {
+				return "cluster " + c.Name + "'s Let's Encrypt"
+			}
+		}
+	}
+	return "its page"
 }

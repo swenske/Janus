@@ -387,7 +387,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 			valFlag("version", "N", "this version (default: the cluster's)", argNone),
 		}, pos: []argKind{argNone, argDir}, required: 2},
 		{name: "apply", args: "NAME DIR", help: "DIR's haproxy.cfg, files/ and templates as the cluster's next version, applied member by member", flags: []flagDef{
-			valFlag("manage", "LIST", "what the cluster manages from now on: haproxy,files,vrrp,bgp,firewall (default: as before)", argNone),
+			valFlag("manage", "LIST", "what the cluster manages from now on: haproxy,files,acme,vrrp,bgp,firewall (default: as before)", argNone),
 			boolFlag("dry-run", "say what would change, change nothing"),
 			valFlag("m", "TEXT", "what this version changes", argNone),
 		}, pos: []argKind{argNone, argDir}, required: 2},
@@ -449,6 +449,9 @@ var commands = &command{name: "janusctl", subs: []*command{
 			boolFlag("off", "no hook any more"),
 			boolFlag("sync", "call it with the members now"),
 		}, pos: []argKind{argNone}, required: 1},
+		{name: "letsencrypt", args: "NAME [FILE]", help: "the cluster's Let's Encrypt: FILE (janusctl haproxy acme get's JSON, secrets in it) given to the member that orders, the rest the cluster's next version, the same on every member and locked there - they pull the secrets from it; shown without FILE", flags: []flagDef{
+			valFlag("m", "TEXT", "what this version changes", argNone),
+		}, pos: []argKind{argNone, argFile}, required: 1},
 		{name: "journal", args: "NAME", help: "what was done to the cluster, by whom", flags: []flagDef{
 			valFlag("n", "N", "the newest N entries (50)", argNone),
 		}, pos: []argKind{argNone}, required: 1},
@@ -463,7 +466,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 			valFlag("ca", "FILE", "the cluster's CA (PEM): the first time, or to replace it", argFile),
 			valFlag("cert", "FILE", "the member certificate (PEM) for the last csr: the first time, or to renew it", argFile),
 			valFlag("managed-by", "TEXT", "who sets the composition", argNone),
-			valFlag("managed", "LIST", "what the cluster manages here, locked to the orchestrator: haproxy,files,vrrp,bgp,firewall", argNone),
+			valFlag("managed", "LIST", "what the cluster manages here, locked to the orchestrator: haproxy,files,vrrp,bgp,firewall,acme", argNone),
 		}, pos: []argKind{argNone}, required: 1, variadic: true},
 		{name: "leave", help: "forget the membership: the node on its own again"},
 		{name: "release", args: "[DOMAIN...]", help: "let this node's own users change what the cluster manages (all of it when none is named) - the cluster then sees it drifted", pos: []argKind{argNone}, variadic: true},

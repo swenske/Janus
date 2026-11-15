@@ -8,7 +8,7 @@
 // another, the T shortcut, no animation frame under "reduce motion", the
 // charts moving otherwise, the sidebar opening over the page and pinned;
 // cluster edge's configuration, the change an apply would make, its
-// editor and journal, and the new-cluster form. Run by
+// editor, journal and Let's Encrypt, and the new-cluster form. Run by
 // hack/ui-preview.sh in the browser image, on the preview's network.
 import AxeBuilder from '@axe-core/playwright'
 import { chromium } from 'playwright'
@@ -287,6 +287,15 @@ for (const palette of PALETTES) {
   const entries = await page.locator('tbody tr').count()
   if (entries < 2) problems.push(`cluster journal: ${entries} entries`)
   await look('cluster-journal')
+  // Its Let's Encrypt: edge-1 orders, edge-2 follows; the configuration
+  // edge-1's own - not the cluster's yet.
+  await page.getByRole('tab', { name: "Let's Encrypt" }).click()
+  await page.waitForSelector('.cluster-acme tbody tr')
+  const acmeRows = await page.locator('.cluster-acme table').first().locator('tbody tr').allTextContents()
+  const acmeText = await page.locator('.cluster-acme').textContent()
+  if (!acmeRows.some((r) => r.includes('edge-1') && r.includes('orders')) || !acmeRows.some((r) => r.includes('edge-2') && r.includes('follows edge-1')) || !acmeText.includes('www.example.test'))
+    problems.push(`cluster Let's Encrypt: ${JSON.stringify(acmeRows)}`)
+  await look('cluster-letsencrypt')
   await page.goto(`${CONTROLLER}/#/clusters`)
   await settle(page)
   await page.getByRole('button', { name: 'New cluster' }).click()

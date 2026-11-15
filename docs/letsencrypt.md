@@ -369,7 +369,9 @@ its `JANUS_ACME_THUMBPRINT` to follow.
 
 Behind VRRP or anycast, the challenge may reach any of the nodes. In a
 [cluster](guide/clusters.md#lets-encrypt), one member orders and the
-others serve what it gets and answer its challenges - nothing to do.
+others serve what it gets and answer its challenges - nothing to do;
+the cluster can manage the configuration itself, the same on every
+member.
 Nodes that aren't a cluster: with HTTP-01, give them all the same
 account key: they then answer every challenge alike. Each node obtains
 its own certificates: mind the CA's limits (Let's Encrypt: 5

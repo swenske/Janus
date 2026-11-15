@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { behindLatest, clusterNameError, domainsOf, groupByCluster, health, memberDefaults, memberNameError, parseVars, pathError, releaseError, upgradeRows, varsText, versionChanges, versionOf } from './clusters.js'
+import { acmeCertStates, acmeInStep, behindLatest, clusterNameError, domainsOf, groupByCluster, health, memberDefaults, memberNameError, parseVars, pathError, releaseError, upgradeRows, varsText, versionChanges, versionOf } from './clusters.js'
 
 test('a node gives its member name and address when it can', () => {
   assert.deepEqual(memberDefaults({ name: 'LB-1', address: '192.0.2.11:9505' }), { name: 'lb-1', address: '192.0.2.11' })
@@ -29,6 +29,7 @@ test('a cluster’s health', () => {
 test('the domains a version configures', () => {
   assert.deepEqual(domainsOf(['keepalived.conf', 'haproxy.cfg', 'files/maps/x.map', 'files/errors/503.http']), ['haproxy', 'files', 'vrrp'])
   assert.deepEqual(domainsOf([]), [])
+  assert.deepEqual(domainsOf(['letsencrypt.json', 'haproxy.cfg']), ['haproxy', 'acme'])
 })
 
 test('what a version changes', () => {
@@ -58,7 +59,7 @@ test('variables', () => {
 })
 
 test('a version’s file paths', () => {
-  for (const ok of ['haproxy.cfg', 'bird.conf', 'files/maps/hosts.map', 'files/errors.http']) assert.equal(pathError(ok), '', ok)
+  for (const ok of ['haproxy.cfg', 'bird.conf', 'letsencrypt.json', 'files/maps/hosts.map', 'files/errors.http']) assert.equal(pathError(ok), '', ok)
   for (const bad of ['etc/passwd', 'files/../x', 'files/a/b/c', 'haproxy.conf']) assert.notEqual(pathError(bad), '', bad)
 })
 
@@ -107,4 +108,24 @@ test('an update in place: the release typed, the members on it, those behind', (
   ])
   assert.deepEqual(behindLatest(c, 'v2026.10.29'), ['lb-1'])
   assert.deepEqual(behindLatest(c, ''), [])
+})
+
+test("a certificate's state on each member, and whether they serve the orderer's", () => {
+  const view = {
+    orderer: 'lb-1',
+    members: [
+      { name: 'lb-1', state: 'running', certificates: [{ name: 'site', state: 'valid', serial: '01' }] },
+      { name: 'lb-2', state: 'running', ordered_by: 'lb-1', certificates: [{ name: 'site', state: 'valid', serial: '01' }] },
+      { name: 'lb-3', state: 'not_enabled', certificates: [] },
+    ],
+  }
+  assert.deepEqual(acmeCertStates(view, 'site'), [
+    { member: 'lb-1', state: 'valid', serial: '01' },
+    { member: 'lb-2', state: 'valid', serial: '01' },
+    { member: 'lb-3', state: '-', serial: '' },
+  ])
+  assert.equal(acmeInStep(view), true) // lb-3 has no extension: it can't serve them
+  view.members[1].certificates[0].serial = '00'
+  assert.equal(acmeInStep(view), false)
+  assert.equal(acmeInStep(null), true)
 })

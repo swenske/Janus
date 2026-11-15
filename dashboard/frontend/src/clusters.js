@@ -10,6 +10,7 @@ import { fmtDateTime } from './shared/units.js'
 export const DOMAINS = [
   { id: 'haproxy', label: 'HAProxy configuration', file: 'haproxy.cfg' },
   { id: 'files', label: 'HAProxy files', file: null },
+  { id: 'acme', label: "Let's Encrypt", file: 'letsencrypt.json' },
   { id: 'firewall', label: 'Firewall', file: 'firewall.nft' },
   { id: 'vrrp', label: 'VRRP', file: 'keepalived.conf' },
   { id: 'bgp', label: 'BGP', file: 'bird.conf' },
@@ -108,7 +109,7 @@ export function parseVars(text) {
 export function pathError(path) {
   if (DOMAINS.some((d) => d.file === path)) return ''
   if (/^files\/[A-Za-z0-9_][A-Za-z0-9._-]{0,99}(\/[A-Za-z0-9_][A-Za-z0-9._-]{0,99})?$/.test(path)) return ''
-  return 'haproxy.cfg, keepalived.conf, bird.conf, firewall.nft, or files/NAME'
+  return 'haproxy.cfg, keepalived.conf, bird.conf, firewall.nft, letsencrypt.json, or files/NAME'
 }
 
 // when is a time as the reader reads it, "-" for none.
@@ -171,3 +172,33 @@ export function behindLatest(c, latest) {
 
 // STAGES says a member's update's stage (internal/clusters Stage*).
 export const STAGES = { draining: 'draining', 'handing over': 'serving its connections out', updating: 'updating', rebooting: 'rebooting', 'learning tables': 'learning its tables' }
+
+// ACME_WAYS: how a member reaches the CA (its status's path_mode), in
+// the Let's Encrypt tab's words.
+export const ACME_WAYS = {
+  direct: 'directly',
+  proxy: 'through a proxy',
+  controller_relay: 'through this Controller',
+  controller_ordered: 'ordered by this Controller',
+  unspecified: 'directly (an older release)',
+}
+
+// acmeCertStates is certificate name's state on each member of a
+// cluster's Let's Encrypt view (/api/clusters/<id>/letsencrypt):
+// [{member, state, serial}], '-' where a member doesn't have it.
+export function acmeCertStates(view, name) {
+  return (view?.members || []).map((m) => {
+    const c = (m.certificates || []).find((x) => x.name === name)
+    return { member: m.name, state: c ? c.state || '-' : '-', serial: c?.serial || '' }
+  })
+}
+
+// acmeInStep: every member that has the extension serves what the
+// orderer does - the same serial for each of its certificates.
+export function acmeInStep(view) {
+  const orderer = (view?.members || []).find((m) => m.name === view?.orderer)
+  if (!orderer) return true
+  return (view.members || [])
+    .filter((m) => m.state === 'running' && m.name !== orderer.name)
+    .every((m) => (orderer.certificates || []).every((c) => !c.serial || (m.certificates || []).some((x) => x.name === c.name && x.serial === c.serial)))
+}

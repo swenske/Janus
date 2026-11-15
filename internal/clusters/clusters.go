@@ -24,8 +24,9 @@ import (
 )
 
 // Domains a cluster may manage on its members, in the order an apply
-// goes through them (docs/cluster.md "Applying").
-var Domains = []string{"haproxy", "files", "firewall", "vrrp", "bgp"}
+// goes through them (docs/cluster.md "Applying"); acme: the letsencrypt
+// extension's configuration (acme.go), applied around HAProxy's.
+var Domains = []string{"haproxy", "files", "acme", "firewall", "vrrp", "bgp"}
 
 // DefaultPeersPort is the members' peers listener's port.
 const DefaultPeersPort = 10057

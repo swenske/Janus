@@ -15,6 +15,9 @@ import (
 	"strings"
 	"text/template"
 	"time"
+
+	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/acme"
 )
 
 // A version of the cluster's desired configuration: what every member
@@ -27,6 +30,10 @@ import (
 //	keepalived.conf    templates, rendered per member: .Cluster.ID,
 //	bird.conf          .Cluster.Name, .Member.Name, .Member.Index,
 //	firewall.nft       .Member.Address, .Member.Vars.<key>, .Peers
+//	letsencrypt.json   the letsencrypt extension's configuration, the
+//	                   same on every member (acme.go) - never a secret:
+//	                   those go to the member that orders, the others
+//	                   pull them from it
 //
 // A version is never changed: a new one is made.
 
@@ -36,6 +43,9 @@ var templates = map[string]string{
 	"bird.conf":       "bgp",
 	"firewall.nft":    "firewall",
 }
+
+// ACMEFile is a version's Let's Encrypt configuration (domain acme).
+const ACMEFile = "letsencrypt.json"
 
 var fileNamePattern = regexp.MustCompile(`^files/[A-Za-z0-9_][A-Za-z0-9._-]{0,99}(/[A-Za-z0-9_][A-Za-z0-9._-]{0,99})?$`)
 
@@ -66,8 +76,8 @@ func CheckFiles(files map[string][]byte) error {
 	}
 	for p, data := range files {
 		_, tmpl := templates[p]
-		if p != "haproxy.cfg" && !tmpl && !fileNamePattern.MatchString(p) {
-			return fmt.Errorf("%s: a version holds haproxy.cfg, files/NAME, keepalived.conf, bird.conf, firewall.nft", p)
+		if p != "haproxy.cfg" && p != ACMEFile && !tmpl && !fileNamePattern.MatchString(p) {
+			return fmt.Errorf("%s: a version holds haproxy.cfg, files/NAME, keepalived.conf, bird.conf, firewall.nft, letsencrypt.json", p)
 		}
 		if len(data) > maxVersionFile {
 			return fmt.Errorf("%s: %d bytes, %d at most", p, len(data), maxVersionFile)
@@ -80,8 +90,31 @@ func CheckFiles(files map[string][]byte) error {
 				return fmt.Errorf("%s: %v", p, err)
 			}
 		}
+		if p == ACMEFile {
+			cfg, err := acme.ParseConfig(data)
+			if err != nil {
+				return fmt.Errorf("%s: %v", p, err)
+			}
+			if s := acme.Secrets(cfg); len(s) > 0 {
+				return fmt.Errorf("%s holds secrets (%s): a version never does - set them through the cluster's Let's Encrypt configuration, which gives them to the member that orders, and the others pull them from it; leave them empty here", p, strings.Join(s, ", "))
+			}
+		}
 	}
 	return nil
+}
+
+// ACMEConfig is version v's Let's Encrypt configuration, nil when it has
+// none.
+func (v *Version) ACMEConfig() (*janusv1alpha1.ACMEConfig, error) {
+	data, ok := v.Content[ACMEFile]
+	if !ok {
+		return nil, nil
+	}
+	cfg, err := acme.ParseConfig(data)
+	if err != nil {
+		return nil, fmt.Errorf("version %d's %s: %v", v.Version, ACMEFile, err)
+	}
+	return cfg, nil
 }
 
 func (s *Store) versionDir(id string, n int) string {
@@ -191,6 +224,10 @@ type Rendered struct {
 	HAProxy []byte
 	Files   map[string][]byte // by name, under /etc/haproxy/files
 	Modules map[string][]byte // vrrp, bgp, firewall
+	// ACME: Let's Encrypt's configuration, canonical (acme.Canonical);
+	// ACMEConfig, the same parsed - nil without one.
+	ACME       []byte
+	ACMEConfig *janusv1alpha1.ACMEConfig
 }
 
 // Hashes are the SHA-256 of what the member gets, by domain: what drift
@@ -205,6 +242,9 @@ func (r *Rendered) Hashes() map[string]string {
 	}
 	for d, b := range r.Modules {
 		out[d] = Sum(b)
+	}
+	if r.ACME != nil {
+		out["acme"] = Sum(r.ACME)
 	}
 	return out
 }
@@ -277,6 +317,15 @@ func Render(v *Version, c *Cluster, name string) (*Rendered, error) {
 			r.HAProxy = b
 		case strings.HasPrefix(p, "files/"):
 			r.Files[strings.TrimPrefix(p, "files/")] = b
+		case p == ACMEFile:
+			cfg, err := v.ACMEConfig()
+			if err != nil {
+				return nil, err
+			}
+			if r.ACME, err = acme.Canonical(cfg); err != nil {
+				return nil, err
+			}
+			r.ACMEConfig = cfg
 		default:
 			domain, ok := templates[p]
 			if !ok {

@@ -207,7 +207,7 @@ each greyed out with the server's why when the cluster can't have it -,
 a confirmation naming the release, then `POST
 /api/clusters/{id}/upgrade`; each member's stage shows in the Members
 tab while it runs), **Delete** (type the name; a box to destroy the members' virtual
-machines too, when some are the Controller's), and four tabs - **Members** (version
+machines too, when some are the Controller's), and five tabs - **Members** (version
 run, peers up, stick tables in sync, member certificate's end, drained /
 drifted / released, an update's stage; Drain/Undrain, the variables its templates use,
 **Recycle** - a new machine like it when it is one of the Controller's
@@ -217,8 +217,17 @@ where the secrets come from), **Configuration** (the versions, newest first; a v
 files; **Edit** makes a new version from it in `Editor`; **Apply** asks
 first, showing what the cluster will manage and each file's change from
 the desired version in `DiffView`), **Certificates** (upload one for
-every member, pull everything again) and **Journal**. The page polls
-every 2 s while the cluster is busy, 15 s otherwise.
+every member, pull everything again), **Let's Encrypt**
+(`ClusterLetsEncrypt.jsx`, `GET /api/clusters/{id}/letsencrypt`: who
+orders, whether the cluster manages the configuration - **Stop
+managing…** applies the desired version again without `acme` -, each
+member's way to the CA and certificates; then the node page's editors,
+shared from `shared/ACMEConfig.jsx` - the way to the CA without a Test,
+the account without an account key, the certificates with their state
+on each member, the DNS providers, the JSON -, each change shown as a
+diff then `PUT` to the cluster, a refusal's errors under the cards) and
+**Journal**. The page polls every 2 s while the cluster is busy, 15 s
+otherwise.
 
 **Hypervisors** ([hypervisors.md](hypervisors.md)) - the hosts, then
 the machines, each as cards or a list (`ViewToggle`, remembered per

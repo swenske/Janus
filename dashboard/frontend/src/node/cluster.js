@@ -14,6 +14,7 @@ export const LOCKED_WRITES = {
   'NetworkService/VRRPApplyConfig': 'vrrp',
   'NetworkService/BGPApplyConfig': 'bgp',
   'NetworkService/FirewallApplyRuleset': 'firewall',
+  'HAProxyService/ACMEApplyConfig': 'acme',
 }
 
 // What each domain is, in the node's own words (cluster_lock.go's
@@ -24,6 +25,7 @@ export const DOMAIN_WORDS = {
   vrrp: "VRRP's configuration",
   bgp: "BGP's configuration",
   firewall: "the firewall's ruleset",
+  acme: "Let's Encrypt's configuration",
 }
 
 // lockedDomain is the domain of cluster that method writes and the

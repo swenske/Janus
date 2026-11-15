@@ -193,10 +193,13 @@ EOF
       -v "$DIR/preview:/preview:ro" --entrypoint /usr/local/sbin/haproxy "$LOCAL_DEV_IMAGE" -f /preview/app.cfg >/dev/null
   done
 
-  # The nodes: edge-1 on both networks (eth0, eth1).
+  # The nodes: edge-1 on both networks (eth0, eth1); janus-acme where
+  # janusd looks for it - their Let's Encrypt answers, the cluster's tab
+  # with it (it reaches no CA: the networks are internal).
   for i in 1 2 3; do
     docker create --name "$P-edge-$i" --hostname "edge-$i" --network "$P" --ip "$NET.2$i" \
-      -v "$DIR/bin:/opt/janus:ro" --entrypoint /opt/janus/janusd "$LOCAL_DEV_IMAGE" -pairing-addr :9506 >/dev/null
+      -v "$DIR/bin:/opt/janus:ro" -v "$DIR/bin/janus-acme:/usr/local/sbin/janus-acme:ro" \
+      --entrypoint /opt/janus/janusd "$LOCAL_DEV_IMAGE" -pairing-addr :9506 >/dev/null
   done
   docker network connect --ip "$LOGNET.21" "$P-logs" "$P-edge-1"
   for i in 1 2 3; do docker start "$P-edge-$i" >/dev/null; done

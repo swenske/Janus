@@ -9,6 +9,7 @@ import (
 	"time"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/acme"
 )
 
 // Reconciling (docs/cluster.md "Locks and drift"): each member is asked
@@ -204,6 +205,16 @@ func (e *Engine) Drift(ctx context.Context, c *Cluster, m Member, ms MemberState
 				}
 			}
 			have = FilesHashOfSums(sums)
+		case "acme":
+			cfg, err := e.Nodes.ACMEConfig(ctx, m)
+			if err != nil {
+				return out, err
+			}
+			b, err := acme.Canonical(cfg)
+			if err != nil {
+				return out, err
+			}
+			have = Sum(b)
 		default:
 			cfg, err := e.Nodes.ModuleConfig(ctx, m, d)
 			if err != nil {

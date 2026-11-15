@@ -12,7 +12,17 @@
 # (its renew refused, nothing obtained in its log), and a check has it
 # pull the certificate: lb-2 serves it. A renewal on lb-1 reaches lb-2
 # at the next check. lb-1 removed, lb-2 orders on its own with the
-# configuration it pulled. No AVC denial.
+# configuration it pulled.
+#
+# Then the cluster manages Let's Encrypt (#569, janusctl cluster
+# letsencrypt): the configuration given whole to lb-1 - the way to the
+# CA a proxy with a password, on the host (hack/connectproxy, reached at
+# 10.0.2.100:3128) -, the cluster's next version carrying it without the
+# password; lb-2 pulls the password from lb-1 and runs the same
+# configuration, locked: its own apply refused; released and changed, the
+# check sees it drifted, the next configuration puts it back. lb-1 removed,
+# lb-2 orders through the same proxy with the password it pulled - the
+# way to the CA kept by the change of orderer. No AVC denial.
 #
 # Usage: hack/qemu-cluster-acme-test.sh <disk.img> <janusctl-bin> <pebble-bin-dir>
 set -euo pipefail
@@ -89,6 +99,11 @@ PEBBLE_VA_NOSLEEP=1 PEBBLE_WFE_NONCEREJECT=0 "$PEBBLE_DIR/pebble" -config "$WORK
   -dnsserver "127.0.0.1:$P_DNS" > "$WORKDIR/pebble.log" 2>&1 &
 PID[pebble]=$!
 wait_for 20 "Pebble answering" curl -sk -o /dev/null "https://127.0.0.1:$P_ACME/dir"
+# The proxy the cluster's configuration goes through later: each node
+# reaches it at 10.0.2.100:3128 (a guestfwd starting one per connection),
+# credentials required; it reaches the host's services the guests name
+# 10.0.2.2.
+(cd "$(dirname "$0")/.." && go build -o "$WORKDIR/connectproxy" ./hack/connectproxy) || fail "build the test proxy"
 echo "  ok: Pebble runs, validating HTTP-01 on lb-2's port 80"
 
 # --- two nodes ------------------------------------------------------------
@@ -101,7 +116,7 @@ node() {
     -drive if=pflash,format=raw,file="$WORKDIR/$i.vars" \
     -drive file="$WORKDIR/$i.img",format=raw,if=virtio \
     -nographic -display none -monitor none -m 512M \
-    -netdev "user,id=net0,hostfwd=tcp::$((BASE + 10 * i))-:8080,hostfwd=tcp::$((BASE + 10 * i + 1))-:9505,hostfwd=tcp:127.0.0.1:$((BASE + 10 * i + 2))-:80,hostfwd=tcp::$((BASE + 10 * i + 3))-:443" \
+    -netdev "user,id=net0,hostfwd=tcp::$((BASE + 10 * i))-:8080,hostfwd=tcp::$((BASE + 10 * i + 1))-:9505,hostfwd=tcp:127.0.0.1:$((BASE + 10 * i + 2))-:80,hostfwd=tcp::$((BASE + 10 * i + 3))-:443,guestfwd=tcp:10.0.2.100:3128-cmd:$WORKDIR/connectproxy -stdio -log $WORKDIR/proxy-$i.log -user acme -password pr0xy-secret -map 10.0.2.2=127.0.0.1" \
     -device "virtio-net-pci,netdev=net0,mac=52:54:00:aa:02:0$i" \
     -netdev "socket,id=lan,mcast=$MCAST,localaddr=127.0.0.1" \
     -device "virtio-net-pci,netdev=lan,mac=52:54:00:bb:02:0$i" \
@@ -224,7 +239,56 @@ out="$(alice cluster check edge 2>&1 || true)"
 check "the journal says lb-2 pulled the renewal" "lb-2 pulled lb-1's renewed certificate\(s\): site" "$(alice cluster journal edge)"
 echo "  ok: lb-1's renewal reached lb-2 at the next check"
 
+# --- the cluster manages Let's Encrypt, through a proxy with a password -----------
+python3 - "$WORKDIR/acme.json" > "$WORKDIR/acme-managed.json" <<'EOF_PY'
+import json, sys
+c = json.load(open(sys.argv[1]))
+c["path"] = {"mode": "ACME_PATH_MODE_PROXY", "proxy_url": "http://10.0.2.100:3128", "proxy_username": "acme", "proxy_password": "pr0xy-secret"}
+print(json.dumps(c, indent=2))
+EOF_PY
+out="$(alice cluster letsencrypt edge "$WORKDIR/acme-managed.json" -m "LE through the proxy" 2>&1)" || fail "cluster letsencrypt: $out"
+check "the cluster's next version carries it" "Let's Encrypt's configuration in version 2, on every member" "$out"
+rm -rf "$WORKDIR/v2"
+alice cluster checkout edge "$WORKDIR/v2" >/dev/null || fail "checkout v2"
+[ -f "$WORKDIR/v2/letsencrypt.json" ] || fail "version 2 has no letsencrypt.json: $(ls "$WORKDIR/v2")"
+check "version 2's letsencrypt.json goes through the proxy" "ACME_PATH_MODE_PROXY" "$(cat "$WORKDIR/v2/letsencrypt.json")"
+if grep -q "pr0xy-secret" "$WORKDIR/v2/letsencrypt.json"; then fail "the proxy's password is in the cluster's version"; fi
+if grep -rq "pr0xy-secret" "$WORKDIR/alice"; then fail "the proxy's password is in the orchestrator's data"; fi
+for i in $NODES; do
+  check "lb-$i reaches the CA through the proxy" '"mode": "ACME_PATH_MODE_PROXY"' "$(alice -n "lb-$i" haproxy acme get)"
+done
+check "the cluster says it manages Let's Encrypt" "^Managed: +yes - version 2" "$(alice cluster letsencrypt edge)"
+if out="$(alice -n lb-2 haproxy acme apply "$WORKDIR/acme.json" 2>&1)"; then fail "lb-2's own Let's Encrypt apply accepted under the cluster's lock: $out"; fi
+check "lb-2's own apply refused" "Let's Encrypt's configuration is managed by cluster edge" "$out"
+out="$(alice cluster check edge 2>&1 || true)"
+if grep -q "drifted" <<<"$out"; then fail "drift right after the cluster's configuration: $out"; fi
+echo "  ok: the cluster manages Let's Encrypt - version 2 without the proxy's password, lb-2 pulled it from lb-1, the same way to the CA on both, lb-2's own apply refused"
+
+# Released on lb-2 and changed there: drifted; the next configuration
+# takes it back.
+alice -n lb-2 cluster release acme >/dev/null || fail "release acme on lb-2"
+out="$(alice -n lb-2 haproxy acme apply "$WORKDIR/acme.json" 2>&1)" || fail "lb-2's own apply once released: $out"
+out="$(alice cluster check edge 2>&1 || true)"
+check "the check sees lb-2 released" "lb-2 .*released: acme" "$out"
+check "the check sees lb-2 drifted" "lb-2 .*drifted: acme" "$out"
+out="$(alice cluster letsencrypt edge "$WORKDIR/acme-managed.json" 2>&1)" || fail "cluster letsencrypt again: $out"
+check "lb-2 back on the cluster's" '"mode": "ACME_PATH_MODE_PROXY"' "$(alice -n lb-2 haproxy acme get)"
+if out="$(alice -n lb-2 haproxy acme apply "$WORKDIR/acme.json" 2>&1)"; then fail "lb-2 not locked again: $out"; fi
+out="$(alice cluster check edge 2>&1 || true)"
+if grep -q "drifted\|released" <<<"$out"; then fail "lb-2 after the cluster took it back: $out"; fi
+echo "  ok: lb-2 released and changed - drifted; the cluster's configuration back on it, locked again"
+
+# lb-1 orders through the proxy now.
+before="$(issued_on 1)"
+: > "$WORKDIR/proxy-1.log"
+alice -n lb-1 haproxy acme renew site >/dev/null || fail "renew site through the proxy on lb-1"
+renewed() { [ "$(issued_on 1)" != "$before" ] && [ -n "$(issued_on 1)" ]; }
+wait_for 90 "lb-1's renewal through the proxy" renewed
+check "lb-1 reached Pebble through the proxy" "CONNECT 10.0.2.2:$P_ACME" "$(cat "$WORKDIR/proxy-1.log")"
+echo "  ok: lb-1 orders through the proxy"
+
 # --- lb-1 leaves: lb-2 orders on its own -----------------------------------------
+: > "$WORKDIR/proxy-2.log"
 out="$(alice cluster remove edge lb-1 2>&1)" || fail "remove lb-1: $out"
 st2="$(alice -n lb-2 haproxy acme status)"
 if grep -q '^Ordered by:' <<<"$st2"; then fail "lb-2 still follows after lb-1 left: $st2"; fi
@@ -233,9 +297,11 @@ before="$(issued_on 2)"
 alice -n lb-2 haproxy acme renew site >/dev/null || fail "renew site on lb-2"
 own_order() { [ "$(issued_on 2)" != "$before" ] && [ -n "$(issued_on 2)" ]; }
 wait_for 90 "lb-2's own order (with the configuration it pulled)" own_order
-echo "  ok: lb-1 out, lb-2 orders on its own - with the configuration it pulled - and its challenge is answered by itself"
+check "lb-2 reached Pebble through the proxy - its password pulled from lb-1" "CONNECT 10.0.2.2:$P_ACME" "$(cat "$WORKDIR/proxy-2.log")"
+if grep -q "refused" "$WORKDIR/proxy-2.log"; then fail "lb-2 sent the proxy wrong credentials: $(cat "$WORKDIR/proxy-2.log")"; fi
+echo "  ok: lb-1 out, lb-2 orders on its own - through the cluster's proxy, with the password it pulled - and its challenge is answered by itself"
 
 for i in $NODES; do
   if grep -a "avc:.*denied" "$WORKDIR/$i.log"; then fail "AVC denials on node $i"; fi
 done
-echo "Cluster ACME test PASSED: one member orders, validated on another; the other orders nothing, pulls the certificate and its renewal; it takes over when the orderer leaves"
+echo "Cluster ACME test PASSED: one member orders, validated on another; the other orders nothing, pulls the certificate and its renewal; the cluster's Let's Encrypt configuration the same on both and locked, its secret pulled member to member; the other takes over when the orderer leaves, the same way to the CA"

@@ -195,9 +195,10 @@ curl -X POST https://controller:8080/api/clusters/$CLUSTER/versions -H "Authoriz
 
 Its files: `haproxy.cfg`, `files/<name>` (HAProxy's files that hold no
 private key - those go through the cluster's certificates, below),
-`keepalived.conf`, `bird.conf`, `firewall.nft`. The last three are
-templates ([Go's](https://pkg.go.dev/text/template)), rendered for each
-member:
+`letsencrypt.json` (the [Let's Encrypt](#lets-encrypt) configuration,
+without its secrets), `keepalived.conf`, `bird.conf`, `firewall.nft`.
+The last three are templates
+([Go's](https://pkg.go.dev/text/template)), rendered for each member:
 
 | In a template | What it is |
 |---|---|
@@ -242,8 +243,9 @@ curl -X POST https://controller:8080/api/clusters/$CLUSTER/apply -H "Authorizati
 
 The version is rendered for every member first, checked on the first
 member (`haproxy -c`, each daemon's own check), then applied one member
-at a time: the files, HAProxy, the files the version no longer has, the
-firewall on trial and confirmed, VRRP, BGP - and before the next member,
+at a time: the files, Let's Encrypt, HAProxy, the files and certificates
+the version no longer has, the firewall on trial and confirmed, VRRP,
+BGP - and before the next member,
 the member's stick tables learnt back from its peers (a reloaded HAProxy
 gets them from a peer after about 5 seconds: members reloaded together
 would lose them). The first failure stops it:
@@ -276,7 +278,8 @@ sees it at its next look - every 10 minutes, or `POST
 /api/clusters/{id}/check` - and reports the member as drifted, its
 configuration left as it is. The next apply puts it back and locks it
 again. Runtime changes - a server's state, maps and ACLs, stick table
-entries, the firewall's sets - are each node's and never locked.
+entries, the firewall's sets, a Let's Encrypt renewal - are each node's
+and never locked.
 
 ## Certificates and keys
 
@@ -308,26 +311,63 @@ tries again.
 One member orders the cluster's Let's Encrypt certificates - the one
 the secrets come from -, the others order nothing:
 
-- They hold its configuration - the certificates, the account's
-  settings, the DNS providers and their credentials, how it reaches the
-  CA -, pulled from it over their mutual TLS, never through the
-  Controller; not its account key: each member keeps its own.
-- They serve its certificates, pulled the same way. Every check - every
-  10 minutes on the Controller, `janusctl cluster check` without it -
-  compares each member's certificates with the orderer's: a renewal, a
-  certificate added or removed, and the member pulls them again, the
-  journal saying so ("lb-2 pulled lb-1's renewed certificate(s): site").
+- They serve its certificates, pulled from it over their mutual TLS,
+  never through the Controller. Every check - every 10 minutes on the
+  Controller, `janusctl cluster check` without it - compares each
+  member's certificates with the orderer's: a renewal, a certificate
+  added or removed, and the member pulls them again, the journal saying
+  so ("lb-2 pulled lb-1's renewed certificate(s): site").
 - They answer HTTP-01 challenges with the orderer's account: behind a
   virtual IP or a balancer, a challenge may reach any member.
 - A renewal asked of another member is refused, naming the orderer;
   the node's page and `janusctl haproxy acme status` say "Ordered by".
-- When the secrets' source changes - chosen on the page, or the orderer
-  removed or recycled -, the new one orders with the configuration it
-  already holds, under its own account; the others answer with that
-  account from the next check.
+- They hold the configuration - the certificates, the account's
+  settings, the DNS providers and their credentials, how the CA is
+  reached - for the day they order; not the orderer's account key: each
+  member keeps its own. When the secrets' source changes - chosen on the
+  page, or the orderer removed or recycled -, the new one orders with
+  the configuration it holds, under its own account; the others answer
+  with that account from the next check.
 
-Configure Let's Encrypt on the member the secrets come from - or on a
-node before the cluster is [made from it](#from-a-node).
+**The cluster manages it** once its configuration is set on the cluster
+- the cluster's **Let's Encrypt** tab, `PUT
+/api/clusters/{id}/letsencrypt`, or `janusctl cluster letsencrypt`
+without a Controller: the same on every member and locked there, like
+HAProxy's configuration. Whichever member orders, the others are armed
+alike - the way to the CA (directly, a proxy, the Controller's relay,
+ordered by the Controller) included -, and a new orderer goes on the
+same way.
+
+- The configuration is checked on the member that orders, then given to
+  it whole, its secrets with it - a DNS provider's credentials, the EAB
+  key, a proxy's password -, relayed: the Controller never keeps them.
+- The cluster's next version carries it as `letsencrypt.json`, its
+  secrets left empty - a version holding one is refused -, applied
+  member by member: each first pulls the secrets from the orderer, then
+  takes the configuration. A certificate the version drops stays on a
+  member until its new `haproxy.cfg` no longer uses it.
+- A member's own Let's Encrypt apply is refused while the lock holds
+  (`janusctl -n lb-2 cluster release acme` for an emergency); a
+  configuration changed behind the cluster's back shows as drifted, and
+  the next apply puts the cluster's back. Renewals stay each member's
+  to ask.
+- When only a secret changes, no version is made: the orderer gets it,
+  the others pull it. The tab shows each member's way to the CA and its
+  certificates; **Stop managing…** applies the cluster's version again
+  without the lock - each member keeps what it runs.
+
+```sh
+curl -X PUT https://controller:8080/api/clusters/$CLUSTER/letsencrypt -H "Authorization: Bearer $JANUS_TOKEN" \
+  -d "$(jq -n --slurpfile c letsencrypt.json '{config: $c[0], note: "LE through the proxy"}')"
+```
+
+The configuration is the JSON `janusctl haproxy acme get` prints - a
+secret left empty keeps the orderer's. `GET` on the same path shows
+the orderer's configuration, secrets empty, and each member's state;
+`POST .../letsencrypt/check` checks one on the orderer, changing nothing.
+Before the cluster manages it, configure Let's Encrypt on the member the
+secrets come from - or on a node before the cluster is
+[made from it](#from-a-node).
 
 ## Members
 
@@ -872,6 +912,7 @@ janusctl cluster apply edge edge/ -manage haproxy,files,vrrp -m "VRRP"
 
 janusctl cluster check edge          # each member; exits 1 when one wants a look
 janusctl cluster certificate edge www.pem
+janusctl cluster letsencrypt edge letsencrypt.json   # the cluster's, secrets in it; shown without the file
 janusctl cluster add edge lb-3 -address 192.0.2.13
 janusctl cluster remove edge lb-3
 janusctl cluster replace edge lb-1 lb-4 -address 192.0.2.14
@@ -927,6 +968,8 @@ Readers see clusters, administrators change them.
 | `GET`, `POST /api/clusters/{id}/versions`, `GET .../versions/{n}` | the versions; a new one (`{base, files, delete, note}`); one, with its files |
 | `POST /api/clusters/{id}/apply` | apply a version (`{version, managed}`) |
 | `POST /api/clusters/{id}/certificates` | a certificate for every member (`{name, pem, crt_list, sni}`) |
+| `GET`, `PUT /api/clusters/{id}/letsencrypt` | its [Let's Encrypt](#lets-encrypt): the orderer's configuration, secrets empty, each member's state and the Controller's relay and ordering; make a configuration the cluster's (`{config, note}` - 400 with the orderer's refusal, else `202`) |
+| `POST /api/clusters/{id}/letsencrypt/check` | check a configuration on the orderer, change nothing: `{accepted, errors}` |
 | `POST /api/clusters/{id}/pull` | the members pull the secrets again |
 | `POST /api/clusters/{id}/check` | look at every member now |
 | `GET /api/clusters/{id}/journal` | what was done (`?n=`) |

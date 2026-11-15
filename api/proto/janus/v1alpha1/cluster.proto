@@ -41,7 +41,7 @@ service ClusterService {
   rpc ClusterLeave(google.protobuf.Empty) returns (ClusterInfo);
 
   // ClusterRelease lets this member's own configuration be changed again,
-  // by domain - haproxy, files, vrrp, bgp, firewall; none named: all -,
+  // by domain - haproxy, files, vrrp, bgp, firewall, acme; none named: all -,
   // for an emergency change on one node while its cluster manages it.
   // The orchestrator then reports the member as drifted, and takes the
   // domains back with its next apply.
@@ -129,7 +129,8 @@ message ClusterInfo {
   // The TCP port of every member's peers listener.
   uint32 peers_port = 6;
   // The configuration domains the cluster manages on this node, locked
-  // to the orchestrator's calls: haproxy, files, vrrp, bgp, firewall.
+  // to the orchestrator's calls: haproxy, files, vrrp, bgp, firewall,
+  // acme (the letsencrypt extension's configuration).
   repeated string managed = 7;
   // Who set the composition last (free text the orchestrator writes).
   string managed_by = 8;
@@ -170,6 +171,11 @@ message ClusterInfo {
   // says whether it can now. False: a release before it, which says
   // nothing (handoff_unavailable empty) and can't.
   bool handoff_supported = 23;
+  // The domains this node's release can lock - what managed may name. An
+  // orchestrator tells a release that can't lock a domain from one that
+  // can before asking it to; empty: a release before this field, which
+  // locks haproxy, files, vrrp, bgp and firewall.
+  repeated string lockable = 24;
 }
 
 message ClusterFlowsRequest {

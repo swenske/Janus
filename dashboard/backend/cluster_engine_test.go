@@ -20,6 +20,7 @@ import (
 
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/acme"
 	"github.com/swenske/Janus/internal/clusters"
 )
 
@@ -48,8 +49,10 @@ type fakeMember struct {
 	// announceAfter: Announcing calls before it announces its routes;
 	// downFor: BootTime calls it doesn't answer (rebooting).
 	announceAfter, downFor int
-	// acme: its letsencrypt extension; nil: not in its image.
-	acme *janusv1alpha1.ACMEStatusResponse
+	// acme: its letsencrypt extension; nil: not in its image. acmeCfg:
+	// its configuration, secrets and all.
+	acme    *janusv1alpha1.ACMEStatusResponse
+	acmeCfg *janusv1alpha1.ACMEConfig
 	// set: what the last ClusterSet said.
 	set *janusv1alpha1.ClusterSetRequest
 	// addrs: the addresses on its interfaces besides its member address
@@ -222,12 +225,16 @@ func (f *clusterFake) ClusterGet(_ context.Context, m clusters.Member) (*janusv1
 	fm := f.node(m)
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	lockable := []string{"haproxy", "files", "vrrp", "bgp", "firewall", "acme"}
+	if fm.oldRelease {
+		lockable = nil
+	}
 	if fm.info == nil {
-		return &janusv1alpha1.ClusterInfo{Drained: fm.drained, UndrainedUnix: fm.undrained, HandoffUnavailable: fm.noHandoff, HandoffSupported: !fm.oldRelease}, nil
+		return &janusv1alpha1.ClusterInfo{Drained: fm.drained, UndrainedUnix: fm.undrained, HandoffUnavailable: fm.noHandoff, HandoffSupported: !fm.oldRelease, Lockable: lockable}, nil
 	}
 	info := proto.Clone(fm.info).(*janusv1alpha1.ClusterInfo)
 	info.MemberCertNotAfterUnix = f.notAfter.Unix()
-	info.Drained, info.UndrainedUnix, info.HandoffUnavailable, info.HandoffSupported = fm.drained, fm.undrained, fm.noHandoff, !fm.oldRelease
+	info.Drained, info.UndrainedUnix, info.HandoffUnavailable, info.HandoffSupported, info.Lockable = fm.drained, fm.undrained, fm.noHandoff, !fm.oldRelease, lockable
 	return info, nil
 }
 
@@ -351,6 +358,23 @@ func (f *clusterFake) ClusterPull(_ context.Context, m clusters.Member, from str
 	if err := f.call(m, "ClusterPull", detail); err != nil {
 		return nil, err
 	}
+	// The ACME configuration, secrets and all: the source's - but a
+	// certificate the member's haproxy.cfg uses stays (the node's
+	// InstallPulledConfig).
+	if slices.Contains(items, janusv1alpha1.ClusterItem_CLUSTER_ITEM_ACME_CONFIG) || len(items) == 0 {
+		f.mu.Lock()
+		if src, to := f.nodes[from], f.nodes[m.Name]; src != nil && to != nil && src.acme != nil && to.acme != nil && src.acmeCfg != nil {
+			next := proto.Clone(src.acmeCfg).(*janusv1alpha1.ACMEConfig)
+			for _, c := range to.acmeCfg.GetCertificates() {
+				gone := !slices.ContainsFunc(next.Certificates, func(n *janusv1alpha1.ACMECertificate) bool { return n.Name == c.Name })
+				if gone && strings.Contains(string(to.cfg), "acme/"+c.Name+".pem") {
+					next.Certificates = append(next.Certificates, proto.Clone(c).(*janusv1alpha1.ACMECertificate))
+				}
+			}
+			to.acmeCfg = next
+		}
+		f.mu.Unlock()
+	}
 	// The ACME certificates: the source's, as the pull would install them.
 	if slices.Contains(items, janusv1alpha1.ClusterItem_CLUSTER_ITEM_ACME_CERTS) || len(items) == 0 {
 		f.mu.Lock()
@@ -373,6 +397,12 @@ func (f *clusterFake) ACMEStatus(_ context.Context, m clusters.Member) (*janusv1
 	defer f.mu.Unlock()
 	if a := f.nodes[m.Name].acme; a != nil {
 		out := proto.Clone(a).(*janusv1alpha1.ACMEStatusResponse)
+		if cfg := f.nodes[m.Name].acmeCfg; cfg != nil {
+			out.Configured, out.PathMode = true, cfg.GetPath().GetMode()
+			if out.PathMode == janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_UNSPECIFIED {
+				out.PathMode = janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_DIRECT
+			}
+		}
 		if s := f.nodes[m.Name].set; s != nil && s.GetAcmeOrderer() != "" && s.GetAcmeOrderer() != m.Name {
 			out.OrderedBy = s.GetAcmeOrderer()
 			if s.GetAcmeThumbprint() != "" {
@@ -382,6 +412,80 @@ func (f *clusterFake) ACMEStatus(_ context.Context, m clusters.Member) (*janusv1
 		return out, nil
 	}
 	return &janusv1alpha1.ACMEStatusResponse{State: janusv1alpha1.ModuleState_MODULE_STATE_NOT_ENABLED}, nil
+}
+
+func (f *clusterFake) ACMEConfig(_ context.Context, m clusters.Member) (*janusv1alpha1.ACMEConfig, error) {
+	if err := f.call(m, "ACMEConfig", ""); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	fm := f.nodes[m.Name]
+	if fm.acme == nil {
+		return nil, errors.New("the letsencrypt extension isn't in this image")
+	}
+	if fm.acmeCfg == nil {
+		return &janusv1alpha1.ACMEConfig{}, nil
+	}
+	return acme.Redacted(fm.acmeCfg), nil
+}
+
+// ACMEApply is the node's: an empty secret keeps the saved one; a
+// certificate haproxy.cfg uses (acme/<name>.pem in it) can't go.
+func (f *clusterFake) ACMEApply(_ context.Context, m clusters.Member, cfg *janusv1alpha1.ACMEConfig, validateOnly bool) error {
+	detail := strings.ToLower(strings.TrimPrefix(cfg.GetPath().GetMode().String(), "ACME_PATH_MODE_"))
+	for _, c := range cfg.GetCertificates() {
+		detail += " " + c.GetName()
+	}
+	if validateOnly {
+		detail += " check"
+	}
+	if err := f.call(m, "ACMEApply", detail); err != nil {
+		return err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	fm := f.nodes[m.Name]
+	if fm.acme == nil {
+		return errors.New("the letsencrypt extension isn't in this image")
+	}
+	next := proto.Clone(cfg).(*janusv1alpha1.ACMEConfig)
+	if old := fm.acmeCfg; old != nil {
+		if p := next.GetPath(); p != nil && p.ProxyPassword == "" && old.GetPath().GetProxyUrl() == p.ProxyUrl {
+			p.ProxyPassword = old.GetPath().GetProxyPassword()
+		}
+		for _, p := range next.DnsProviders {
+			for k, v := range p.Settings {
+				if v != "" {
+					continue
+				}
+				for _, op := range old.DnsProviders {
+					if op.Name == p.Name && op.Type == p.Type {
+						p.Settings[k] = op.Settings[k]
+					}
+				}
+			}
+		}
+		for _, c := range old.Certificates {
+			gone := !slices.ContainsFunc(next.Certificates, func(n *janusv1alpha1.ACMECertificate) bool { return n.Name == c.Name })
+			if gone && strings.Contains(string(fm.cfg), "acme/"+c.Name+".pem") {
+				return fmt.Errorf("letsencrypt.json: haproxy.cfg doesn't load without the certificates removed here - take them out of it first: %s", c.Name)
+			}
+		}
+	}
+	for _, p := range next.DnsProviders {
+		for k, v := range p.Settings {
+			if v == "" {
+				return fmt.Errorf("letsencrypt.json: dns_providers %s: %s is empty", p.Name, k)
+			}
+		}
+	}
+	if !validateOnly {
+		fm.acmeCfg = next
+		fm.acme.Configured = true
+		fm.acme.PathMode = next.GetPath().GetMode()
+	}
+	return nil
 }
 
 func (f *clusterFake) RotateTickets(_ context.Context, m clusters.Member, renew bool) error {
