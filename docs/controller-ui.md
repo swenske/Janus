@@ -778,7 +778,10 @@ pushes it** (`upgrade-relay`: dashboardd downloads the four files and
 streams each into `UploadReleaseFile` as it arrives - sha256 checked on
 the way - then calls `Upgrade` on the staged copy; progress comes back
 as NDJSON and the page shows it), or **upload files** from the browser
-(`upgrade-upload`). The node verifies the bundle's signature in every
+(`upgrade-upload`: an `XMLHttpRequest`, whose `upload.onprogress` says
+which file is going out and how much of it - `src/node/upload.js` - a
+fetch says nothing while it uploads; the node's NDJSON read from the
+growing `responseText` after). The node verifies the bundle's signature in every
 case. What the page filled the form in with - the latest release (**Use
 this update**, offered only when it's newer than the node's), the
 pre-release, the prepared image - it names, while the URL is still that
