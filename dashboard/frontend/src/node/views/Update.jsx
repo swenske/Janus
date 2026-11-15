@@ -5,6 +5,7 @@ import { apiURL } from '../../shared/base.js'
 import { requirementError, toggleExtension } from '../../shared/requires.js'
 import { Badge, Card, ErrorBox, Loading, PageHeader, Tabs, useAction, useConfirm, useToast } from '../../shared/ui.jsx'
 import { bytes, dateTime } from '../format.js'
+import { ndjsonLines, uploadPosition } from '../upload.js'
 import { useNodeStatus, usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
 import { WaitForNode } from '../waitForNode.jsx'
@@ -237,7 +238,12 @@ export default function Update({ route = '' }) {
       form.append('insecure_skip_signature_check', String(allowUnsigned))
       form.append('allow_schematic_change', String(allowSchematic))
       form.append('reboot_mode', health.reboot_mode)
-      return streamUpgrade('/api/lifecycle/upgrade-upload', { body: form }, setRelay)
+      // The files in the order sent: where the browser is, file by file,
+      // until the node's messages take over.
+      const sent = FILES.map((f) => ({ name: f.label, size: files[f.field].size }))
+      return streamUpgrade('/api/lifecycle/upgrade-upload', { body: form }, setRelay, (loaded, total) =>
+        setRelay({ stage: 'upload', loaded, total, count: sent.length, ...uploadPosition(sent, loaded) }),
+      )
     })
     setRelay(null)
     // A refusal can leave the other slot holding part of the release
@@ -535,7 +541,7 @@ export default function Update({ route = '' }) {
             {relay && <RelayProgress p={relay} />}
             <div>
               <button className="danger solid" disabled={busy || !ready || !!following || !v?.active_slot} onClick={launch}>
-                <Rocket size={15} /> {busy ? (mode === 'upload' ? 'Uploading…' : 'Installing…') : 'Install and reboot…'}
+                <Rocket size={15} /> {busy ? (mode === 'upload' && (!relay || relay.stage === 'upload') ? 'Uploading…' : 'Installing…') : 'Install and reboot…'}
               </button>
             </div>
           </div>
@@ -1026,33 +1032,87 @@ function Preparation({ prep }) {
 
 // streamUpgrade POSTs an update to path asking for NDJSON, passing each
 // progress line to onProgress; the last line says whether it worked. A
-// refusal before the node's first message is a plain error.
-async function streamUpgrade(path, init, onProgress) {
-  const resp = await fetch(apiURL(path), { method: 'POST', ...init, headers: { ...(init.headers || {}), Accept: 'application/x-ndjson' } })
-  if (!resp.ok) throw new ApiError((await resp.text()).trim(), resp.status)
-  if (!(resp.headers.get('Content-Type') || '').includes('ndjson')) return resp.json()
-  const reader = resp.body.getReader()
-  const decoder = new TextDecoder()
-  let buf = ''
-  let last = null
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buf += decoder.decode(value, { stream: true })
-    for (let i = buf.indexOf('\n'); i >= 0; i = buf.indexOf('\n')) {
-      const line = buf.slice(0, i).trim()
-      buf = buf.slice(i + 1)
-      if (!line) continue
-      last = JSON.parse(line)
-      if (last.stage === 'error') throw new ApiError(last.message, 502)
-      onProgress(last)
+// refusal before the node's first message is a plain error. An
+// XMLHttpRequest, not a fetch: onUpload hears how far the browser is
+// sending the body (bytes sent, the body's size) - a fetch says nothing
+// while it uploads (#627).
+function streamUpgrade(path, init, onProgress, onUpload) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', apiURL(path))
+    for (const [name, value] of Object.entries({ ...(init.headers || {}), Accept: 'application/x-ndjson' })) xhr.setRequestHeader(name, value)
+    const read = ndjsonLines()
+    let last = null
+    let failed = false
+    const ok = () => xhr.status >= 200 && xhr.status < 300
+    const ndjson = () => ok() && (xhr.getResponseHeader('Content-Type') || '').includes('ndjson')
+    const fail = (err) => {
+      failed = true
+      reject(err)
     }
-  }
-  if (last?.stage !== 'done') throw new ApiError('The connection to the Controller ended before the update did', 502)
-  return { message: last.message }
+    // The node's lines, as the response grows: an "error" ends it.
+    const take = (end) => {
+      if (failed || !ndjson()) return
+      let lines
+      try {
+        lines = read(xhr.responseText, end)
+      } catch (err) {
+        return fail(new ApiError(`The Controller's answer isn't readable: ${err.message}`, 502))
+      }
+      for (const line of lines) {
+        last = line
+        if (line.stage === 'error') return fail(new ApiError(line.message, 502))
+        onProgress(line)
+      }
+    }
+    if (onUpload) xhr.upload.onprogress = (e) => onUpload(e.loaded, e.lengthComputable ? e.total : 0)
+    xhr.onprogress = () => take(false)
+    xhr.onload = () => {
+      if (failed) return
+      if (!ok()) return fail(new ApiError(xhr.responseText.trim() || `${xhr.status} ${xhr.statusText}`, xhr.status))
+      if (!ndjson()) {
+        try {
+          return resolve(JSON.parse(xhr.responseText))
+        } catch (err) {
+          return fail(new ApiError(`The Controller's answer isn't readable: ${err.message}`, 502))
+        }
+      }
+      take(true)
+      if (failed) return
+      if (last?.stage !== 'done') return fail(new ApiError('The connection to the Controller ended before the update did', 502))
+      resolve({ message: last.message })
+    }
+    xhr.onerror = () => {
+      if (!failed) fail(new ApiError(last ? 'The connection to the Controller ended before the update did' : 'Controller unreachable', 0))
+    }
+    xhr.send(init.body)
+  })
 }
 
 function RelayProgress({ p }) {
+  if (p.stage === 'upload') {
+    const pct = p.size ? Math.min(100, (100 * p.bytes) / p.size) : 0
+    const all = p.total ? Math.min(100, Math.floor((100 * p.loaded) / p.total)) : 0
+    if (p.total && p.loaded >= p.total)
+      return (
+        <div className="notice small">
+          <span className="row" style={{ gap: '0.4rem' }}>
+            <Loader2 size={14} className="spin" /> The {p.count} files sent ({bytes(p.total)}) - the node checks the release before writing it…
+          </span>
+        </div>
+      )
+    return (
+      <div className="notice">
+        <div className="small">
+          Uploading <span className="mono">{p.name}</span> ({p.index + 1}/{p.count}): {bytes(p.bytes)} / {bytes(p.size)}
+          {p.total ? <span className="muted"> - {all} % of {bytes(p.total)}</span> : null}
+        </div>
+        <div className="bar" style={{ marginTop: '0.4rem' }}>
+          <div style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+    )
+  }
   if (p.stage === 'download') {
     const n = RELAY_FILES.indexOf(p.file) + 1
     const pct = p.total ? Math.min(100, (100 * (p.bytes || 0)) / p.total) : 0
