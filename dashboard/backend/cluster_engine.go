@@ -34,6 +34,10 @@ func newClusterEngine(a *app, st *clusters.Store) *clusterEngine {
 		Nodes:     clusterNodes(a),
 		Ready:     a.clusterReady,
 		ManagedBy: "janus-controller " + clusters.ShortID(a.controllerID),
+		// A member's address moves (Readdress, a recycle keeping it): the
+		// Controller follows the node, and frees an old member's.
+		MoveNetwork: a.moveMemberNetwork,
+		Release:     a.releaseMember,
 	}
 	return e
 }

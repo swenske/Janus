@@ -1,7 +1,7 @@
 import { ChevronLeft, ExternalLink, FileText, History, KeyRound, Loader2, Network, Pencil, Plus, RefreshCw, Rocket, ScrollText, Send, Split, Trash2, Upload, Users } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { call, postJSON } from './call.js'
-import { DOMAINS, STAGES, behindLatest, clusterNameError, domainsOf, health, memberDefaults, memberNameError, parseVars, pathError, releaseError, upgradeRows, varsText, versionChanges, when } from './clusters.js'
+import { DOMAINS, STAGES, behindLatest, clusterNameError, domainsOf, health, memberDefaults, memberNameError, parseAddressing, parseVars, pathError, releaseError, temporaryAddressError, upgradeRows, varsText, versionChanges, when } from './clusters.js'
 import { useAct, useCan, useReadOnly } from './me.jsx'
 import { DiffView, Editor } from './shared/Editor.jsx'
 import { requirementError, toggleExtension } from './shared/requires.js'
@@ -589,6 +589,7 @@ function Members({ cluster, nodes, act, busy, reload }) {
   const [adding, setAdding] = useState(false)
   const [vars, setVars] = useState(null) // member name being edited
   const [recycling, setRecycling] = useState(null) // member name being recycled
+  const [moving, setMoving] = useState(null) // member name being moved to another address
   const disabled = busy || cluster.busy
   const removeMember = async (m) => {
     let force = false
@@ -684,6 +685,14 @@ function Members({ cluster, nodes, act, busy, reload }) {
                         <button className="small" disabled={disabled} onClick={() => setVars(vars === m.name ? null : m.name)} title="The variables its templates use">
                           <Pencil size={13} /> Variables
                         </button>
+                        <button
+                          className="small"
+                          disabled={disabled || cluster.members.length === 1}
+                          onClick={() => setMoving(moving === m.name ? null : m.name)}
+                          title="Move it to another address - every member told"
+                        >
+                          <Network size={13} /> Address
+                        </button>
                         <button className="small" disabled={disabled} onClick={() => setRecycling(recycling === m.name ? null : m.name)} title="Replace it by a new member, the traffic moving once">
                           <RefreshCw size={13} /> Recycle
                         </button>
@@ -707,6 +716,11 @@ function Members({ cluster, nodes, act, busy, reload }) {
       {recycling && (
         <WhileEditing>
           <Recycle cluster={cluster} member={cluster.members.find((m) => m.name === recycling)} nodes={nodes} onDone={() => setRecycling(null)} reload={reload} />
+        </WhileEditing>
+      )}
+      {moving && (
+        <WhileEditing>
+          <Readdress cluster={cluster} member={cluster.members.find((m) => m.name === moving)} onDone={() => setMoving(null)} reload={reload} />
         </WhileEditing>
       )}
       {can('admin') &&
@@ -1554,19 +1568,28 @@ function Recycle({ cluster, member, nodes, onDone, reload }) {
   const [nodeID, setNodeID] = useState('')
   const [repl, setRepl] = useState({ name: '', address: '' })
   const [newImage, setNewImage] = useState(false)
+  const [keep, setKeep] = useState(false)
+  const [temporary, setTemporary] = useState('')
   const [error, setError] = useState(null)
   const [busy, run] = useAction()
   const pick = (id) => {
     setNodeID(id)
     setRepl(memberDefaults(nodes.find((n) => n.id === id)))
   }
-  const problem = how === 'node' ? (nodeID ? '' : 'a node') || memberNameError(repl.name) || (repl.address ? '' : 'its address') : ''
+  const problem =
+    how === 'node'
+      ? (nodeID ? '' : 'a node') || memberNameError(repl.name) || (repl.address ? '' : 'its address')
+      : keep && temporary.trim()
+        ? temporaryAddressError(temporary.trim())
+        : ''
   const submit = (e) => {
     e.preventDefault()
     setError(null)
     const body = { members: [member.name], new_image: newImage }
+    if (keep) body.keep_address = true
     if (how === 'machine') {
       if (version.trim()) body.version = version.trim()
+      if (keep && temporary.trim()) body.temporary_address = temporary.trim()
     } else {
       body.with = { [member.name]: { node_id: nodeID, name: repl.name, address: repl.address.trim() } }
     }
@@ -1625,15 +1648,100 @@ function Recycle({ cluster, member, nodes, onDone, reload }) {
         <label className="check small">
           <input type="checkbox" checked={newImage} onChange={(e) => setNewImage(e.target.checked)} /> It may run another image (other extensions, HAProxy branch or kernel)
         </label>
-        <p className="small muted">
-          The newcomer joins drained, gets the secrets and the cluster’s version, learns the stick tables, then comes into service as {member.name} is drained - the
-          traffic moves once - and {member.name} leaves{member.machine_id ? ', its machine destroyed' : ''}. Its variables are {member.name}’s. A failure before {member.name}’s
-          drain takes the newcomer out again.
-        </p>
+        <label className="check small">
+          <input type="checkbox" checked={keep} onChange={(e) => setKeep(e.target.checked)} /> It takes {member.name}’s address, <span className="mono">{member.address}</span>, once{' '}
+          {member.name} has left
+        </label>
+        {keep && how === 'machine' && (
+          <label className="field">
+            <span>The new machine’s address until then - CIDR, or dhcp; needed when {member.name}’s is static</span>
+            <input className="mono" value={temporary} placeholder="192.0.2.30/24" onChange={(e) => setTemporary(e.target.value)} />
+          </label>
+        )}
+        {keep ? (
+          <p className="small muted">
+            The newcomer joins drained on its own address, gets the secrets and the cluster’s version, learns the stick tables, and stays drained: {member.name} is drained -
+            the other members serve -, leaves and {member.machine_id ? 'its machine is destroyed' : 'is powered off'}. The newcomer then takes {member.name}’s address on
+            trial, every member is told, and it comes into service there - what routers, firewalls and NATs know stays true. Its variables are {member.name}’s. If the
+            address can’t be taken, the newcomer serves on its own; move it with Address once the cause is fixed.
+          </p>
+        ) : (
+          <p className="small muted">
+            The newcomer joins drained, gets the secrets and the cluster’s version, learns the stick tables, then comes into service as {member.name} is drained - the
+            traffic moves once - and {member.name} leaves{member.machine_id ? ', its machine destroyed' : ''}. Its variables are {member.name}’s. A failure before{' '}
+            {member.name}’s drain takes the newcomer out again.
+          </p>
+        )}
         <ErrorBox error={error} />
         <div className="row">
           <button className="primary" type="submit" disabled={busy || !!problem}>
             <RefreshCw size={15} /> Recycle {member.name}
+          </button>
+          <button type="button" onClick={onDone}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </Card>
+  )
+}
+
+// Readdress moves a member to another address (docs/guide/clusters.md
+// "Keeping a member's address"): drained, its interface's addressing on
+// trial and confirmed - the Controller following the node -, every member
+// told, back in service.
+function Readdress({ cluster, member, onDone, reload }) {
+  const [addresses, setAddresses] = useState('')
+  const [gateway, setGateway] = useState('')
+  const [gateway6, setGateway6] = useState('')
+  const [error, setError] = useState(null)
+  const [busy, run] = useAction()
+  const submit = (e) => {
+    e.preventDefault()
+    setError(null)
+    let body
+    try {
+      body = parseAddressing(addresses, gateway, gateway6)
+    } catch (err) {
+      setError(err)
+      return
+    }
+    run(async () => {
+      try {
+        await postJSON(`/api/clusters/${cluster.id}/members/${member.name}/address`, body)
+        reload()
+        onDone()
+      } catch (err) {
+        setError(err)
+      }
+    })
+  }
+  return (
+    <Card title={`Move ${member.name}`} icon={Network} className="data-title">
+      <form className="stack" onSubmit={submit}>
+        <p className="small muted">
+          {member.name} is at <span className="mono">{member.address}</span>. Its interface there gets these static addresses - the first is the member’s - on trial,
+          confirmed where it answers then; the Controller follows it. It is drained first, the other members serve; every member is told its new address and the cluster’s
+          version applied again (its templates may name it), then it comes back into service.
+        </p>
+        <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <label className="field">
+            <span>Addresses (CIDR)</span>
+            <input className="mono" value={addresses} placeholder="192.0.2.11/24" onChange={(e) => setAddresses(e.target.value)} />
+          </label>
+          <label className="field">
+            <span>Gateway</span>
+            <input className="mono" value={gateway} placeholder="192.0.2.1" onChange={(e) => setGateway(e.target.value)} />
+          </label>
+          <label className="field">
+            <span>IPv6 gateway</span>
+            <input className="mono" value={gateway6} placeholder="2001:db8::1" onChange={(e) => setGateway6(e.target.value)} />
+          </label>
+        </div>
+        <ErrorBox error={error} />
+        <div className="row">
+          <button className="primary" type="submit" disabled={busy || !addresses.trim()}>
+            <Network size={15} /> Move {member.name}
           </button>
           <button type="button" onClick={onDone}>
             Cancel
