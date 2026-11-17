@@ -297,7 +297,20 @@ func (a *app) handleClusterACMERenew(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	// The Controller orders at once for an orderer it orders for.
+	// The Controller orders at once for an orderer it orders for - a
+	// certificate whose last order failed too, its wait dropped as
+	// "Order what's due now" does (v2026.11.17's lab: woken alone, the
+	// loop waited for the next attempt, 5 to 10 minutes on).
+	if o := c.Member(c.SecretsFrom); a.ordering != nil && o != nil && o.NodeID != "" {
+		due := names
+		if len(due) == 0 {
+			due = req.Names
+		}
+		if err := a.orderNow(o.NodeID, due); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
 	if nodeproxy.ACMEChanged != nil {
 		nodeproxy.ACMEChanged()
 	}

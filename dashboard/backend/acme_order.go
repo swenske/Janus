@@ -395,24 +395,40 @@ func (a *app) handleACMEOrderingRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, id := range a.ordering.store.Nodes() {
-		if n, ok := a.store.Get(id); ok {
-			a.ordering.mu.Lock()
-			certs := a.ordering.nodes[id].Certificates
-			a.ordering.mu.Unlock()
-			for _, c := range certs {
-				o := a.ordering.store.Order(n.ID, c.Name)
-				if !o.NextAttempt.IsZero() {
-					o.NextAttempt = time.Time{}
-					if err := a.ordering.store.SetOrder(n.ID, c.Name, o); err != nil {
-						writeError(w, http.StatusInternalServerError, err.Error())
-						return
-					}
-				}
+		if _, ok := a.store.Get(id); ok {
+			if err := a.orderNow(id, nil); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
 			}
 		}
 	}
 	a.ordering.poke()
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// orderNow drops the wait before the next attempt of node id's
+// certificates names - every one the last pass saw, none named -: the
+// next pass orders them, failed ones included. A certificate the
+// Controller has no order for is left alone.
+func (a *app) orderNow(id string, names []string) error {
+	if len(names) == 0 {
+		a.ordering.mu.Lock()
+		for _, c := range a.ordering.nodes[id].Certificates {
+			names = append(names, c.Name)
+		}
+		a.ordering.mu.Unlock()
+	}
+	for _, name := range names {
+		o := a.ordering.store.Order(id, name)
+		if o.NextAttempt.IsZero() {
+			continue
+		}
+		o.NextAttempt = time.Time{}
+		if err := a.ordering.store.SetOrder(id, name, o); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // acmePageOf is where node n's Let's Encrypt configuration is changed: its

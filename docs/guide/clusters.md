@@ -345,6 +345,12 @@ same way.
 - The configuration is checked on the member that orders, then given to
   it whole, its secrets with it - a DNS provider's credentials, the EAB
   key, a proxy's password -, relayed: the Controller never keeps them.
+  It orders what's due at once: the others are told first to answer
+  HTTP-01 with the account it orders with - an imported key's, the
+  Controller's when it orders, else its own -, so a first challenge
+  reaching any member is answered. When its own isn't known beforehand
+  (it followed another member, or the Controller ordered for it), it
+  orders nothing until the others are told.
 - The cluster's next version carries it as `letsencrypt.json`, its
   secrets left empty - a version holding one is refused -, applied
   member by member: each first pulls the secrets from the orderer, then
@@ -371,8 +377,9 @@ same way.
   the way chosen - each with its own secrets where the form leaves one
   empty -, and says each member's answer; it changes nothing. **Renew**
   (`POST .../letsencrypt/renew`, `-renew`) asks the orderer - the
-  Controller orders at once when it orders for the cluster -, the others
-  pull the certificate at the next check.
+  Controller orders at once when it orders for the cluster, a
+  certificate whose last order failed included -, the others pull the
+  certificate at the next check.
 - When only a secret changes, no version is made: the orderer gets it,
   the others pull it. The tab shows each member's way to the CA and its
   certificates; **Stop managing…** applies the cluster's version again

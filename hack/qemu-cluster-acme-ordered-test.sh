@@ -17,7 +17,9 @@
 # to the CA tried on both (check-path: ordered, nothing to reach). The
 # orderer changed to lb-2: it keeps the mode, the Controller orders for
 # it - a renewal asked through the cluster - and lb-1, following it now,
-# pulls it. No AVC denial on either node.
+# pulls it. A certificate the Controller's name rules don't cover fails
+# and waits; the rule added, the cluster's Renew has it ordered at once.
+# No AVC denial on either node.
 #
 # Usage: hack/qemu-cluster-acme-ordered-test.sh <disk.img> <janusctl-bin> <pebble-bin-dir> <dashboardd-bin> <janus-acme-bin>
 set -euo pipefail
@@ -286,6 +288,33 @@ grep -q "lets encrypt: node lb-2, certificate site: ordered and installed" "$WOR
 api POST "/api/clusters/$CID/check" >/dev/null || fail "check"
 wait_for 60 "lb-1 serving lb-2's certificate" pulled
 echo "  ok: lb-2 the orderer - still ordered by the Controller, which ordered its renewal; lb-1 follows and pulled it"
+
+# --- an order that failed, renewed through the cluster: ordered at once -----------
+# A certificate the Controller's name rules don't cover fails and waits
+# 5 minutes; the rule added, Renew on the cluster orders it at once - as
+# "Order what's due now" does (v2026.11.17's lab, #660's finding 4: the
+# cluster's Renew woke the loop alone, which waited for the next attempt).
+python3 - "$WORKDIR/cluster-acme.json" > "$WORKDIR/cluster-acme-other.json" <<'PY'
+import json, sys
+c = json.load(open(sys.argv[1]))
+c["config"]["certificates"].append({"name": "other", "domains": ["other.test"]})
+c["note"] = "another certificate"
+print(json.dumps(c))
+PY
+api PUT "/api/clusters/$CID/letsencrypt" "$(cat "$WORKDIR/cluster-acme-other.json")" >/dev/null || fail "the cluster's Let's Encrypt with another certificate"
+wait_for 180 "the cluster's Let's Encrypt applied again" idle
+api POST /api/acme/run >/dev/null || fail "ordering run"
+refused() { grep -q "lets encrypt: node lb-2, certificate other: .*doesn't allow the name" "$WORKDIR/dash.log"; }
+wait_for 60 "the Controller refusing other.test - no name rule covers it" refused
+grep "lets encrypt: node lb-2, certificate other:" "$WORKDIR/dash.log" | tail -1 | grep -q "next attempt" || fail "no next attempt after the refusal: $(grep 'certificate other' "$WORKDIR/dash.log")"
+api PUT /api/acme "{\"email\": \"ops@site.test\", \"accept_terms\": true,
+  \"directories\": [\"https://127.0.0.1:$P_ACME/dir\"], \"name_policy\": [{\"suffixes\": [\"site.test\", \"other.test\"]}]}" >/dev/null || fail "the name rule for other.test"
+renewed="$(api POST "/api/clusters/$CID/letsencrypt/renew" '{"names": ["other"]}')" || fail "renew other through the cluster"
+check "the renewal asked of lb-2" '"other"' "$renewed"
+other_valid() { ctl 2 haproxy acme status | grep -Eq '^other +valid'; }
+wait_for 60 "the Controller ordering other at once after the cluster's Renew - not at its next attempt" other_valid
+grep -q "lets encrypt: node lb-2, certificate other: ordered and installed" "$WORKDIR/dash.log" || fail "the Controller doesn't say it ordered other for lb-2"
+echo "  ok: an order the policy refused waits; the rule added, the cluster's Renew had the Controller order it at once"
 
 for i in $NODES; do
   if grep -a "avc:.*denied" "$WORKDIR/$i.log"; then fail "AVC denials on lb-$i"; fi

@@ -54,9 +54,14 @@ type fakeMember struct {
 	acme    *janusv1alpha1.ACMEStatusResponse
 	acmeCfg *janusv1alpha1.ACMEConfig
 	// acmeKey: the account key it was given; renewed: what ACMERenew
-	// asked of it.
-	acmeKey string
-	renewed []string
+	// asked of it; answeredWhenOrders: what the other nodes answered
+	// HTTP-01 with when it could last order with a configuration given -
+	// at once, or when told it orders again (heldConfig: it followed
+	// another member when given one).
+	acmeKey            string
+	renewed            []string
+	answeredWhenOrders map[string]string
+	heldConfig         bool
 	// set: what the last ClusterSet said.
 	set *janusv1alpha1.ClusterSetRequest
 	// addrs: the addresses on its interfaces besides its member address
@@ -308,6 +313,10 @@ func (f *clusterFake) ClusterSet(_ context.Context, m clusters.Member, req *janu
 	drained := fm.info != nil && fm.info.GetDrained()
 	fm.info = &janusv1alpha1.ClusterInfo{Member: true, Id: req.GetId(), Name: req.GetName(), MemberName: req.GetMemberName(), Managed: slices.Clone(req.GetManaged()), Drained: drained}
 	fm.set = proto.Clone(req).(*janusv1alpha1.ClusterSetRequest)
+	if fm.heldConfig && (req.GetAcmeOrderer() == "" || req.GetAcmeOrderer() == m.Name) {
+		fm.heldConfig = false // it orders now, with what it was given
+		fm.answeredWhenOrders = f.answersLocked(m.Name)
+	}
 	return fm.info, nil
 }
 
@@ -413,10 +422,8 @@ func (f *clusterFake) ACMEStatus(_ context.Context, m clusters.Member) (*janusv1
 		}
 		if s := f.nodes[m.Name].set; s != nil && s.GetAcmeOrderer() != "" && s.GetAcmeOrderer() != m.Name {
 			out.OrderedBy = s.GetAcmeOrderer()
-			if s.GetAcmeThumbprint() != "" {
-				out.AccountThumbprint = s.GetAcmeThumbprint()
-			}
 		}
+		out.AccountThumbprint = f.answerLocked(m.Name)
 		return out, nil
 	}
 	return &janusv1alpha1.ACMEStatusResponse{State: janusv1alpha1.ModuleState_MODULE_STATE_NOT_ENABLED}, nil
@@ -492,15 +499,50 @@ func (f *clusterFake) ACMEApply(_ context.Context, m clusters.Member, cfg *janus
 		}
 	}
 	if !validateOnly {
+		if s := fm.set; s != nil && s.GetAcmeOrderer() != "" && s.GetAcmeOrderer() != m.Name {
+			fm.heldConfig = true // it follows: it orders nothing yet
+		} else {
+			fm.answeredWhenOrders = f.answersLocked(m.Name)
+		}
 		fm.acmeCfg = next
 		fm.acme.Configured = true
 		fm.acme.PathMode = next.GetPath().GetMode()
 		if accountKey != "" {
 			fm.acmeKey = accountKey
 			fm.acme.AccountThumbprint = "thumb-of-" + strings.TrimSpace(accountKey)
+			if t, err := acme.AccountThumbprint([]byte(accountKey)); err == nil {
+				fm.acme.AccountThumbprint = t
+			}
 		}
 	}
 	return nil
+}
+
+// answersLocked is what every node with the extension but name answers
+// HTTP-01 with. Called with mu held.
+func (f *clusterFake) answersLocked(name string) map[string]string {
+	out := map[string]string{}
+	for n, fm := range f.nodes {
+		if n != name && fm.acme != nil {
+			out[n] = f.answerLocked(n)
+		}
+	}
+	return out
+}
+
+// answerLocked is the thumbprint node name answers HTTP-01 with, as the
+// node's acme.Manager decides: the orderer's when it follows one and
+// knows it, the Controller's when it orders for it, its own otherwise.
+// Called with mu held.
+func (f *clusterFake) answerLocked(name string) string {
+	fm := f.nodes[name]
+	if s := fm.set; s != nil && s.GetAcmeOrderer() != "" && s.GetAcmeOrderer() != name && s.GetAcmeThumbprint() != "" {
+		return s.GetAcmeThumbprint()
+	}
+	if p := fm.acmeCfg.GetPath(); p.GetMode() == janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_ORDERED {
+		return p.GetAccountThumbprint()
+	}
+	return fm.acme.GetAccountThumbprint()
 }
 
 func (f *clusterFake) ACMECheckPath(_ context.Context, m clusters.Member, path *janusv1alpha1.ACMEPath) (*janusv1alpha1.ACMECheckPathResponse, error) {

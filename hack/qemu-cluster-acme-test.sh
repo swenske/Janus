@@ -26,7 +26,10 @@
 # way to the CA tried on every member; a renewal asked through the
 # cluster. lb-1 removed, lb-2 orders through the same proxy with the
 # password it pulled and the account key it was given - the way to the CA
-# and the account kept by the change of orderer. No AVC denial.
+# and the account kept by the change of orderer. A new account and a new
+# certificate at once: lb-2 answers with the new account before lb-1 has
+# it, so lb-1's first order goes through - validated on lb-2. No AVC
+# denial.
 #
 # Usage: hack/qemu-cluster-acme-test.sh <disk.img> <janusctl-bin> <pebble-bin-dir>
 set -euo pipefail
@@ -309,12 +312,34 @@ wait_for 90 "lb-1's renewal through the proxy" renewed
 check "lb-1 reached Pebble through the proxy" "CONNECT 10.0.2.2:$P_ACME" "$(cat "$WORKDIR/proxy-1.log")"
 echo "  ok: a renewal asked through the cluster: lb-1 orders, through the proxy"
 
+# --- a new account and a new certificate at once: the first order -----------------
+# lb-1 orders what's due the moment it has the configuration; Pebble
+# validates on lb-2 - told to answer with the new account before lb-1
+# has it (v2026.11.17's lab, #660's finding 3: lb-2 still answered with
+# the account before, the first order failed until a renewal).
+openssl ecparam -name prime256v1 -genkey -noout -out "$WORKDIR/account2.key" 2>/dev/null || fail "a second account key"
+python3 - "$WORKDIR/acme-managed.json" > "$WORKDIR/acme-fresh.json" <<'EOF_PY'
+import json, sys
+c = json.load(open(sys.argv[1]))
+c["certificates"].append({"name": "fresh", "domains": ["fresh.test"]})
+print(json.dumps(c, indent=2))
+EOF_PY
+out="$(alice cluster letsencrypt edge "$WORKDIR/acme-fresh.json" -account-key "$WORKDIR/account2.key" 2>&1)" || fail "cluster letsencrypt with a new account and a new certificate: $out"
+THUMBK2="$(alice -n lb-1 haproxy acme status | awk '/^Thumbprint:/ {print $2}')"
+[ -n "$THUMBK2" ] && [ "$THUMBK2" != "$THUMBK" ] || fail "lb-1's account after the second key: '$THUMBK2' (was $THUMBK)"
+check "the journal says lb-2 answered with the new account first" "the other members answer HTTP-01 with the account lb-1 orders with, before it orders with the new configuration" "$(alice cluster journal edge)"
+check "lb-2 answers HTTP-01 with the new account" "^Thumbprint: +$THUMBK2" "$(alice -n lb-2 haproxy acme status)"
+fresh_valid() { alice -n lb-1 haproxy acme status | grep -Eq '^ *fresh +valid'; }
+wait_for 45 "lb-1's first order of fresh - under the new account, validated on lb-2 - with no renewal asked" fresh_valid
+if alice -n lb-1 haproxy acme status | grep -q "^fresh: last attempt"; then fail "fresh's first order failed: $(alice -n lb-1 haproxy acme status)"; fi
+echo "  ok: a new account and a new certificate: lb-2 answered with the new account before lb-1 had it - lb-1's first order went through, validated on lb-2"
+
 # --- lb-1 leaves: lb-2 orders on its own -----------------------------------------
 : > "$WORKDIR/proxy-2.log"
 out="$(alice cluster remove edge lb-1 2>&1)" || fail "remove lb-1: $out"
 st2="$(alice -n lb-2 haproxy acme status)"
 if grep -q '^Ordered by:' <<<"$st2"; then fail "lb-2 still follows after lb-1 left: $st2"; fi
-check "lb-2 orders with the account key the cluster gave it" "^Thumbprint: +$THUMBK" "$st2"
+check "lb-2 orders with the account key the cluster gave it" "^Thumbprint: +$THUMBK2" "$st2"
 before="$(issued_on 2)"
 alice -n lb-2 haproxy acme renew site >/dev/null || fail "renew site on lb-2"
 own_order() { [ "$(issued_on 2)" != "$before" ] && [ -n "$(issued_on 2)" ]; }
