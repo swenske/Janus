@@ -167,7 +167,7 @@ func runNetworkApply(client janusv1alpha1.NetworkServiceClient, endpoint string,
 				return
 			}
 			if status.Code(err) == codes.FailedPrecondition {
-				log.Fatalf("the node has nothing awaiting confirmation (%s): it didn't receive this change, or already reverted it - nothing changed, apply it again", status.Convert(err).Message())
+				log.Fatal(netconfig.NothingOnTrial(time.Now(), revertAt, status.Convert(err).Message()))
 			}
 			if attempt == 0 {
 				fmt.Printf("confirm over %s: %s\n", ep, status.Convert(err).Message())

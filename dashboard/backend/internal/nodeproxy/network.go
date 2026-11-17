@@ -294,7 +294,7 @@ func confirmLoop(res *networkApplyResult, confirm func(ep string) (string, error
 		for _, ep := range res.Candidates {
 			via, err := confirm(ep)
 			if status.Code(err) == codes.FailedPrecondition {
-				res.Error = fmt.Sprintf("the node has nothing awaiting confirmation (%s): it didn't receive this change, or already reverted it - nothing changed, apply it again", status.Convert(err).Message())
+				res.Error = netconfig.NothingOnTrial(time.Now(), time.Unix(res.RevertAtUnix, 0), status.Convert(err).Message())
 				return "", false
 			}
 			if err != nil {
