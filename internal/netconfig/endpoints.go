@@ -1,6 +1,7 @@
 package netconfig
 
 import (
+	"fmt"
 	"net"
 	"net/netip"
 	"slices"
@@ -104,4 +105,20 @@ func KeepsStatically(cfg *janusv1alpha1.NetworkConfig, endpoint string) bool {
 		}
 	}
 	return false
+}
+
+// NothingOnTrial says what a confirmation answered "nothing on trial"
+// (FailedPrecondition) means, at now, for a trial due to revert at
+// revertAt: from its deadline on (a second's margin) the node went back
+// by itself - nothing confirmed it in time at an address the
+// configuration gives it, so applying it again would end the same way;
+// before, the change never reached it. detail is the node's message.
+// janusctl network apply and the Controller say the same
+// (qemu-network-config-test cuts the caller off and expects "couldn't
+// confirm"; #663 had made it say "apply it again").
+func NothingOnTrial(now, revertAt time.Time, detail string) string {
+	if !now.Before(revertAt.Add(-time.Second)) {
+		return fmt.Sprintf("couldn't confirm before %s: the node went back to its previous configuration by itself - nothing reached it in time at an address the new configuration gives it (%s)", revertAt.Format(time.TimeOnly), detail)
+	}
+	return fmt.Sprintf("the node has nothing awaiting confirmation (%s): it didn't receive this change - nothing changed, apply it again", detail)
 }

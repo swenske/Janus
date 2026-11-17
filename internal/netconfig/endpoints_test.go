@@ -2,7 +2,9 @@ package netconfig
 
 import (
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 )
@@ -86,6 +88,27 @@ func TestDropsEndpoint(t *testing.T) {
 	} {
 		if got := DropsEndpoint(tc.cfg, tc.endpoint); got != tc.want {
 			t.Errorf("%s: DropsEndpoint = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestNothingOnTrial: past the trial's deadline the node went back by
+// itself - "couldn't confirm", never "apply it again" (it would cut the
+// caller off again: qemu-network-config-test); before it, the change
+// never reached the node.
+func TestNothingOnTrial(t *testing.T) {
+	revert := time.Date(2026, 11, 17, 13, 0, 10, 0, time.UTC)
+	for _, c := range []struct {
+		now      time.Time
+		want, no string
+	}{
+		{revert.Add(3 * time.Second), "couldn't confirm before 13:00:10: the node went back to its previous configuration by itself", "apply it again"},
+		{revert.Add(-500 * time.Millisecond), "couldn't confirm", "apply it again"},
+		{revert.Add(-20 * time.Second), "it didn't receive this change - nothing changed, apply it again", "couldn't confirm"},
+	} {
+		got := NothingOnTrial(c.now, revert, "no network configuration is on trial")
+		if !strings.Contains(got, c.want) || strings.Contains(got, c.no) || !strings.Contains(got, "(no network configuration is on trial)") {
+			t.Errorf("at %s: %q", c.now.Format(time.TimeOnly), got)
 		}
 	}
 }

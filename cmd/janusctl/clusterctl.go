@@ -202,7 +202,7 @@ func (o *clusterCtl) moveNetwork(ctx context.Context, m clusters.Member, cfg *ja
 				return o.moved(m, ep)
 			}
 			if status.Code(last) == codes.FailedPrecondition {
-				return fmt.Errorf("the node has nothing awaiting confirmation (%s): it didn't receive this change, or already reverted it", status.Convert(last).Message())
+				return errors.New(netconfig.NothingOnTrial(time.Now(), revertAt, status.Convert(last).Message()))
 			}
 		}
 		select {
