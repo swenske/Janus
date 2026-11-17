@@ -329,15 +329,41 @@ fi
 via_vip() { alice -n lb-3 system probe -v http "http://$VIP:8080/" 2>&1; }
 out="$(via_vip)" || fail "lb-3 doesn't reach the virtual IP: $out"
 check "a member serves $VIP" "$([ "$KIND" = vrrp ] && echo lb-1 || echo "lb-[12]")" "$out"
+# A probe whose connection was reset right after it connected, while the
+# route (or the virtual IP) moved to the other member: the member that
+# accepted it is no longer in its path, and the one now in it has no such
+# connection - the reset docs/guide/clusters.md "Handing connections
+# over" describes for a member taken out or brought back without the
+# handoff (an HTTP client opens another connection). It takes a probe
+# open at that very moment - with BGP, lb-3 sends all its connections to
+# one member (the kernel hashes their addresses, not their ports): once in
+# weeks of CI runs (v2026.11.17-2's build, at lb-1's drain), 2 of 8 runs
+# with six probing loops on the build box, each within a second of a
+# member's drain or undrain in the cluster's journal. Asked again at
+# once, it counts as a reset, not a failure - one per route change of the
+# update at most: each member drained, then undrained.
+reset_after_connect() { grep -Eq 'connect +ok' <<<"$1" && grep -q 'connection reset by peer' <<<"$1"; }
 load() { # load LOG: lb-3 asks the virtual IP until killed
+  local out again
   while :; do
     if out="$(via_vip)"; then
       echo "ok $(date +%s.%N) $(grep -oE 'lb-[0-9]' <<<"$out" | tail -1)"
+    elif reset_after_connect "$out" && again="$(via_vip)"; then
+      echo "reset $(date +%s.%N) $(tr '\n' ' ' <<<"$out")"
+      echo "ok $(date +%s.%N) $(grep -oE 'lb-[0-9]' <<<"$again" | tail -1)"
     else
       echo "FAILED $(date +%s.%N) $(tr '\n' ' ' <<<"$out")"
     fi
     sleep 0.2
   done >"$1" 2>&1
+}
+# resets LOG: the probes reset at a route change, at most one per member
+# drained or undrained (2 each).
+resets() {
+  local n
+  n="$(grep -c '^reset' "$1" || true)"
+  [ "$n" -le $((2 * $(wc -w <<<"$MEMBERS"))) ] || fail "$n probes reset after their connect in $1 - more than the route changes of an update: $(grep '^reset' "$1" | head -5)"
+  echo "$n"
 }
 load "$WORKDIR/load.log" &
 LOAD_PID=$!
@@ -353,13 +379,14 @@ echo "$out" | sed 's/^/    /'
 kill "$LOAD_PID" 2>/dev/null || true
 wait "$LOAD_PID" 2>/dev/null || true
 LOAD_PID=
-total="$(grep -c '' "$WORKDIR/load.log" || true)"
+total="$(grep -cE '^(ok|FAILED)' "$WORKDIR/load.log" || true)"
 failed="$(grep -c '^FAILED' "$WORKDIR/load.log" || true)"
 served2="$(grep -c '^ok .* lb-2$' "$WORKDIR/load.log" || true)"
 [ "$failed" = 0 ] || fail "$failed of $total requests through the virtual IP failed during the update: $(grep '^FAILED' "$WORKDIR/load.log" | head -5)"
 [ "$total" -gt 20 ] || fail "only $total requests through the virtual IP during the update"
 [ "$served2" -gt 0 ] || fail "lb-2 never served $VIP"
-echo "  ok: $total requests through the virtual IP during the update, none failed ($served2 served by lb-2 while lb-1 was out)"
+reset="$(resets "$WORKDIR/load.log")"
+echo "  ok: $total requests through the virtual IP during the update, none failed ($served2 served by lb-2 while lb-1 was out; $reset reset at a route change, asked again at once)"
 
 # Order, steps, the result.
 journal="$(alice cluster journal edge -n 200)"
@@ -415,11 +442,12 @@ if [ -n "$BUNDLE_C" ]; then
   if alice -n lb-2 cluster get | grep -q "Drained"; then fail "lb-2 left drained after its revert"; fi
   [ "$(boots 1)" = "$b1" ] || fail "lb-1 rebooted: the update didn't stop at lb-2"
   check "lb-1 untouched" "^Node: $VERSION_B$" "$(alice -n lb-1 version)"
-  total_c="$(grep -c '' "$WORKDIR/load-c.log" || true)"
+  total_c="$(grep -cE '^(ok|FAILED)' "$WORKDIR/load-c.log" || true)"
   failed_c="$(grep -c '^FAILED' "$WORKDIR/load-c.log" || true)"
   [ "$failed_c" = 0 ] || fail "$failed_c of $total_c requests through the virtual IP failed during the revert: $(grep '^FAILED' "$WORKDIR/load-c.log" | head -5)"
+  reset_c="$(resets "$WORKDIR/load-c.log")"
   for i in $MEMBERS; do wait_for 60 "lb-$i's peers up after the revert" peers_up "$i" 1; done
-  echo "  ok: an update to $VERSION_C (its HAProxy can't start) stopped at lb-2, which reverted to $VERSION_B by itself and is back in service; lb-1 untouched; $total_c requests through the virtual IP, none failed"
+  echo "  ok: an update to $VERSION_C (its HAProxy can't start) stopped at lb-2, which reverted to $VERSION_B by itself and is back in service; lb-1 untouched; $total_c requests through the virtual IP, none failed ($reset_c reset at a route change, asked again at once)"
 fi
 
 for i in $NODES; do
