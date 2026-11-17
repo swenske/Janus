@@ -241,6 +241,13 @@ curl -X POST https://controller:8080/api/clusters/$CLUSTER/apply -H "Authorizati
   -d '{"version": 2, "managed": ["haproxy", "files", "vrrp"]}'
 ```
 
+`managed` replaces the whole list: a domain left out stops being
+managed - its lock released on every member - `acme` included once the
+cluster's Let's Encrypt is set. Leave `managed` out to keep the list
+as it is. The journal names each domain an apply takes on or lets go
+("the cluster stops managing Let's Encrypt's configuration from version
+5 on"); `janusctl cluster apply -manage` does the same.
+
 The version is rendered for every member first, checked on the first
 member (`haproxy -c`, each daemon's own check), then applied one member
 at a time: the files, Let's Encrypt, HAProxy, the files and certificates

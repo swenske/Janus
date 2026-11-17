@@ -689,10 +689,7 @@ func (a *app) handleClusterApply(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "an operation runs on cluster "+c.Name)
 			return
 		}
-		if _, err := a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error {
-			c.Managed = req.Managed
-			return nil
-		}); err != nil {
+		if err := a.clusters.SetManaged(c.ID, req.Managed, req.Version, requestPrincipal(r).User); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
