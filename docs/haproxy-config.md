@@ -73,6 +73,35 @@ A named `defaults` section starts over: one for TCP proxies needs its
 own `option contstats`. It costs a wakeup every 5 seconds for each open
 connection.
 
+## Reloads and idle connections
+
+Every configuration applied reloads HAProxy without a cut: a new
+process takes the listeners, the previous one finishes what it serves.
+By default that previous process closes, at once, the connections it
+accepted that have no request in progress - idle keep-alive
+connections, and fresh ones whose first request is still on its way. A
+client whose request crosses that close meets a reset - typically a
+proxy or a balancer in front reusing its connections: 262 and 281 of
+its requests failed over 45 reloads at 9,000 to 13,000 requests a
+second, measured on 3.4. `option idle-close-on-response` keeps those
+connections open instead until their next request, answered with
+`Connection: close`: none failed.
+
+```haproxy
+defaults
+    mode http
+    option idle-close-on-response
+```
+
+A new node's bootstrap configuration and the
+[examples](../examples/haproxy/web.cfg) have it. The configuration you
+apply replaces the bootstrap: add the line to yours - to every
+`defaults` section, a named one starts over -; nodes already set up
+keep what they run until you do. The previous process then lives until
+those connections send their next request or reach `timeout client`. A
+reboot or a shutdown doesn't wait for them: janusd ends HAProxy once
+the requests it was serving are answered.
+
 ## The global section
 
 | On a distribution | On a Janus node | Why |
