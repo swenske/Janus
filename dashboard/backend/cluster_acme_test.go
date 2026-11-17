@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/acmeorder"
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/acme"
 	"github.com/swenske/Janus/internal/clusters"
@@ -469,7 +472,16 @@ func TestClusterLetsEncryptUnappliedVersion(t *testing.T) {
 func TestClusterLetsEncryptAccountKey(t *testing.T) {
 	a, f, c := acmeCluster(t)
 	ctx := context.Background()
-	const key = "-----BEGIN EC PRIVATE KEY-----\nkey-569\n-----END EC PRIVATE KEY-----"
+	keyPEM, err := acme.NewAccountKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := string(keyPEM)
+	thumb, _ := acme.AccountThumbprint(keyPEM)
+	body := strings.Split(strings.TrimSpace(key), "\n")[1] // a line of the key's base64
+	if _, err := a.clusters.ConfigureACME(ctx, c.ID, acmeTestConfig("", ""), clusters.ACMEOptions{AccountKey: "not a key"}, "admin"); err == nil || !strings.Contains(err.Error(), "the account key") {
+		t.Errorf("a key that doesn't parse: %v", err)
+	}
 	n, err := a.clusters.ConfigureACME(ctx, c.ID, acmeTestConfig("", ""), clusters.ACMEOptions{AccountKey: key}, "admin")
 	if err != nil {
 		t.Fatal(err)
@@ -479,22 +491,96 @@ func TestClusterLetsEncryptAccountKey(t *testing.T) {
 			t.Errorf("%s's account key: %q", name, fm.acmeKey)
 		}
 	}
-	if s := f.node(clusters.Member{Name: "lb-2"}).set; s.GetAcmeThumbprint() != "thumb-of-"+key {
-		t.Errorf("lb-2 told the thumbprint %q", s.GetAcmeThumbprint())
+	if s := f.node(clusters.Member{Name: "lb-2"}).set; s.GetAcmeThumbprint() != thumb {
+		t.Errorf("lb-2 told the thumbprint %q, the key's is %q", s.GetAcmeThumbprint(), thumb)
+	}
+	// The others answered with the key's account before lb-1 had it - it
+	// ordered at once (#660's finding 3).
+	if got := f.node(clusters.Member{Name: "lb-1"}).answeredWhenOrders; got["lb-2"] != thumb || got["lb-3"] != thumb {
+		t.Errorf("when lb-1 was given the key, the others answered %v - not %s", got, thumb)
 	}
 	v, _ := a.clusters.Store.Version(c.ID, n)
 	for p, b := range v.Content {
-		if strings.Contains(string(b), "key-569") {
+		if strings.Contains(string(b), body) {
 			t.Errorf("the key in the version's %s", p)
 		}
 	}
 	for _, e := range a.clusters.Store.Entries(c.ID, 100) {
-		if strings.Contains(e.Message, "key-569") {
+		if strings.Contains(e.Message, body) {
 			t.Errorf("the key in the journal: %s", e.Message)
 		}
 	}
 	if !journalSays(t, a, c.ID, "the account key given to every member") {
 		t.Errorf("the journal: %+v", a.clusters.Store.Entries(c.ID, 10))
+	}
+}
+
+// The cluster's first Let's Encrypt configuration, its orderer configured
+// for nothing before (v2026.11.17's lab, #660's finding 3): the orderer
+// orders what's due as soon as it has the configuration, so the others
+// answer HTTP-01 with its account first - a challenge reaching one of
+// them is answered. The same with the Controller ordering: its account.
+func TestClusterLetsEncryptFirstOrder(t *testing.T) {
+	a, f, nodes := clusterApp(t, "lb-1", "lb-2", "lb-3")
+	running := janusv1alpha1.ModuleState_MODULE_STATE_RUNNING
+	f.mu.Lock()
+	for i, n := range []string{"lb-1", "lb-2", "lb-3"} {
+		f.nodes[n].acme = &janusv1alpha1.ACMEStatusResponse{State: running, AccountThumbprint: "thumb-" + string(rune('1'+i))}
+	}
+	f.mu.Unlock()
+	c := newCluster(t, a, nodes, "lb-1", "lb-2", "lb-3")
+	ctx := context.Background()
+	if err := a.clusters.Create(ctx, c.ID, "lb-1", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if st := a.clusters.Store.State(c.ID).ACME; st.Thumbprint != "" {
+		t.Fatalf("an account known before Let's Encrypt is configured: %+v", st)
+	}
+	if _, err := a.clusters.ConfigureACME(ctx, c.ID, acmeTestConfig("tok", "pw"), clusters.ACMEOptions{}, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.node(clusters.Member{Name: "lb-1"}).answeredWhenOrders; got["lb-2"] != "thumb-1" || got["lb-3"] != "thumb-1" {
+		t.Errorf("when lb-1 was given its first configuration, the others answered %v - not lb-1's account", got)
+	}
+	if !journalSays(t, a, c.ID, "the other members answer HTTP-01 with the account lb-1 orders with, before it orders with the new configuration") {
+		t.Errorf("the journal: %+v", a.clusters.Store.Entries(c.ID, 20))
+	}
+	// Set again, the same account: nobody told again.
+	mark := f.mark()
+	if _, err := a.clusters.ConfigureACME(ctx, c.ID, acmeTestConfig("tok", "pw"), clusters.ACMEOptions{}, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.callsSince(mark); inOrder(got, "lb-2 ClusterSet lb-1,lb-2,lb-3", "lb-1 ACMEApply proxy site wild") {
+		t.Errorf("told again before the same account: %v", got)
+	}
+
+	// Ordered by the Controller: its account, before lb-1 has it.
+	ordered := acmeTestConfig("tok", "")
+	ordered.Path = &janusv1alpha1.ACMEPath{Mode: janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_ORDERED, AccountThumbprint: "ctl-thumb-569"}
+	if _, err := a.clusters.ConfigureACME(ctx, c.ID, ordered, clusters.ACMEOptions{}, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.node(clusters.Member{Name: "lb-1"}).answeredWhenOrders; got["lb-2"] != "ctl-thumb-569" || got["lb-3"] != "ctl-thumb-569" {
+		t.Errorf("ordered by the Controller: the others answered %v when lb-1 had it", got)
+	}
+
+	// Back to lb-1's own account: while the Controller ordered for it, lb-1
+	// answered with the Controller's - its own isn't known before it has
+	// the configuration. Held - it orders nothing - while it's given it,
+	// the others told, then let go.
+	mark = f.mark()
+	if _, err := a.clusters.ConfigureACME(ctx, c.ID, acmeTestConfig("tok", "pw"), clusters.ACMEOptions{}, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	fm := f.node(clusters.Member{Name: "lb-1"})
+	if got := fm.answeredWhenOrders; got["lb-2"] != "thumb-1" || got["lb-3"] != "thumb-1" {
+		t.Errorf("back to lb-1's own account: when it could order, the others answered %v", got)
+	}
+	if fm.heldConfig || fm.set.GetAcmeOrderer() != "lb-1" {
+		t.Errorf("lb-1 not let go: held %v, told %q orders", fm.heldConfig, fm.set.GetAcmeOrderer())
+	}
+	if got := f.callsSince(mark); !inOrder(got, "lb-1 ClusterSet lb-1,lb-2,lb-3", "lb-1 ACMEApply proxy site wild", "lb-2 ClusterSet lb-1,lb-2,lb-3", "lb-1 ClusterSet lb-1,lb-2,lb-3") {
+		t.Errorf("held, given it, the others told, let go: %v", got)
 	}
 }
 
@@ -529,5 +615,34 @@ func TestClusterLetsEncryptCheckPathAndRenew(t *testing.T) {
 	}
 	if r := f.node(clusters.Member{Name: "lb-1"}).renewed; !slices.Equal(r, []string{"site"}) || f.node(clusters.Member{Name: "lb-2"}).renewed != nil {
 		t.Errorf("renewed on lb-1 %v, lb-2 %v", r, f.node(clusters.Member{Name: "lb-2"}).renewed)
+	}
+}
+
+// Renew on a cluster the Controller orders for: a certificate whose last
+// order failed is ordered at once, as "Order what's due now" does - not
+// at its next attempt (v2026.11.17's lab, #660's finding 4).
+func TestClusterLetsEncryptRenewOrderedNow(t *testing.T) {
+	a, _, c := acmeCluster(t)
+	st, err := acmeorder.Open(filepath.Join(t.TempDir(), "acme"), testSealer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.ordering = &acmeOrdering{store: st, kick: make(chan struct{}, 1), nodes: map[string]orderedNode{}}
+	lb1 := c.Member("lb-1").NodeID
+	later := time.Now().Add(10 * time.Minute)
+	for _, name := range []string{"site", "wild"} {
+		if err := st.SetOrder(lb1, name, acmeorder.Order{NextAttempt: later, LastError: "the CA said no"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := call(t, a.handleClusterACMERenew, "POST", "/api/clusters/"+c.ID+"/letsencrypt/renew", "POST /api/clusters/{id}/letsencrypt/renew", map[string]any{"names": []string{"site"}})
+	if rec.Code != 200 {
+		t.Fatalf("renew: %d %s", rec.Code, rec.Body)
+	}
+	if o := st.Order(lb1, "site"); !o.NextAttempt.IsZero() || o.LastError == "" {
+		t.Errorf("site still waits for its next attempt: %+v", o)
+	}
+	if o := st.Order(lb1, "wild"); !o.NextAttempt.Equal(later) {
+		t.Errorf("wild, not asked, lost its wait: %+v", o)
 	}
 }

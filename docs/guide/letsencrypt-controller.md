@@ -120,7 +120,8 @@ The Controller orders the certificates of each node whose page chose
 Encrypt, the cluster's tab ([clusters](clusters.md#lets-encrypt)): every
 member alike, the Controller ordering for the one that orders, the
 others serving what it gets; a new orderer keeps the mode, and a renewal
-asked on the tab is ordered at once -, with its own ACME account - one for all
+asked on the tab is ordered at once, a certificate whose last order
+failed included -, with its own ACME account - one for all
 its nodes, its key made at the Controller's first start and sealed with
 the master key, registered with each CA a node's configuration names.
 

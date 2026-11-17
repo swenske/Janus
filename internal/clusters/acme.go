@@ -145,8 +145,16 @@ func (e *Engine) SyncACME(ctx context.Context, c *Cluster, actor string) error {
 // its stick tables back from the others before the next one reloads
 // (waitLearnt, as an apply does: members reloading together lose them).
 func (e *Engine) tellOrderer(ctx context.Context, c *Cluster, actor string) error {
+	return e.tellMembers(ctx, c, "", actor)
+}
+
+// tellMembers is tellOrderer for every member but skip.
+func (e *Engine) tellMembers(ctx context.Context, c *Cluster, skip, actor string) error {
 	var failed []string
 	for _, m := range c.Members {
+		if m.Name == skip {
+			continue
+		}
 		if _, err := e.Nodes.ClusterSet(ctx, m, e.SetRequest(c, m, nil, nil)); err != nil {
 			failed = append(failed, fmt.Sprintf("%s: %v", m.Name, err))
 			continue
@@ -234,8 +242,10 @@ func (e *UnappliedError) Error() string {
 }
 
 // ConfigureACME makes cfg cluster id's Let's Encrypt configuration: checked
-// on the member that orders - the one the secrets come from -, given to
-// it whole, its secrets with it (relayed, never kept); then the cluster's
+// on the member that orders - the one the secrets come from -, the others
+// told to answer HTTP-01 with the account it orders with (answerFirst),
+// then given to it whole, its secrets with it (relayed, never kept),
+// when it orders what's due at once; then the cluster's
 // next version - from opts.Base -, cfg in it without its secrets, applied
 // member by member, the cluster managing Let's Encrypt from then on - each
 // member pulls the secrets from the orderer as it takes the version. When
@@ -281,8 +291,15 @@ func (e *Engine) ConfigureACME(ctx context.Context, id string, cfg *janusv1alpha
 	if err := e.Nodes.ACMEApply(ctx, *o, cfg, opts.AccountKey, true); err != nil {
 		return 0, fmt.Errorf("checked on %s: %v", o.Name, err)
 	}
-	if err := e.Nodes.ACMEApply(ctx, *o, cfg, opts.AccountKey, false); err != nil {
+	release, err := e.answerFirst(ctx, c, *o, cfg, opts.AccountKey, actor)
+	if err != nil {
+		return 0, err
+	}
+	err = e.Nodes.ACMEApply(ctx, *o, cfg, opts.AccountKey, false)
+	if rerr := release(err == nil); err != nil {
 		return 0, fmt.Errorf("%s: %v", o.Name, err)
+	} else if rerr != nil {
+		return 0, rerr
 	}
 	secrets := acme.Secrets(cfg)
 	if opts.AccountKey != "" {
@@ -321,6 +338,111 @@ func (e *Engine) ConfigureACME(ctx context.Context, id string, cfg *janusv1alpha
 		return n, e.SyncACME(ctx, cur, actor)
 	}
 	return n, nil
+}
+
+// answerFirst has the members other than o - the member that orders -
+// answer HTTP-01 challenges with the account o orders with once it has
+// cfg, before o may order with it: o orders what's due the moment it can,
+// and a challenge reaching a member that still answered with another
+// account failed - the cluster's first order, on v2026.11.17's lab (the
+// others learnt o's account at the next check). The account is the
+// imported key's, the Controller's when it orders, else o's own, read
+// from it. When o doesn't answer with its own now - it follows another
+// member, or the Controller ordered for it -, its account isn't known
+// before it has cfg: o is held - told another member orders, it orders
+// nothing - while it's given cfg, and release, called once it was
+// (applied: it took it), reads its account, tells the others, then lets
+// o order.
+func (e *Engine) answerFirst(ctx context.Context, c *Cluster, o Member, cfg *janusv1alpha1.ACMEConfig, accountKey, actor string) (release func(applied bool) error, err error) {
+	none := func(bool) error { return nil }
+	var other string
+	for _, m := range c.Members {
+		if m.Name != o.Name {
+			other = m.Name
+			break
+		}
+	}
+	if other == "" {
+		return none, nil
+	}
+	thumb, err := e.orderingThumbprint(ctx, o, cfg, accountKey)
+	if err != nil {
+		return none, err
+	}
+	if thumb != "" {
+		return none, e.tellAccount(ctx, c, o, thumb, actor)
+	}
+	hold := e.SetRequest(c, o, nil, nil)
+	hold.AcmeOrderer, hold.AcmeThumbprint = other, ""
+	if _, err := e.Nodes.ClusterSet(ctx, o, hold); err != nil {
+		return none, fmt.Errorf("holding %s's orders until the others answer with its account: %v", o.Name, err)
+	}
+	release = func(applied bool) error {
+		var err error
+		if applied {
+			st, serr := e.Nodes.ACMEStatus(ctx, o)
+			switch {
+			case serr != nil:
+				err = fmt.Errorf("%s's Let's Encrypt: %v", o.Name, serr)
+			case st.GetAccountThumbprint() != "":
+				err = e.tellAccount(ctx, c, o, st.GetAccountThumbprint(), actor)
+			}
+		}
+		if _, serr := e.Nodes.ClusterSet(ctx, o, e.SetRequest(c, o, nil, nil)); serr != nil {
+			return fmt.Errorf("%s orders nothing until it's told it orders again - the next check does: %v", o.Name, serr)
+		}
+		if werr := e.waitLearnt(ctx, c, o, actor); werr != nil && err == nil {
+			err = werr
+		}
+		return err
+	}
+	if err := e.waitLearnt(ctx, c, o, actor); err != nil {
+		_ = release(false)
+		return none, err
+	}
+	return release, nil
+}
+
+// tellAccount records thumb as the account o, which orders, answers
+// with, and tells the other members - nothing when they know it.
+func (e *Engine) tellAccount(ctx context.Context, c *Cluster, o Member, thumb, actor string) error {
+	want := ACMEState{Orderer: o.Name, Thumbprint: thumb}
+	if e.Store.State(c.ID).ACME == want {
+		return nil
+	}
+	if err := e.Store.UpdateState(c.ID, func(s *State) { s.ACME = want }); err != nil {
+		return err
+	}
+	if err := e.tellMembers(ctx, c, o.Name, actor); err != nil {
+		return err
+	}
+	e.Journal(c.ID, actor, "letsencrypt", o.Name, 0, "the other members answer HTTP-01 with the account %s orders with, before it orders with the new configuration: its first challenges may reach any of them", o.Name)
+	return nil
+}
+
+// orderingThumbprint is the thumbprint of the account member o orders
+// with once it has cfg (and accountKey, when given) - "" when it can't
+// be known before.
+func (e *Engine) orderingThumbprint(ctx context.Context, o Member, cfg *janusv1alpha1.ACMEConfig, accountKey string) (string, error) {
+	if accountKey != "" {
+		t, err := acme.AccountThumbprint([]byte(accountKey))
+		if err != nil {
+			return "", fmt.Errorf("the account key: %v", err)
+		}
+		return t, nil
+	}
+	ordered := janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_ORDERED
+	if p := cfg.GetPath(); p.GetMode() == ordered {
+		return strings.TrimSpace(p.GetAccountThumbprint()), nil
+	}
+	st, err := e.Nodes.ACMEStatus(ctx, o)
+	if err != nil {
+		return "", fmt.Errorf("%s's Let's Encrypt: %v", o.Name, err)
+	}
+	if st.GetOrderedBy() != "" || st.GetPathMode() == ordered {
+		return "", nil // it answers with another account than its own now
+	}
+	return st.GetAccountThumbprint(), nil
 }
 
 // acmeVersion makes canonical cluster c's Let's Encrypt configuration
