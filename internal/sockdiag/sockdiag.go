@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/netip"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -60,10 +61,16 @@ type Socket struct {
 	Inode          uint32
 	// BytesAcked and BytesReceived (TCPWithBytes): what it sent that the
 	// peer acknowledged and what it received since it opened - tcp_info's;
-	// HasBytes says the kernel gave them (not a TIME_WAIT or request
-	// socket's).
+	// HasBytes says the kernel gave them, and the fields below (not a
+	// TIME_WAIT or request socket's).
 	BytesAcked, BytesReceived uint64
 	HasBytes                  bool
+	// Unacked: the segments it sent the peer hasn't acknowledged yet;
+	// LastDataSent and LastDataRecv: how long ago it last sent and last
+	// received data - since it was established when it never did
+	// (tcp_info's tcpi_unacked, tcpi_last_data_sent, tcpi_last_data_recv).
+	Unacked                    uint32
+	LastDataSent, LastDataRecv time.Duration
 }
 
 const (
@@ -79,6 +86,12 @@ const (
 	tcpiBytesAcked    = 120
 	tcpiBytesReceived = 128
 	tcpiBytesEnd      = 136
+	// tcpi_unacked, tcpi_last_data_sent, tcpi_last_data_recv (u32, the
+	// times in milliseconds) - in every tcp_info long enough for the
+	// counters.
+	tcpiUnacked      = 24
+	tcpiLastDataSent = 44
+	tcpiLastDataRecv = 52
 )
 
 // TCP calls fn with each TCP socket of family (unix.AF_INET or
@@ -191,6 +204,9 @@ func attributes(b []byte, s *Socket) {
 		if binary.NativeEndian.Uint16(b[2:])&nlaTypeMask == inetDiagInfo && len(value) >= tcpiBytesEnd {
 			s.BytesAcked = binary.NativeEndian.Uint64(value[tcpiBytesAcked:])
 			s.BytesReceived = binary.NativeEndian.Uint64(value[tcpiBytesReceived:])
+			s.Unacked = binary.NativeEndian.Uint32(value[tcpiUnacked:])
+			s.LastDataSent = time.Duration(binary.NativeEndian.Uint32(value[tcpiLastDataSent:])) * time.Millisecond
+			s.LastDataRecv = time.Duration(binary.NativeEndian.Uint32(value[tcpiLastDataRecv:])) * time.Millisecond
 			s.HasBytes = true
 		}
 		b = b[min((size+3)&^3, len(b)):] // RTA_ALIGN
