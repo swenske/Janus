@@ -21,7 +21,7 @@ RUN curl -fsSLO --retry 6 --retry-delay 20 "https://download.qemu.org/qemu-${QEM
     && echo "${QEMU_SHA256}  qemu-${QEMU_VERSION}.tar.xz" | sha256sum -c - \
     && tar xJf "qemu-${QEMU_VERSION}.tar.xz"
 
-FROM --platform=linux/amd64 alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS build
+FROM --platform=linux/amd64 alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS build
 ARG QEMU_VERSION
 RUN apk add --no-cache build-base linux-headers python3 meson ninja pkgconf bash perl \
     glib-dev glib-static pcre2-dev pcre2-static libffi-dev zlib-dev zlib-static gettext-dev gettext-static \
