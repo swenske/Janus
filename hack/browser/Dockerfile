@@ -3,7 +3,7 @@
 # browsers that version drives, so the build fails when Dependabot bumps
 # one without the other. Used by make docs-smoke (hack/docs-smoke.sh) and
 # make docs-screenshots (hack/docs-screenshots.sh).
-FROM mcr.microsoft.com/playwright:v1.65.0-noble@sha256:6e3fb709361521eb27161606e6da6d2674e5e89fa16516cb37d6fdd91372273d
+FROM mcr.microsoft.com/playwright:v1.65.1-noble@sha256:1507cbfc550a63a6b7396791ca4f00df17beb56342d2447b3f106c306f525579
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false NPM_CONFIG_FUND=false NPM_CONFIG_AUDIT=false
 # The fonts the screenshots show for the system's own (fonts.conf).
 RUN apt-get update && apt-get install -y --no-install-recommends fonts-inter fonts-jetbrains-mono \
