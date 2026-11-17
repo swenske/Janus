@@ -9,7 +9,9 @@
 #     (0.1 to 2 s instead of 15 ms);
 #   - HAProxy serves at least 30 % of what it serves with no log at all -
 #     before, the emulated serial port took most of a vCPU from it (1 800
-#     requests/s instead of 98 000, 2 %);
+#     requests/s instead of 98 000, 2 %); under it, measured again in
+#     interleaved rounds, each way's best compared (a busy host slows one
+#     measure alone);
 #   - HAProxy drops at most 5 % of its log lines (its stdout full) -
 #     before janusd's log ring took a line in constant time, 82 %;
 #   - the console got no more than the services' budget, and says what
@@ -165,7 +167,30 @@ echo "Every request logged: $rps requests/s; MetricsConfigSet median ${median} m
 
 [ "$median" -le 200 ] || fail "janusd's API waited behind HAProxy's output: median ${median} ms under load (idle: $idle_ms ms)"
 [ "$worst" -le 1000 ] || fail "janusd's API waited behind HAProxy's output: ${worst} ms under load (idle: $idle_ms ms)"
-[ $((rps * 10)) -ge $((base_rps * 3)) ] || fail "HAProxy slowed down by its own logging: $rps requests/s, $base_rps without a log line"
+# The two rates above are measured one after the other: a burst of load
+# on the host (a CI runner's other jobs) during one of them alone swings
+# the ratio - 19 % and 29 % seen that way, 85-95 % around them on the
+# same tree. Under 30 %, measure again with rounds of each interleaved,
+# and keep each one's best - what HAProxy does when the host lets it,
+# both ways alike. The regression this guards (#118: the serial port
+# taking the vCPU from HAProxy, 2 %) stays far under it in every round.
+if [ $((rps * 10)) -lt $((base_rps * 3)) ]; then
+  echo "Every request logged: $rps requests/s, $base_rps without a log line - under 30 %: measured again, rounds interleaved"
+  best_off=0
+  best_on=0
+  for round in 1 2 3; do
+    config "# no log"
+    off_rps="$(load 6)"
+    if [ "$off_rps" -gt "$best_off" ]; then best_off=$off_rps; fi
+    config "log stdout format raw local0"
+    on_rps="$(load 6)"
+    if [ "$on_rps" -gt "$best_on" ]; then best_on=$on_rps; fi
+    echo "  round $round: $off_rps requests/s without a log line, $on_rps with every request logged"
+  done
+  [ $((best_on * 10)) -ge $((best_off * 3)) ] || fail "HAProxy slowed down by its own logging: $rps requests/s, $base_rps without a log line; measured again, rounds interleaved: $best_on at best, $best_off without"
+  rps=$best_on
+  base_rps=$best_off
+fi
 # janusd reads HAProxy's stdout as fast as it fills: HAProxy drops a line
 # only when the pipe is full (82 % of them when each line cost janusd a
 # copy of its whole log ring).
