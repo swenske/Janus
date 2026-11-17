@@ -633,6 +633,22 @@ for want in "which joins drained on 192.168.123.34 and takes node3's address 192
   "every member knows edge-1 at 192.168.123.33" "node3 replaced by edge-1 at its address"; do
   grep -qF "$want" <<<"$journal" || fail "the journal doesn't say \"$want\": $journal"
 done
+# The move itself - node3's address free, then edge-1 confirmed there:
+# the Controller reaches edge-1 at the address that moves, so the apply
+# stream goes with it; given up within netconfig.ApplyGrace, the new
+# address confirmed first - it waited ~34 s more on v2026.11.17's lab
+# (the stream's 30 s deadline, then 4 s at the old address).
+move_s="$(api "$API/api/clusters/$CID/journal" | python3 -c '
+import json, sys, datetime
+t = lambda s: datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
+d = json.load(sys.stdin)
+d = d.get("entries", d) if isinstance(d, dict) else d
+free = [t(e["time"]) for e in d if "address 192.168.123.33 is free" in e["message"]]
+moved = [t(e["time"]) for e in d if "edge-1 moved from 192.168.123.34 to 192.168.123.33/24" in e["message"]]
+print(round((max(moved) - max(free)).total_seconds(), 1))
+')" || fail "the move's duration from the journal"
+python3 -c "import sys; sys.exit(0 if float('$move_s') <= float('${MOVE_MAX_S:-20}') else 1)" || fail "edge-1's move to node3's address took ${move_s}s - the apply stream waited for its deadline?"
+echo "  edge-1's move to 192.168.123.33: ${move_s}s"
 EDGE_NODE="$(api "$API/api/machines" | json "next(m['node_id'] for m in d if m['spec']['name']=='edge-1')")"
 at="$(api "$API/api/nodes" | json "next(n['address'] for n in d if n['id']=='$EDGE_NODE')")"
 [ "$at" = 192.168.123.33:9505 ] || fail "the Controller reaches edge-1 at $at"

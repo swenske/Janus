@@ -7,10 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
-	"net/netip"
 	"os"
-	"slices"
 	"strings"
 	"time"
 
@@ -102,11 +99,19 @@ func runNetworkApply(client janusv1alpha1.NetworkServiceClient, endpoint string,
 
 	c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	started := time.Now()
 	stream, err := client.NetworkConfigApply(c, &janusv1alpha1.NetworkConfigApplyRequest{Config: cfg, ConfirmTimeoutSeconds: uint32(timeout.Seconds())})
 	check("NetworkConfigApply", err)
 	var addrs []string
 	var revertAt time.Time
-	applying := false
+	applying, lost, got := false, false, 0
+	// A change taking the address this call came in on: its stream can't
+	// outlive it, its first messages included (netconfig.ApplyGrace).
+	var grace *time.Timer
+	dropping := netconfig.DropsEndpoint(cfg, endpoint)
+	if dropping {
+		grace = time.AfterFunc(netconfig.ApplyGrace, cancel)
+	}
 	for {
 		resp, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
@@ -114,14 +119,21 @@ func runNetworkApply(client janusv1alpha1.NetworkServiceClient, endpoint string,
 		}
 		if err != nil {
 			code := status.Code(err)
-			if !applying || (code != codes.Unavailable && code != codes.DeadlineExceeded && code != codes.Canceled) {
+			if (got == 0 && !dropping) || (code != codes.Unavailable && code != codes.DeadlineExceeded && code != codes.Canceled) {
 				log.Fatalf("NetworkConfigApply: %v", err)
 			}
 			// Expected when the node dropped the address this call came
-			// in on: the configuration is applied, just unreported.
-			fmt.Printf("(connection lost while applying - expected if the node's address changed: %s)\n", status.Convert(err).Message())
+			// in on: the configuration is applied, just unreported - or,
+			// "applying" lost with it too, maybe not: confirming tells.
+			if applying {
+				fmt.Println("(connection lost while applying - expected if the node's address changed)")
+			} else {
+				fmt.Println("(connection lost - checking whether the node applied it)")
+			}
+			lost = true
 			break
 		}
+		got++
 		fmt.Println(progressLine(os.Stdout, resp.GetStage(), 0, false, resp.GetMessage()))
 		if resp.GetRevertAtUnix() != 0 {
 			revertAt = time.Unix(resp.GetRevertAtUnix(), 0)
@@ -134,12 +146,18 @@ func runNetworkApply(client janusv1alpha1.NetworkServiceClient, endpoint string,
 			fmt.Printf("addresses: %s\n", strings.Join(addrs, ", "))
 		}
 	}
+	if grace != nil {
+		grace.Stop()
+	}
+	if revertAt.IsZero() { // the node's own deadline lost with the connection
+		revertAt = started.Add(*timeout)
+	}
 	if *noConfirm {
 		fmt.Printf("not confirmed - run `janusctl network confirm` over an address the configuration keeps before %s, or it reverts\n", revertAt.Format(time.TimeOnly))
 		return
 	}
 
-	candidates := confirmEndpoints(endpoint, cfg, addrs)
+	candidates := netconfig.ConfirmEndpoints(endpoint, cfg, addrs, lost)
 	deadline := revertAt.Add(-time.Second)
 	for attempt := 0; time.Now().Before(deadline); attempt++ {
 		for _, ep := range candidates {
@@ -148,47 +166,16 @@ func runNetworkApply(client janusv1alpha1.NetworkServiceClient, endpoint string,
 				fmt.Printf("confirmed via %s (reached the node at %s) - the configuration is saved\n", via, ep)
 				return
 			}
+			if status.Code(err) == codes.FailedPrecondition {
+				log.Fatalf("the node has nothing awaiting confirmation (%s): it didn't receive this change, or already reverted it - nothing changed, apply it again", status.Convert(err).Message())
+			}
 			if attempt == 0 {
-				fmt.Printf("confirm over %s: %v\n", ep, err)
+				fmt.Printf("confirm over %s: %s\n", ep, status.Convert(err).Message())
 			}
 		}
 		time.Sleep(time.Second)
 	}
 	log.Fatalf("couldn't confirm over %s before %s - the node reverts to its previous configuration by itself", strings.Join(candidates, ", "), revertAt.Format(time.TimeOnly))
-}
-
-// confirmEndpoints lists where to reach the node after the change: the
-// endpoint already in use first (it works whenever the configuration
-// keeps that address), then every address the node reported, or - when
-// the report was lost with the old address - the configuration's static
-// ones.
-func confirmEndpoints(endpoint string, cfg *janusv1alpha1.NetworkConfig, reported []string) []string {
-	_, port, err := net.SplitHostPort(endpoint)
-	if err != nil {
-		port = "9505"
-	}
-	out := []string{endpoint}
-	add := func(cidr string) {
-		p, err := netip.ParsePrefix(cidr)
-		if err != nil || !p.Addr().IsGlobalUnicast() {
-			return
-		}
-		ep := net.JoinHostPort(p.Addr().String(), port)
-		if !slices.Contains(out, ep) {
-			out = append(out, ep)
-		}
-	}
-	for _, a := range reported {
-		add(a)
-	}
-	if len(reported) == 0 {
-		for _, iface := range cfg.GetInterfaces() {
-			for _, a := range iface.GetAddresses() {
-				add(a)
-			}
-		}
-	}
-	return out
 }
 
 func confirmOver(endpoint string, redial redialer) (string, error) {
@@ -201,7 +188,7 @@ func confirmOver(endpoint string, redial redialer) (string, error) {
 	defer cancel()
 	resp, err := janusv1alpha1.NewNetworkServiceClient(conn).NetworkConfigConfirm(c, &emptypb.Empty{})
 	if err != nil {
-		return "", errors.New(status.Convert(err).Message())
+		return "", err // a status: FailedPrecondition is "nothing on trial"
 	}
 	return resp.GetConfirmedVia(), nil
 }

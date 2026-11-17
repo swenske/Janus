@@ -666,8 +666,11 @@ instead of keeping its own:
    virtual IP -, then its interface gets the member's static addressing
    - every address on that interface, IPv4 and IPv6, and its gateways -
    on trial, confirmed where it answers then (the node waits two
-   minutes for that, the orchestrator trying again every second): the
-   Controller follows it, its machine's record too. The node announces the addresses - a
+   minutes for that, the orchestrator trying the new address first,
+   again every second; the call that applied it, made to the old
+   address, is given up a few seconds after it started - nothing comes
+   back from an address the node no longer has): the Controller follows
+   it, its machine's record too. The node announces the addresses - a
    gratuitous ARP, an unsolicited Neighbour Advertisement -: the router
    and the other members take its MAC for them at once. A powered-off
    member is then no longer one of the Controller's nodes: its record
@@ -690,9 +693,11 @@ static interface is recycled into a node you name. The newcomer has its
 own MAC - two machines can't share one while both run -; its
 announcement updates the neighbours' entries for the address.
 
-A cluster whose `firewall.nft` names the member's own address -
-`ip daddr {{ .Member.Address }} tcp dport 9505 accept`, say - is
-refused before anything is touched: the ruleset rendered for the
+What can't be done is refused by the request itself (409), before a
+new machine is made: a cluster of one member, an address DHCP gives, a
+member whose machine can't be cloned that way. So is a cluster whose
+`firewall.nft` names the member's own address -
+`ip daddr {{ .Member.Address }} tcp dport 9505 accept`, say: the ruleset rendered for the
 newcomer's address could refuse it at the member's, the move's
 confirmation with the rest, before the cluster applies it again - and
 nothing changes a node's address and its ruleset in one trial. Match the

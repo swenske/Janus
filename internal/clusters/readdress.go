@@ -556,12 +556,22 @@ func (e *Engine) forget(ctx context.Context, id string, old Member, repl, actor 
 // address and its ruleset in one trial, so it's refused before anything
 // is touched.
 func (e *Engine) firewallFollows(c *Cluster, name, from, to string) error {
+	depends, err := e.firewallDependsOn(c, name, from, to)
+	if err != nil || !depends {
+		return err
+	}
+	return fmt.Errorf("version %d's firewall.nft depends on %s's own address (.Member.Address): its ruleset for %s could refuse it at %s - the confirmation of its move among the rest - before the cluster applies it again: match the interface (iifname) or the subnet instead of .Member.Address, apply that version, then move it", c.Desired, name, from, to)
+}
+
+// firewallDependsOn reports whether member name's firewall.nft, rendered
+// from c's desired version, differs at address from and at to.
+func (e *Engine) firewallDependsOn(c *Cluster, name, from, to string) (bool, error) {
 	if !c.Manages("firewall") || c.Desired == 0 {
-		return nil
+		return false, nil
 	}
 	v, err := e.Store.Version(c.ID, c.Desired)
 	if err != nil {
-		return err
+		return false, err
 	}
 	render := func(addr string) ([]byte, error) {
 		probe := *c
@@ -579,14 +589,82 @@ func (e *Engine) firewallFollows(c *Cluster, name, from, to string) error {
 	}
 	a, err := render(from)
 	if err != nil {
-		return fmt.Errorf("%s at %s: %v", name, from, err)
+		return false, fmt.Errorf("%s at %s: %v", name, from, err)
 	}
 	b, err := render(to)
 	if err != nil {
-		return fmt.Errorf("%s at %s: %v", name, to, err)
+		return false, fmt.Errorf("%s at %s: %v", name, to, err)
 	}
-	if !bytes.Equal(a, b) {
-		return fmt.Errorf("version %d's firewall.nft depends on %s's own address (.Member.Address): its ruleset for %s could refuse it at %s - the confirmation of its move among the rest - before the cluster applies it again: match the interface (iifname) or the subnet instead of .Member.Address, apply that version, then move it", c.Desired, name, from, to)
+	return !bytes.Equal(a, b), nil
+}
+
+// CheckReaddress reports why member name of cluster id can't move to to
+// - what Readdress refuses before touching anything, for an API to
+// answer at once rather than from a background job.
+func (e *Engine) CheckReaddress(id, name string, to Addressing) error {
+	c, ok := e.Store.Get(id)
+	if !ok {
+		return ErrNotFound
+	}
+	m := c.Member(name)
+	if m == nil {
+		return fmt.Errorf("%s isn't a member", name)
+	}
+	if err := e.canReaddress(c, *m, to); err != nil {
+		return err
+	}
+	return e.firewallFollows(c, name, m.Address, to.Address())
+}
+
+// CheckKeepAddress reports why member name of cluster id can't be
+// replaced by a newcomer taking its address over - what Replace with
+// KeepAddress refuses before anything is touched, asked before an
+// orchestrator makes a new machine for it (v2026.11.17's lab: a machine
+// created, then destroyed, to hear it): the cluster's only member, an
+// address its node's configuration doesn't hold statically, a firewall
+// whose rules depend on the member's own address. temporary: the
+// newcomer's address until then, in CIDR form - "", or "dhcp": not known
+// yet (an address of the documentation's range stands for it).
+func (e *Engine) CheckKeepAddress(ctx context.Context, id, name, temporary string) error {
+	c, ok := e.Store.Get(id)
+	if !ok {
+		return ErrNotFound
+	}
+	old := c.Member(name)
+	if old == nil {
+		return fmt.Errorf("%s isn't a member", name)
+	}
+	if e.Release == nil || e.MoveNetwork == nil {
+		return errors.New("this orchestrator can't hand a member's address over")
+	}
+	if len(c.Members) < 2 {
+		return fmt.Errorf("%s is the cluster's only member: nothing would serve while its address moves - add a member first, or replace it without keeping its address", old.Name)
+	}
+	cfg, err := e.Nodes.NetworkConfig(ctx, *old)
+	if err != nil {
+		return fmt.Errorf("%s's network configuration: %v", old.Name, err)
+	}
+	to, err := AddressingOf(cfg, old.Address)
+	if err != nil {
+		return fmt.Errorf("%s: %v", old.Name, err)
+	}
+	probe := ""
+	if p, err := netip.ParsePrefix(temporary); err == nil {
+		probe = p.Addr().String()
+		if net.ParseIP(probe).Equal(net.ParseIP(to.Address())) {
+			return fmt.Errorf("the temporary address %s is %s's own: the newcomer runs beside it until it leaves", temporary, old.Name)
+		}
+	} else if ip := net.ParseIP(old.Address); ip != nil && ip.To4() == nil {
+		probe = "2001:db8::1"
+	} else {
+		probe = "192.0.2.1"
+	}
+	depends, err := e.firewallDependsOn(c, old.Name, probe, old.Address)
+	if err != nil {
+		return err
+	}
+	if depends {
+		return fmt.Errorf("version %d's firewall.nft depends on the member's own address (.Member.Address): the newcomer's ruleset at its temporary address could refuse the confirmation of its move to %s before the cluster applies it again: match the interface (iifname) or the subnet instead of .Member.Address, apply that version, then recycle %s", c.Desired, old.Address, old.Name)
 	}
 	return nil
 }

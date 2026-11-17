@@ -31,6 +31,7 @@ import (
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/acme"
 	"github.com/swenske/Janus/internal/clusters"
+	"github.com/swenske/Janus/internal/netconfig"
 	"github.com/swenske/Janus/internal/pki"
 )
 
@@ -156,19 +157,36 @@ func (o *clusterCtl) moveNetwork(ctx context.Context, m clusters.Member, cfg *ja
 	}
 	var addrs []string
 	revertAt := time.Now().Add(clusters.MoveWindow)
-	applying := false
+	lost, got := false, 0
+	// A change taking the address this call came in on: its stream can't
+	// outlive it, its first messages included (netconfig.ApplyGrace).
+	var grace *time.Timer
+	dropping := netconfig.DropsEndpoint(cfg, n.Address)
+	if dropping {
+		grace = time.AfterFunc(netconfig.ApplyGrace, cancel)
+	}
+	defer func() {
+		if grace != nil {
+			grace.Stop()
+		}
+	}()
 	for {
 		resp, err := stream.Recv()
 		if err != nil {
 			code := status.Code(err)
-			if errors.Is(err, io.EOF) || (applying && (code == codes.Unavailable || code == codes.DeadlineExceeded || code == codes.Canceled)) {
-				break // the connection lost with the address it came in on: expected
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if (got > 0 || dropping) && (code == codes.Unavailable || code == codes.DeadlineExceeded || code == codes.Canceled) {
+				// The connection lost with the address it came in on:
+				// expected - "applying" may have gone with it, the
+				// confirmation tells whether the node applied it.
+				lost = true
+				break
 			}
 			return errors.New(status.Convert(err).Message())
 		}
-		if resp.GetStage() == "applying" {
-			applying = true
-		}
+		got++
 		if resp.GetRevertAtUnix() != 0 {
 			revertAt = time.Unix(resp.GetRevertAtUnix(), 0)
 		}
@@ -176,12 +194,15 @@ func (o *clusterCtl) moveNetwork(ctx context.Context, m clusters.Member, cfg *ja
 			addrs = resp.GetAddresses()
 		}
 	}
-	candidates := confirmEndpoints(n.Address, cfg, addrs)
+	candidates := netconfig.ConfirmEndpoints(n.Address, cfg, addrs, lost)
 	var last error
 	for time.Now().Before(revertAt.Add(-time.Second)) {
 		for _, ep := range candidates {
 			if last = o.confirmNetworkAt(n, ep); last == nil {
 				return o.moved(m, ep)
+			}
+			if status.Code(last) == codes.FailedPrecondition {
+				return fmt.Errorf("the node has nothing awaiting confirmation (%s): it didn't receive this change, or already reverted it", status.Convert(last).Message())
 			}
 		}
 		select {
@@ -190,7 +211,7 @@ func (o *clusterCtl) moveNetwork(ctx context.Context, m clusters.Member, cfg *ja
 		case <-time.After(time.Second):
 		}
 	}
-	return fmt.Errorf("couldn't confirm over %s before the node reverts (%v) - it goes back to its previous configuration by itself", strings.Join(candidates, ", "), last)
+	return fmt.Errorf("couldn't confirm over %s before the node reverts (%s) - it goes back to its previous configuration by itself", strings.Join(candidates, ", "), status.Convert(last).Message())
 }
 
 // confirmNetworkAt confirms node n's network configuration on trial over
@@ -204,10 +225,7 @@ func (o *clusterCtl) confirmNetworkAt(n ctxNode, endpoint string) error {
 	c, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
 	_, err = janusv1alpha1.NewNetworkServiceClient(conn).NetworkConfigConfirm(c, &emptypb.Empty{}, grpc.WaitForReady(true))
-	if err != nil {
-		return errors.New(status.Convert(err).Message())
-	}
-	return nil
+	return err // a status: FailedPrecondition is "nothing on trial"
 }
 
 // moved records that member m's node answers at endpoint now: the
