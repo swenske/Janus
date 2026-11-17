@@ -110,7 +110,7 @@ const FEATURES = [
   {
     icon: Combine,
     title: 'Clusters',
-    text: 'Nodes kept alike: one configuration in versions, applied member by member; stick tables and TLS sessions shared over mutual TLS; certificates carried from member to member; VRRP and BGP from templates. Members recycled one at a time, on hosts of their own, added and taken out with the load - from the Controller, janusctl or Terraform.',
+    text: 'Nodes kept alike: one configuration in versions, applied member by member; stick tables and TLS sessions shared over mutual TLS; certificates carried from member to member, one Let’s Encrypt configuration for all; VRRP and BGP from templates. Members recycled one at a time - keeping their addresses -, on hosts of their own, added and taken out with the load - from the Controller, janusctl or Terraform.',
   },
   {
     icon: ArrowRightLeft,
