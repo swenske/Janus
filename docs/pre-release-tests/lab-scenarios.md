@@ -514,12 +514,12 @@ afterwards (its transitions to the second - the node page's state lags).
 
 | Measured | How |
 |---|---|
-| Each step's time | the cluster's journal from the call |
+| Each step's time | the cluster's journal from the call; since v2026.11.17-2, the move itself: from the member's keepalived stopped to "moved … confirmed there" (about 5 s since #663, 34 s before) |
 | Requests lost on the VIP | the probes (none expected: the member's share goes to the others while its address moves) |
 | Never two masters | both members' VRRP states and keepalived logs; the router's MAC for the VIP |
 | The router following the address | the moment its ARP entry for the address takes the newcomer's MAC, against the address added on it (janusd's netmgr line) |
 | What follows the node | the machine's record (address, MAC), the node list, `Member.Address`, every member's rendered `keepalived.conf`, the old machine gone from its host |
-| The refusals | on a throwaway cluster: a member by DHCP, no temporary address, a cluster of one member, a cluster `firewall.nft` naming `.Member.Address` - the answer, the journal, whether a machine was created |
+| The refusals | on a throwaway cluster: a member by DHCP, no temporary address, a temporary address equal to the member's, a cluster of one member, a cluster `firewall.nft` naming `.Member.Address` - each for a takeover and for **Address**; the answer's code and time (a 409 at once since v2026.11.17-2), the cluster's state right after, the journal, the Controller's machines and both hosts' libvirt domains before and 15 s after (`refuse`) |
 | A version keepalived refuses (#648) | `keepalived.conf` on an interface the nodes lack: where the apply stops, its message, each member's `keepalived.conf` before and after, the VIP |
 
 **Addresses announced** (#647): a `/24` and a `/32` added to a test
@@ -617,13 +617,14 @@ member that doesn't order), the configuration set on the cluster
 |---|---|
 | Test | each member's answer, each way (proxy, direct, the relay), before and after a configuration |
 | The configuration | the time to set it; the version's `letsencrypt.json`, the list of versions and the journal searched for the proxy's password and the provider's settings |
-| The certificates | the first order; **Renew** on the cluster; the check; the serial each member serves, verified |
+| The certificates | the first order - on members never configured for Let's Encrypt, no account key imported, each HTTP-01 challenge reaching the follower: the account the follower answers with sampled every 0.1 s around the setting, the CA's log for invalid authorizations (since v2026.11.17-2); **Renew** on the cluster; the check; the serial each member serves, verified |
 | The lock | a member's own apply from its page and `janusctl`; `janusctl cluster release acme`, a change, the check's drift; the cluster's next setting |
 | No reload | each member's HAProxy uptime around a Let's Encrypt-only change |
 | The member that orders changed | the mode on each member, who answers HTTP-01 with which account, a renewal validated on the follower |
 | A newer version waiting | the 409, then each `base` |
 | An account key | imported on the cluster: each member's thumbprint, a renewal, the key searched for in the versions and the journal |
-| Ordered by the Controller | its account and provider, its ordering policy, Renew and "Order what's due now", the certificates on both members |
+| Ordered by the Controller | its account and provider, its ordering policy, Renew and "Order what's due now", the certificates on both members; since v2026.11.17-2, a name the policy refuses, the rule added, then the cluster's **Renew** alone: the time to each certificate against the back-off |
+| The managed domains | an apply whose `managed` leaves `acme` out, then one taking it back: the journal's entries (since v2026.11.17-2, #664) |
 | The tab | both themes, read-only and Editing, Test clicked (`clpage.mjs`) |
 
 ### A RouterOS router in front
@@ -1799,3 +1800,8 @@ ran:
   `version N`); `clpage NAME` (`clpage.mjs`): the clusters' tabs in the
   browser; `coldstart NAME [MS]` / `coldstart-restore`: the Controller
   started without its release cache, GitHub slowed (v2026.11.17).
+- `refuse LABEL CLUSTER PATH BODY`: a request that must be refused at
+  once - the answer's code and time, the cluster's state, the machines
+  and the hosts' libvirt domains before and 15 s after, the journal;
+  `kalogs NODE…`: each node's keepalived transitions through its node
+  page (v2026.11.17-2).
