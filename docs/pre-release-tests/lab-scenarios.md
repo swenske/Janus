@@ -495,14 +495,39 @@ master recycled through the API as the page does.
 | The ticket keys | the remaining members' rings shared and renewed; a session from before no longer resuming |
 | The journal, the page | each step journaled; the Members tab and its Recycle form in headless Chromium, both themes, axe |
 
-Since #515, the same with **a static address kept**: a third machine on
-a static address of the management network joins the cluster, and is
-recycled with **It takes its address** and a temporary address. Measured
-too: the requests lost on the VIP (the member's share goes to the others
-while its address moves - none expected), its address answering again
-from the new machine (from the runner: how long the router's ARP entry
-for the old MAC lasted), every member's `keepalived.conf` naming it there,
-the machine's record and the Controller reaching it at that address.
+Since v2026.11.17 (#515, #643, #647), **a static address kept**: two
+throwaway machines from the pre-release's factory image of the lab's
+schematic, one on each host, each with a single interface on a free
+static address of the management network (checked: no ping answer, the
+router's ARP entry failed); a cluster of them with a stick table,
+keepalived from a **unicast** template built on `{{ .Member.Address }}`
+and `.Peers` (a VIP of their own, priorities 150/100) and a firewall
+matching the interface. The member holding the VIP is recycled with
+**It takes its address** and a temporary address, then moved to another
+free address and back with **Address**. During each, from the build
+box: the VIP probed every 0.2 s, the lab router's ARP entries for the
+VIP, the members' and the temporary addresses every 0.2 s (a RouterOS
+`:for` loop over ssh printing `/ip arp`, each line stamped as it
+arrives), each member's VRRP state through its node page every 0.3 s
+(`kawatch`, summarized by `kasum.py`), each member's keepalived log
+afterwards (its transitions to the second - the node page's state lags).
+
+| Measured | How |
+|---|---|
+| Each step's time | the cluster's journal from the call |
+| Requests lost on the VIP | the probes (none expected: the member's share goes to the others while its address moves) |
+| Never two masters | both members' VRRP states and keepalived logs; the router's MAC for the VIP |
+| The router following the address | the moment its ARP entry for the address takes the newcomer's MAC, against the address added on it (janusd's netmgr line) |
+| What follows the node | the machine's record (address, MAC), the node list, `Member.Address`, every member's rendered `keepalived.conf`, the old machine gone from its host |
+| The refusals | on a throwaway cluster: a member by DHCP, no temporary address, a cluster of one member, a cluster `firewall.nft` naming `.Member.Address` - the answer, the journal, whether a machine was created |
+| A version keepalived refuses (#648) | `keepalived.conf` on an interface the nodes lack: where the apply stops, its message, each member's `keepalived.conf` before and after, the VIP |
+
+**Addresses announced** (#647): a `/24` and a `/32` added to a test
+node's interface on trial while the router holds a stale entry with
+another MAC for each - which entry takes the node's MAC, and when; and
+at boot, a machine destroyed and another made at the same address on
+the other host (`arpswap`), the router's entry and a ping every 0.2 s,
+on the release first.
 
 ### Clusters on the hypervisor, and scaling
 
@@ -581,6 +606,25 @@ certificates it issued then covers the whole test.
 | Pulling | a renewal forced on the orderer, **Check now**: the journal, the serial each member serves |
 | The handover | the secrets' source changed on the page, **Check now**: who orders, the CA's issued certificates, each member's challenge answer; the CA pointed at the old orderer and a renewal asked of the new one |
 | The stick tables across it | since v2026.10.25-5: a version with a stick table replicated over the cluster's peers (a string key from the query, `http_req_cnt`), a few hundred keys sent; each member's count before and after the handover, and each HAProxy's restart time |
+
+Since v2026.11.17 (#644, #645), **Let's Encrypt managed by the
+cluster**: two throwaway machines with the extension, a cluster of them
+with the HTTP-01 rule, the same private CA (its DNS answering with the
+member that doesn't order), the configuration set on the cluster
+(`PUT /api/clusters/{id}/letsencrypt`, `cle`):
+
+| Measured | How |
+|---|---|
+| Test | each member's answer, each way (proxy, direct, the relay), before and after a configuration |
+| The configuration | the time to set it; the version's `letsencrypt.json`, the list of versions and the journal searched for the proxy's password and the provider's settings |
+| The certificates | the first order; **Renew** on the cluster; the check; the serial each member serves, verified |
+| The lock | a member's own apply from its page and `janusctl`; `janusctl cluster release acme`, a change, the check's drift; the cluster's next setting |
+| No reload | each member's HAProxy uptime around a Let's Encrypt-only change |
+| The member that orders changed | the mode on each member, who answers HTTP-01 with which account, a renewal validated on the follower |
+| A newer version waiting | the 409, then each `base` |
+| An account key | imported on the cluster: each member's thumbprint, a renewal, the key searched for in the versions and the journal |
+| Ordered by the Controller | its account and provider, its ordering policy, Renew and "Order what's due now", the certificates on both members |
+| The tab | both themes, read-only and Editing, Test clicked (`clpage.mjs`) |
 
 ### A RouterOS router in front
 
@@ -1344,6 +1388,15 @@ away. Expected: the newest release and the pre-release at the first
 answer, "Prepare" ready at once, the `security.json` later; the time
 until the pre-release is known noted when it isn't.
 
+Since v2026.11.17 (#642, #646), with a pre-release newer than the
+release out: the Controller on the pre-release restarted without the
+file (saved first, put back after), GitHub 4 s away, its status and an
+older node's update check asked every 5 s (`coldstart`): when the newest
+release, the pre-release and the 🔒 badge are first known, and the
+log's lines about the list (read again when cut short; "the list read
+… ago" when a refresh fails with a list in hand - the file put back,
+GitHub 30 s away).
+
 ### HAProxy's compression
 
 Since v2026.11.10 (zlib 1.4): both backends serve a 64 KiB JSON file
@@ -1415,6 +1468,16 @@ Controller, the admin on the default preferences:
 The account's preferences are put back and the accounts deleted
 afterwards. Scripts behind a browser that click actions turn the switch
 to Editing first (or set the account's `pages_open`).
+
+### An upload's progress
+
+Since v2026.11.17 (#642): **Upload files** on a node's Update page in
+the pinned Chromium (`upage … upload`, Editing first), the bundle of the
+node's own schematic from the factory, once with the browser's upload
+limited to 1 MB/s (Chrome DevTools' network conditions) and once
+without, the notice read every 100 ms and screenshotted: the file being
+sent, its bytes, the bar, "files sent", the node's messages, the node
+back; console errors.
 
 ## The scripts
 
@@ -1723,3 +1786,16 @@ ran:
   alternating versions on node 01 by rollbacks, and their means;
   `rbench-box`: `rbench-short` from the build box while the runner is
   busy (v2026.11.13).
+- `ka-machine NAME ADDR VERSION`: a Controller machine with one static
+  management interface (`EXTENSIONS=`, `HV=`, `MGMT_DHCP=1`);
+  `ka-cluster STEP` (`CL=`, `A=`, `B=`): the address-takeover cluster -
+  `create`, `v2`, `ver MANAGED NAME=FILE…`, `takeover MEMBER TEMP`,
+  `readdress MEMBER CIDR`, `raw`; `kawatch PREFIX SECONDS`: the router's
+  ARP entries, the VIP's probes and the members' VRRP states
+  (`kavrrp`); `kasum.py PREFIX [T0]`: their summary; `arpswap PREFIX
+  VERSION`: a node replaced at its address, the router's entry watched;
+  `mdel NAME…`: machines destroyed; `cle STEP`: Let's Encrypt on a
+  cluster (`set MODE [BASE] [KEYFILE]`, `get`, `test`, `renew`, `check`,
+  `version N`); `clpage NAME` (`clpage.mjs`): the clusters' tabs in the
+  browser; `coldstart NAME [MS]` / `coldstart-restore`: the Controller
+  started without its release cache, GitHub slowed (v2026.11.17).
