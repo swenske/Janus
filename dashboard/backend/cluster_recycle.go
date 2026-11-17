@@ -430,8 +430,44 @@ func (a *app) handleClusterRecycle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if err := a.checkRecycle(r.Context(), c, req); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
 	actor := requestPrincipal(r).User
 	a.runCluster(w, c, "recycling "+strings.Join(req.Members, ", "), actor, func(ctx context.Context) error {
 		return a.recycle(ctx, c.ID, req, actor)
 	})
+}
+
+// checkRecycle reports what the recycle req of cluster c would refuse
+// before making anything - said by the request rather than by its job,
+// and before a new machine is created only to be destroyed again
+// (v2026.11.17's lab): a member's machine that can't be cloned, an
+// address that can't be taken over (clusters.Engine.CheckKeepAddress).
+func (a *app) checkRecycle(ctx context.Context, c *clusters.Cluster, req recycleRequest) error {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	for _, name := range req.Members {
+		old := c.Member(name)
+		if _, given := req.With[name]; !given {
+			if mach := a.machineOf(old.NodeID); mach != nil {
+				var err error
+				if req.keepAddress() {
+					_, err = cloneTakingOver(mach.Spec, name, req.Version, old.Address, req.TemporaryAddress)
+				} else if _, err = cloneSpec(mach.Spec, name, req.Version); err != nil {
+					err = fmt.Errorf("%v: keep its address - the new machine on a temporary address until it leaves -, or give its replacement", err)
+				}
+				if err != nil {
+					return fmt.Errorf("%s: %v", name, err)
+				}
+			}
+		}
+		if req.keepAddress() {
+			if err := a.clusters.CheckKeepAddress(ctx, c.ID, name, req.TemporaryAddress); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

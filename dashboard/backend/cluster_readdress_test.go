@@ -459,6 +459,19 @@ func TestClusterRecycleKeepingAddress(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("a temporary address without its prefix: %d %s", rec.Code, rec.Body)
 	}
+	// The request says it, before any machine is made.
+	made := len(a.machines.List())
+	rec = call(t, a.handleClusterRecycle, "POST", "/api/clusters/"+c.ID+"/recycle", "POST /api/clusters/{id}/recycle", recycleRequest{Members: []string{"lb-1"}, KeepAddress: true})
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "a temporary address") {
+		t.Errorf("no temporary address, by the request: %d %s", rec.Code, rec.Body)
+	}
+	rec = call(t, a.handleClusterRecycle, "POST", "/api/clusters/"+c.ID+"/recycle", "POST /api/clusters/{id}/recycle", recycleRequest{Members: []string{"lb-1"}})
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "keep its address") {
+		t.Errorf("a static address cloned, by the request: %d %s", rec.Code, rec.Body)
+	}
+	if n := len(a.machines.List()); n != made {
+		t.Errorf("%d machines made before the refusals", n-made)
+	}
 
 	member("edge-1")
 	done := make(chan error, 1)
@@ -674,5 +687,100 @@ func TestClusterJoinRendersTheOthersFirst(t *testing.T) {
 	// Its state says so: no drift reported for it.
 	if h := a.clusters.Store.State(c.ID).Members["lb-1"].Hashes["vrrp"]; h != clusters.Sum([]byte(lb1)) {
 		t.Errorf("lb-1's recorded VRRP hash %s isn't what it runs", h)
+	}
+}
+
+// What a takeover or a move can't do is refused by the request itself -
+// 409, no job, no member or replacement touched -, not by the background
+// job once a new machine was made for it (v2026.11.17's lab: a machine
+// created, then destroyed, to hear "the cluster's only member").
+func TestClusterAddressRefusalsAtOnce(t *testing.T) {
+	a, f, nodesByName := clusterApp(t, "lb-1", "lb-2", "lb-3")
+	useMovingNodes(t, f)
+	for i, n := range []string{"lb-1", "lb-2", "lb-3"} {
+		f.nodes[n].netcfg = &janusv1alpha1.NetworkConfig{Interfaces: []*janusv1alpha1.NetworkInterface{{Name: "lan",
+			Mode: janusv1alpha1.AddressingMode_ADDRESSING_MODE_STATIC, Addresses: []string{fmt.Sprintf("10.0.0.%d/24", i+1)}}}}
+	}
+	c, err := a.clusters.Store.Create("edge", 0, []string{"haproxy", "files", "firewall"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	members := func(names ...string) {
+		t.Helper()
+		var ms []clusters.Member
+		for _, n := range names {
+			ms = append(ms, clusters.Member{NodeID: nodesByName[n].ID, Name: n, Address: strings.TrimSuffix(nodesByName[n].Addr(), ":9505")})
+		}
+		if _, err := a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error { c.Members, c.SecretsFrom = ms, names[0]; return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	version := func(fw string) {
+		t.Helper()
+		v, err := a.clusters.Store.NewVersion(c.ID, "admin", "", map[string][]byte{"haproxy.cfg": []byte("global\n"), "firewall.nft": []byte(fw)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error { c.Desired = v.Version; return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	peersOnly := "table inet filter {\n  chain input {\n    type filter hook input priority 0; policy accept;\n{{- range .Peers }}\n    ip saddr {{ .Address }} tcp dport 10057 accept\n{{- end }}\n  }\n}\n"
+	onTheAddress := "table inet filter {\n  chain input {\n    type filter hook input priority 0; policy drop;\n    ip daddr {{ .Member.Address }} tcp dport 9505 accept\n  }\n}\n"
+	recycle := func(req recycleRequest) *httptest.ResponseRecorder {
+		return call(t, a.handleClusterRecycle, "POST", "/api/clusters/"+c.ID+"/recycle", "POST /api/clusters/{id}/recycle", req)
+	}
+	readdress := func(name string, to clusters.Addressing) *httptest.ResponseRecorder {
+		return call(t, a.handleClusterReaddress, "POST", "/api/clusters/"+c.ID+"/members/"+name+"/address", "POST /api/clusters/{id}/members/{name}/address", to)
+	}
+	takeover := recycleRequest{Members: []string{"lb-1"}, KeepAddress: true, With: map[string]clusterMemberRequest{"lb-1": {NodeID: nodesByName["lb-3"].ID, Name: "lb-3", Address: "10.0.0.3"}}}
+	away := clusters.Addressing{Addresses: []string{"10.0.0.40/24"}}
+	refused := func(what string, rec *httptest.ResponseRecorder, says string) {
+		t.Helper()
+		if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), says) {
+			t.Errorf("%s: %d %s", what, rec.Code, rec.Body)
+		}
+	}
+	members("lb-1", "lb-2")
+	version(peersOnly)
+	mark := f.mark()
+
+	// The member's address from DHCP.
+	f.nodes["lb-1"].netcfg = &janusv1alpha1.NetworkConfig{Interfaces: []*janusv1alpha1.NetworkInterface{{Name: "lan", Mode: janusv1alpha1.AddressingMode_ADDRESSING_MODE_DHCP}}}
+	refused("a DHCP address taken over", recycle(takeover), "DHCP")
+	f.nodes["lb-1"].netcfg = &janusv1alpha1.NetworkConfig{Interfaces: []*janusv1alpha1.NetworkInterface{{Name: "lan",
+		Mode: janusv1alpha1.AddressingMode_ADDRESSING_MODE_STATIC, Addresses: []string{"10.0.0.1/24"}}}}
+
+	// A firewall on the member's own address.
+	version(onTheAddress)
+	refused("a takeover under a firewall on the member's address", recycle(takeover), "iifname")
+	refused("a move under a firewall on the member's address", readdress("lb-2", away), "iifname")
+	tmp := takeover
+	tmp.TemporaryAddress = "10.0.0.30/24"
+	refused("the same with a temporary address", recycle(tmp), "firewall.nft depends on the member's own address")
+	version(peersOnly)
+
+	// The cluster's only member.
+	members("lb-1")
+	refused("the only member taken over", recycle(takeover), "only member")
+	refused("the only member moved", readdress("lb-1", away), "only member")
+	members("lb-1", "lb-2")
+
+	if calls := f.callsSince(mark); slices.ContainsFunc(calls, func(c string) bool { return !strings.HasSuffix(c, " NetworkConfig") }) {
+		t.Errorf("touched before refusing: %v", calls)
+	}
+	a.clusters.mu.Lock()
+	busy := a.clusters.busy[c.ID]
+	a.clusters.mu.Unlock()
+	if busy {
+		t.Error("a job started for a refusal")
+	}
+	// Nothing to refuse: the request goes on to its job.
+	cur, _ := a.clusters.Store.Get(c.ID)
+	if err := a.checkRecycle(context.Background(), cur, takeover); err != nil {
+		t.Errorf("a takeover the cluster allows: %v", err)
+	}
+	if err := a.clusters.CheckReaddress(c.ID, "lb-2", away); err != nil {
+		t.Errorf("a move the cluster allows: %v", err)
 	}
 }

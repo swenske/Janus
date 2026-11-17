@@ -366,7 +366,9 @@ out="$(alice cluster apply edge "$DIR" -m "lb-2 at 120" 2>&1)" || fail "apply lb
 check "lb-2 at 120" "priority 120" "$(alice -n lb-2 network vrrp get)"
 wait_for 30 "lb-4 holding the virtual IP before the takeover" master 4
 m1="$(masters 1)" m3="$(masters 3)"
+t0=$SECONDS
 out="$(alice cluster replace edge lb-2 lb-1 -address 192.168.87.1 -keep-address 2>&1)" || fail "replace lb-2 with lb-1, keeping its address: $out"
+takeover_s=$((SECONDS - t0))
 check "lb-1 joined drained, to take lb-2's address" "lb-1, which joins drained on 192\.168\.87\.1 and takes lb-2's address 192\.168\.87\.2/24 2001:db8:87::2/64" "$out"
 check "lb-2 powered off" "lb-2 is powering off" "$out"
 check "lb-2 out of the context" "lb-2 is out of context lab" "$out"
@@ -397,7 +399,30 @@ master 4 || fail "the virtual IP left lb-4"
 nmac() { alice -n "lb-$1" network neighbors -interface eth1 2>/dev/null | awk -v a="$2" '$2 == a {print $3}'; }
 mac_is() { [ "$(nmac "$1" "$2")" = "$3" ]; }
 for i in 3 4; do wait_for 20 "lb-$i's ARP entry for 192.168.87.2 at lb-1's MAC" mac_is "$i" 192.168.87.2 52:54:00:bb:01:01; done
-echo "  ok: lb-1 replaced lb-2 at its address - joined drained on its own, lb-2 powered off and out of the context, lb-1 moved to 192.168.87.2 and 2001:db8:87::2, every keepalived.conf names it there, lb-3's and lb-4's ARP entries have its MAC; the virtual IP stayed on lb-4, lb-1 never MASTER - not when it joined, not while it moved"
+echo "  ok: lb-1 replaced lb-2 at its address in ${takeover_s}s - joined drained on its own, lb-2 powered off and out of the context, lb-1 moved to 192.168.87.2 and 2001:db8:87::2, every keepalived.conf names it there, lb-3's and lb-4's ARP entries have its MAC; the virtual IP stayed on lb-4, lb-1 never MASTER - not when it joined, not while it moved"
+
+# lb-1 moved away and back (cluster readdress): drained, its keepalived
+# out, its addressing on trial, confirmed at the new address, every
+# member told, in service - each move timed. janusctl reaches the nodes
+# through a port forward here, never at the address that moves: the
+# apply stream losing its address (34 s more per move on v2026.11.17's
+# lab, before netconfig.ApplyGrace) is controller-libvirt-test's part
+# 4e, where the Controller reaches a machine at it.
+readdress() { # readdress ADDRESS4 ADDRESS6
+  local t0=$SECONDS out
+  out="$(alice cluster readdress edge lb-1 "$1/24" "$2/64" 2>&1)" || fail "lb-1 moved to $1: $out"
+  check "lb-1 moved to $1" "lb-1 moved from 192\.168\.87\.[0-9]+ to $1/24" "$out"
+  check "every member told lb-1 is at $1" "every member knows lb-1 at ${1//./\\.}" "$out"
+  readdress_s=$((SECONDS - t0))
+  [ "$readdress_s" -le "${READDRESS_MAX_S:-25}" ] || fail "lb-1's move to $1 took ${readdress_s}s: $out"
+  for i in 1 3 4; do wait_for 60 "lb-$i's peers up after lb-1 moved to $1" peers_up "$i" 2; done
+  echo "  ok: lb-1 moved to $1 in ${readdress_s}s"
+}
+readdress 192.168.87.5 2001:db8:87::5
+check "lb-3 reaches lb-1 at .5" "192\.168\.87\.5" "$(alice -n lb-3 network vrrp get)"
+readdress 192.168.87.2 2001:db8:87::2
+check "lb-1 back at .2" "lb-1 +192\.168\.87\.2:10057" "$(alice -n lb-3 cluster status)"
+master 4 || fail "the virtual IP left lb-4 while lb-1 moved"
 
 # An address a node adds is announced (netmgr): lb-3 learns lb-4's MAC
 # for 192.168.87.60 and 2001:db8:87::60 by reaching them; lb-4 gives

@@ -1,12 +1,15 @@
 package nodeproxy
 
 import (
+	"io"
 	"strings"
 	"testing"
 	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 )
 
 // A real move (lgslbpub01, 2026-10-02): the node's "applying" message was
@@ -81,4 +84,95 @@ func TestConnectionLost(t *testing.T) {
 			t.Errorf("%v: %v", code, got)
 		}
 	}
+}
+
+// silentApplyStream is a NetworkConfigApply stream: its messages, then - silent
+// - nothing until the call is cancelled (a connection to an address the
+// node dropped), or the end.
+type silentApplyStream struct {
+	msgs     []*janusv1alpha1.NetworkConfigApplyResponse
+	silent   bool
+	canceled chan struct{}
+}
+
+func (s *silentApplyStream) Recv() (*janusv1alpha1.NetworkConfigApplyResponse, error) {
+	if len(s.msgs) > 0 {
+		m := s.msgs[0]
+		s.msgs = s.msgs[1:]
+		return m, nil
+	}
+	if !s.silent {
+		return nil, io.EOF
+	}
+	<-s.canceled
+	return nil, status.Error(codes.Canceled, "context canceled")
+}
+
+// A move: the change takes the address the call came in on, and the
+// stream goes silent with it - its first messages lost too
+// (controller-libvirt-test's part 4e: none arrived) -: given up shortly
+// after the call's start, not at its 30 s deadline (34 s per move on
+// v2026.11.17's lab).
+func TestReadApplyGivesUpASilentStream(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		msgs  []*janusv1alpha1.NetworkConfigApplyResponse
+		stage string
+	}{
+		{"nothing arrived", nil, "checking whether the node applied it"},
+		{"after applying", []*janusv1alpha1.NetworkConfigApplyResponse{{Stage: "validating"}, {Stage: "applying", RevertAtUnix: 1234}}, "connection lost while applying"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &silentApplyStream{silent: true, canceled: make(chan struct{}), msgs: tc.msgs}
+			res := &networkApplyResult{}
+			start := time.Now()
+			lost, err := readApply(s, func() { close(s.canceled) }, 50*time.Millisecond, res)
+			if err != nil || !lost {
+				t.Fatalf("lost %v, err %v", lost, err)
+			}
+			if d := time.Since(start); d > 2*time.Second {
+				t.Errorf("gave up after %s", d)
+			}
+			if !strings.Contains(strings.Join(res.Stages, "\n"), tc.stage) {
+				t.Errorf("stages %q", res.Stages)
+			}
+		})
+	}
+}
+
+// A change that keeps the address: the node's last message, its
+// addresses, read to the end - the grace never cuts it.
+func TestReadApplyReadsTheLastMessage(t *testing.T) {
+	cancelled := false
+	s := &silentApplyStream{msgs: []*janusv1alpha1.NetworkConfigApplyResponse{
+		{Stage: "validating"},
+		{Stage: "applying", RevertAtUnix: 1234},
+		{Stage: "awaiting-confirmation", Addresses: []string{"192.0.2.10/24"}, RevertAtUnix: 1235},
+	}}
+	res := &networkApplyResult{}
+	lost, err := readApply(s, func() { cancelled = true }, 0, res)
+	if err != nil || lost || cancelled {
+		t.Fatalf("lost %v, err %v, cancelled %v", lost, err, cancelled)
+	}
+	if res.RevertAtUnix != 1235 || len(res.Addresses) != 1 {
+		t.Errorf("result %+v", res)
+	}
+}
+
+// The node refuses the configuration: its error, not a lost connection.
+func TestReadApplyRefused(t *testing.T) {
+	s := &refusingStream{}
+	if lost, err := readApply(s, func() {}, 0, &networkApplyResult{}); lost || status.Code(err) != codes.InvalidArgument {
+		t.Errorf("lost %v, err %v", lost, err)
+	}
+}
+
+type refusingStream struct{ sent bool }
+
+func (s *refusingStream) Recv() (*janusv1alpha1.NetworkConfigApplyResponse, error) {
+	if !s.sent {
+		s.sent = true
+		return &janusv1alpha1.NetworkConfigApplyResponse{Stage: "validating"}, nil
+	}
+	return nil, status.Error(codes.InvalidArgument, "interfaces[0]: no such MAC")
 }

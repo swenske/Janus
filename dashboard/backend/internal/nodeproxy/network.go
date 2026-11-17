@@ -7,10 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
-	"net/netip"
-	"slices"
 	"sync"
 	"time"
 
@@ -186,32 +183,68 @@ func applyNetwork(ctx context.Context, node *store.Node, cfg *janusv1alpha1.Netw
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	started := time.Now()
 	stream, err := janusv1alpha1.NewNetworkServiceClient(conn).NetworkConfigApply(ctx, &janusv1alpha1.NetworkConfigApplyRequest{Config: cfg, ConfirmTimeoutSeconds: timeoutSeconds})
 	if err != nil {
 		return nil, grpcHTTPStatus(err), errors.New(status.Convert(err).Message())
 	}
 	res := &networkApplyResult{Address: node.Addr()}
+	var giveUp time.Duration
+	if netconfig.DropsEndpoint(cfg, node.Addr()) {
+		giveUp = netconfig.ApplyGrace
+	}
+	lost, err := readApply(stream, cancel, giveUp, res)
+	if err != nil {
+		return nil, grpcHTTPStatus(err), errors.New(status.Convert(err).Message())
+	}
+	if res.RevertAtUnix == 0 { // the node's own deadline was lost with the connection
+		if timeoutSeconds == 0 {
+			timeoutSeconds = 30
+		}
+		res.RevertAtUnix = started.Add(time.Duration(timeoutSeconds) * time.Second).Unix()
+	}
+	res.Candidates = netconfig.ConfirmEndpoints(node.Addr(), cfg, res.Addresses, lost)
+	pendingConfirm.Store(node.ID, pendingTrial{candidates: res.Candidates, revertAt: time.Unix(res.RevertAtUnix, 0)})
+	return res, http.StatusOK, nil
+}
+
+// readApply reads NetworkConfigApply's stream into res until it ends,
+// and reports whether the connection was lost on the way - then the
+// node's messages, its addresses among them, are missing. giveUp (0:
+// never): a change that takes the address the call came in on
+// (netconfig.DropsEndpoint) - its stream can't outlive it, not even its
+// first messages -, the call given up (cancel) that long after its
+// start, as lost with its address, rather than at its deadline. err: the
+// node refused.
+func readApply(stream interface {
+	Recv() (*janusv1alpha1.NetworkConfigApplyResponse, error)
+}, cancel func(), giveUp time.Duration, res *networkApplyResult) (lost bool, err error) {
+	if giveUp > 0 {
+		t := time.AfterFunc(giveUp, cancel)
+		defer t.Stop()
+	}
 	applying := false
 	for {
 		msg, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
-			break
+			return false, nil
 		}
 		if err != nil {
 			if !connectionLost(err) {
-				return nil, grpcHTTPStatus(err), errors.New(status.Convert(err).Message())
+				return false, err
 			}
 			if applying {
 				res.Stages = append(res.Stages, "connection lost while applying (expected if the node's address changed)")
 			} else {
 				// The node writes "applying" just before it drops the
-				// address this connection uses: that last message can be
-				// lost with it. Or the request never reached the node (a
-				// connection from before it rebooted). Confirming tells
-				// which - a node with nothing on trial says so.
+				// address this connection uses: that message - its first
+				// ones too - can be lost with it. Or the request never
+				// reached the node (a connection from before it
+				// rebooted). Confirming tells which - a node with nothing
+				// on trial says so.
 				res.Stages = append(res.Stages, "connection lost - checking whether the node applied it")
 			}
-			break
+			return true, nil
 		}
 		res.Stages = append(res.Stages, fmt.Sprintf("%s: %s", msg.GetStage(), msg.GetMessage()))
 		if msg.GetStage() == "applying" {
@@ -224,48 +257,6 @@ func applyNetwork(ctx context.Context, node *store.Node, cfg *janusv1alpha1.Netw
 			res.Addresses = msg.GetAddresses()
 		}
 	}
-	if res.RevertAtUnix == 0 { // the node's own deadline was lost with the connection
-		if timeoutSeconds == 0 {
-			timeoutSeconds = 30
-		}
-		res.RevertAtUnix = time.Now().Add(time.Duration(timeoutSeconds) * time.Second).Unix()
-	}
-	res.Candidates = confirmCandidates(node.Addr(), cfg, res.Addresses)
-	pendingConfirm.Store(node.ID, pendingTrial{candidates: res.Candidates, revertAt: time.Unix(res.RevertAtUnix, 0)})
-	return res, http.StatusOK, nil
-}
-
-// confirmCandidates lists where the node can be reached after the
-// change: its current address first (valid whenever the configuration
-// keeps it), then each address it reported, or - when that report was
-// lost with the old address - the configuration's static ones.
-func confirmCandidates(current string, cfg *janusv1alpha1.NetworkConfig, reported []string) []string {
-	_, port, err := net.SplitHostPort(current)
-	if err != nil {
-		port = "9505"
-	}
-	out := []string{current}
-	add := func(cidr string) {
-		p, err := netip.ParsePrefix(cidr)
-		if err != nil || !p.Addr().IsGlobalUnicast() {
-			return
-		}
-		ep := net.JoinHostPort(p.Addr().String(), port)
-		if !slices.Contains(out, ep) {
-			out = append(out, ep)
-		}
-	}
-	for _, a := range reported {
-		add(a)
-	}
-	if len(reported) == 0 {
-		for _, iface := range cfg.GetInterfaces() {
-			for _, a := range iface.GetAddresses() {
-				add(a)
-			}
-		}
-	}
-	return out
 }
 
 // confirmNetwork tries each candidate until the node accepts the

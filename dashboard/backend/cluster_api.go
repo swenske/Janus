@@ -531,6 +531,11 @@ func (a *app) handleClusterReaddress(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// What Readdress would refuse, said now rather than by the job.
+	if err := a.clusters.CheckReaddress(c.ID, name, to); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
 	actor := requestPrincipal(r).User
 	a.runCluster(w, c, "moving "+name+" to "+to.Address(), actor, func(ctx context.Context) error {
 		return a.clusters.Readdress(ctx, c.ID, name, to, actor)
