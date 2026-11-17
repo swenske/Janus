@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -123,6 +124,52 @@ func (c *Cluster) MemberOf(nodeID string) *Member {
 
 // Manages reports whether the cluster manages domain.
 func (c *Cluster) Manages(domain string) bool { return slices.Contains(c.Managed, domain) }
+
+// SetManaged records what cluster id manages from the apply of version
+// on - an apply's list replaces the whole set: a domain left out stops
+// being managed - and journals each domain taken on or let go, so a
+// lock released by an apply that left a domain out is never silent
+// (v2026.11.17's lab: an apply without acme stopped managing Let's
+// Encrypt with nothing in the journal). Both orchestrators call it.
+func (e *Engine) SetManaged(id string, managed []string, version int, actor string) error {
+	var added, removed []string
+	if _, err := e.Store.Update(id, func(c *Cluster) error {
+		added, removed = nil, nil
+		for _, d := range managed {
+			if !c.Manages(d) {
+				added = append(added, d)
+			}
+		}
+		for _, d := range c.Managed {
+			if !slices.Contains(managed, d) {
+				removed = append(removed, d)
+			}
+		}
+		c.Managed = slices.Clone(managed)
+		return nil
+	}); err != nil {
+		return err
+	}
+	if len(added) > 0 {
+		e.Journal(id, actor, "manage", "", version, "the cluster manages %s from version %d on: the same on every member, locked there", domainList(added), version)
+	}
+	if len(removed) > 0 {
+		e.Journal(id, actor, "manage", "", version, "the cluster stops managing %s from version %d on: the lock released, each member keeps what it runs and is changed on its own from then on", domainList(removed), version)
+	}
+	return nil
+}
+
+// domainList is domains in words: "a", "a and b", "a, b and c".
+func domainList(domains []string) string {
+	words := make([]string, len(domains))
+	for i, d := range domains {
+		words[i] = domainWords(d)
+	}
+	if len(words) == 1 {
+		return words[0]
+	}
+	return strings.Join(words[:len(words)-1], ", ") + " and " + words[len(words)-1]
+}
 
 // Check reports what is wrong with the record.
 func (c *Cluster) Check() error {

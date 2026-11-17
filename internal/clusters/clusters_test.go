@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -323,5 +324,60 @@ func TestVersionLetsEncrypt(t *testing.T) {
 	b, _ := acme.Canonical(held)
 	if Sum(b) != r1.Hashes()["acme"] {
 		t.Errorf("a member's own form hashes otherwise:\n%s\n%s", b, r1.ACME)
+	}
+}
+
+// TestSetManagedJournals: what an apply takes on or lets go is in the
+// journal - v2026.11.17's lab saw an apply without acme stop managing
+// Let's Encrypt with nothing there.
+func TestSetManagedJournals(t *testing.T) {
+	s, _ := open(t)
+	e := &Engine{Store: s}
+	c, err := s.Create("edge", 0, []string{"haproxy", "files", "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.SetManaged(c.ID, []string{"haproxy", "files", "vrrp"}, 3, "root"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Get(c.ID); !slices.Equal(got.Managed, []string{"haproxy", "files", "vrrp"}) {
+		t.Errorf("managed: %v", got.Managed)
+	}
+	var manage []string
+	for _, en := range s.Entries(c.ID, 10) {
+		if en.Action == "manage" {
+			if en.Actor != "root" || en.Version != 3 {
+				t.Errorf("entry: %+v", en)
+			}
+			manage = append(manage, en.Message)
+		}
+	}
+	want := []string{
+		"the cluster manages VRRP's configuration from version 3 on: the same on every member, locked there",
+		"the cluster stops managing Let's Encrypt's configuration from version 3 on: the lock released, each member keeps what it runs and is changed on its own from then on",
+	}
+	slices.Sort(manage)
+	slices.Sort(want)
+	if !slices.Equal(manage, want) {
+		t.Errorf("journal:\n%q\nwant\n%q", manage, want)
+	}
+	// The same set again: nothing more.
+	if err := e.SetManaged(c.ID, []string{"haproxy", "files", "vrrp"}, 4, "root"); err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, en := range s.Entries(c.ID, 10) {
+		if en.Action == "manage" {
+			n++
+		}
+	}
+	if n != 2 {
+		t.Errorf("%d manage entries after an apply changing nothing, want 2", n)
+	}
+	if err := e.SetManaged(c.ID, []string{"dns"}, 5, "root"); err == nil {
+		t.Error("an unknown domain")
+	}
+	if got := domainList([]string{"haproxy", "files", "bgp"}); got != "HAProxy's configuration, HAProxy's files and certificates and BGP's configuration" {
+		t.Errorf("domainList: %q", got)
 	}
 }

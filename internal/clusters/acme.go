@@ -556,8 +556,19 @@ func (e *Engine) lockable(ctx context.Context, members []Member, domain string) 
 
 // domainWords is what a domain is, in words.
 func domainWords(domain string) string {
-	if domain == "acme" {
+	switch domain {
+	case "haproxy":
+		return "HAProxy's configuration"
+	case "files":
+		return "HAProxy's files and certificates"
+	case "acme":
 		return "Let's Encrypt's configuration"
+	case "firewall":
+		return "the firewall's ruleset"
+	case "vrrp":
+		return "VRRP's configuration"
+	case "bgp":
+		return "BGP's configuration"
 	}
 	return domain
 }

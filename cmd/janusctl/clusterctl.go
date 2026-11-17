@@ -636,11 +636,7 @@ func runClusterCtl(globalCtx string, args []string) {
 			o.Journal(c.ID, actor(o), "version", "", n, "version %d made: %s", n, clusters.ListOrNone([]string{*note}))
 		}
 		if !slices.Equal(managed, c.Managed) {
-			_, err := o.Store.Update(c.ID, func(c *clusters.Cluster) error {
-				c.Managed = managed
-				return c.Check()
-			})
-			check("cluster apply", err)
+			check("cluster apply", o.SetManaged(c.ID, managed, n, actor(o)))
 		}
 		ctx, cancel := forCluster(c.ID, 10*time.Minute)
 		defer cancel()
