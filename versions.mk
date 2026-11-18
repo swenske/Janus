@@ -15,10 +15,10 @@
 # sha256sums.asc (Kernel.org checksum autosigner,
 # B8868C80BA62A1FFFAF5FDA9632D3A06589DA6B1), which agree. Every track is
 # built with kernel/patches/ applied - its README says which and why.
-KERNEL_LONGTERM_VERSION := 6.18.63
-KERNEL_LONGTERM_SHA256  := 81764a545072d160748beff4d9de2e7d95aa9f16e8261110288f067a2cc61d71
-KERNEL_STABLE_VERSION   := 7.3.4
-KERNEL_STABLE_SHA256    := b11b6df8295e8e991ff040b71aaa4994a8b55caa23b6b092907f195b5840fd1f
+KERNEL_LONGTERM_VERSION := 6.18.64
+KERNEL_LONGTERM_SHA256  := 020d45510c539972e6f14c5c71566878d3b7ef56fb082b3e09134f2ebaade562
+KERNEL_STABLE_VERSION   := 7.3.5
+KERNEL_STABLE_SHA256    := 8f293f83d54f0b7b9be56863ebc5e4ea79d73e530b4ae55c572be97ef39f0990
 
 # HAProxy, one pin per LTS branch an image can be built with (variants.mk,
 # haproxy.org). HAProxy doesn't sign its tarballs: sha256 as published by
@@ -55,8 +55,8 @@ ZLIB_SHA256  := 02dd159783677a749c04adbdd02b55b8a2bcc7e054f51b76b549199a916ad584
 # from source and linked statically). AWS-LC publishes no signed release
 # artifact (the tag's commit only carries GitHub's merge signature):
 # sha256 of GitHub's tag archive.
-AWSLC_VERSION := 5.14.0
-AWSLC_SHA256  := 8895a9d2434e875e009e652a1015f9c2c275261634c7132253ca5aa60d266888
+AWSLC_VERSION := 5.15.0
+AWSLC_SHA256  := 66e7132566cf2356b16ae79a9b57ea7a75ad6d65a41408753b08569c7db02921
 
 # Optional extensions (extensions/<name>/, see docs/image-factory.md).
 # node_exporter: built from source with this tree's Go (the pinned golang
@@ -143,9 +143,9 @@ RPI5_UEFI_SHA256  := c4fbbec9cd0d1115c9adab884923061b960de42b4ca6d65ba5f08cb6b46
 # for janus-controller-updater (dashboard/updater), which updates the
 # Controller with it - checked against the release's own .sha256 assets
 # (github.com/docker/compose/releases).
-DOCKER_COMPOSE_VERSION      := v5.7.1
-DOCKER_COMPOSE_SHA256_AMD64 := af426722a8af5de812fcee30cc1c39f0639f5f723cbadefb25e5d4db054064cf
-DOCKER_COMPOSE_SHA256_ARM64 := f2f49f903240895fa764c0dca3a14548b754ad9426f6b609ccaf55ec5a3aa2a5
+DOCKER_COMPOSE_VERSION      := v5.8.0
+DOCKER_COMPOSE_SHA256_AMD64 := b8840f5008c447f41fce0a57ae3adeab42c89b1eb6e6012524bcabbfb4ffbaf6
+DOCKER_COMPOSE_SHA256_ARM64 := 1a9c918b2fb49b9c87f0018c64b5abd0d30715155e98dc939779fbaee6c414d3
 
 # OpenTofu, which hack/terraform-provider-test.sh drives the Janus
 # Terraform provider (terraform-provider-janus) with - never shipped.
