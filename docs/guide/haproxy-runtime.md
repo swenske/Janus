@@ -51,6 +51,7 @@ defaults
     mode http
     log global
     option httplog
+    option idle-close-on-response
     timeout connect 5s
     timeout client 30s
     timeout server 30s

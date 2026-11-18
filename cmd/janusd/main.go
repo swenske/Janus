@@ -395,8 +395,12 @@ func main() {
 			haproxyMgr.Policy.PeersSection = cluster.Section
 			haproxyMgr.Policy.PeersPort = clusterStore.BindPort
 			// A stop for good: HAProxy waits for a successor to teach its
-			// tables to, and none comes - ended once its clients are served.
-			haproxyMgr.StopWatch = func(pid int) func() bool { return clientsWatch("/proc", pid, clusterStore.BindPort()) }
+			// tables to, and none comes - ended once its clients are served
+			// (the requests "show sess" lists just before; keep-alive
+			// connections idle then don't count).
+			haproxyMgr.StopWatch = func(pid int) func() bool {
+				return clientsWatch("/proc", pid, clusterStore.BindPort(), haproxyStreams(haproxyMgr.SessionList))
+			}
 		}
 		// The member certificate's key and the ticket keys, never served.
 		api.SecretPaths = append(api.SecretPaths, clusterDir, filepath.Join("/etc/.state/haproxy", "cluster"))

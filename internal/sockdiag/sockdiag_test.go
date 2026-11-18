@@ -136,11 +136,17 @@ func TestAttributes(t *testing.T) {
 	info := make([]byte, 248)
 	binary.NativeEndian.PutUint64(info[tcpiBytesAcked:], 1234567)
 	binary.NativeEndian.PutUint64(info[tcpiBytesReceived:], 7654321)
+	binary.NativeEndian.PutUint32(info[tcpiUnacked:], 3)
+	binary.NativeEndian.PutUint32(info[tcpiLastDataSent:], 1500)
+	binary.NativeEndian.PutUint32(info[tcpiLastDataRecv:], 2500)
 
 	var s Socket
 	attributes(append(attr(5, []byte{1}), attr(inetDiagInfo, info)...), &s) // INET_DIAG_SHUTDOWN first
 	if !s.HasBytes || s.BytesAcked != 1234567 || s.BytesReceived != 7654321 {
 		t.Errorf("counters: %+v", s)
+	}
+	if s.Unacked != 3 || s.LastDataSent != 1500*time.Millisecond || s.LastDataRecv != 2500*time.Millisecond {
+		t.Errorf("unacked and times: %+v", s)
 	}
 	s = Socket{}
 	attributes(attr(inetDiagInfo, info[:104]), &s)
