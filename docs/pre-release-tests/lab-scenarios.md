@@ -1480,6 +1480,38 @@ without, the notice read every 100 ms and screenshotted: the file being
 sent, its bytes, the bar, "files sent", the node's messages, the node
 back; console errors.
 
+### Reloads under a keep-alive load
+
+Since v2026.11.18 (#675, `option idle-close-on-response`): HAProxy
+reloads on node 01, 8 s apart (a configuration applied with a changing
+comment each time), four then twenty, under two loads at once from the
+build box - `wrk -t1 -c8` straight on the VIP, which reuses its
+connections, and `wrk -t1 -c8` through an HAProxy (the release's
+HAProxy version, in a container on the box) in front of the VIP with
+`http-reuse always`, a balancer reusing its keep-alive connections -
+and the VIP and anycast probes every 50 ms. Measured: the direct
+`wrk`'s read errors, the relay's failed requests from its backend's
+counters (`eresp`, `srv_abrt`, 5xx), the relayed `wrk`'s errors, the
+probes. Without the option (the lab's configuration) and with it (the
+line added to `defaults` and applied before the first reload: the
+previous process's configuration decides), on the release then on the
+pre-release. Expected: errors without, none with.
+
+### HAProxy's stop at a reboot
+
+Since v2026.11.18 (#675): node 02 given the option and a path HAProxy
+holds 4 s (`timeout tarpit 4s`, `http-request tarpit deny_status 200`);
+a client sends one keep-alive request to node 02's front address and
+keeps the connection idle; node 02 rebooted through its firmware, its
+API polled every 0.1 s, janusd's "rebooting now - haproxy stopped …"
+line read off its serial console (the stop's own timing: the 2 s drain
+of a node with VRRP or BGP, then the soft-stop). Three cases: the idle
+client alone; the slow request sent 1 s before the call (answered during
+the drain); sent 3.5 s after it (in flight at the soft-stop) - each
+request's status, its `Connection` header and when each connection
+closed. On the release, then on the pre-release; the configuration put
+back afterwards.
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -1805,3 +1837,11 @@ ran:
   and the hosts' libvirt domains before and 15 s after, the journal;
   `kalogs NODE…`: each node's keepalived transitions through its node
   page (v2026.11.17-2).
+- `kareload NAME CFG [N]`: N reloads of node 01 (`reloadsn`) under
+  `runder-load`'s `wrk` from the box and a second `wrk` through
+  `relay.cfg`'s HAProxy, with the relay's counters; `stopreboot NAME
+  [slow|at:N]` (`idleclient.py`): node 02's reboot with an idle
+  keep-alive client and a slow request, janusd's stop line off the
+  console; `abrun84 N` / `absum84.py`: `cpuab` alternating versions on
+  node 01 by rollbacks, and their means; `waitbuild RUN`: waits for an
+  image-build run to end (v2026.11.18).
