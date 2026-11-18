@@ -55,8 +55,8 @@ ZLIB_SHA256  := 02dd159783677a749c04adbdd02b55b8a2bcc7e054f51b76b549199a916ad584
 # from source and linked statically). AWS-LC publishes no signed release
 # artifact (the tag's commit only carries GitHub's merge signature):
 # sha256 of GitHub's tag archive.
-AWSLC_VERSION := 5.14.0
-AWSLC_SHA256  := 8895a9d2434e875e009e652a1015f9c2c275261634c7132253ca5aa60d266888
+AWSLC_VERSION := 5.15.0
+AWSLC_SHA256  := 66e7132566cf2356b16ae79a9b57ea7a75ad6d65a41408753b08569c7db02921
 
 # Optional extensions (extensions/<name>/, see docs/image-factory.md).
 # node_exporter: built from source with this tree's Go (the pinned golang
