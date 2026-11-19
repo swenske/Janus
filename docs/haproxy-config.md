@@ -189,7 +189,7 @@ AWS-LC doesn't have, and the node refuses:
 | `X448`, `ffdhe*`, `brainpool*` in `curves`/`ssl-default-*-curves` | Remove them from the list (the whole list is refused otherwise) |
 | `client-sigalgs`, `ssl-default-bind-client-sigalgs`, `ssl-default-server-client-sigalgs` | Remove (`sigalgs` works) |
 | `ssl-security-level` | Remove; restrict with `ssl-min-ver`, `ciphers` and `curves` |
-| `ssl-mode-async`, `ssl-engine`, `ssl-provider`, `ssl-propquery` | Remove: no engines or OpenSSL 3 providers |
+| `ssl-mode-async`, `ssl-engine`, `ssl-provider`, `ssl-provider-path`, `ssl-propquery` | Remove: no engines or OpenSSL 3 providers |
 
 Fix such a configuration before updating a node that runs it on an
 OpenSSL release. Updated from the Controller (automatic revert, on by
