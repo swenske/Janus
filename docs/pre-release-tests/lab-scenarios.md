@@ -1543,6 +1543,27 @@ logs; the probes lost; janusd's and HAProxy's process and memory before
 and after; the services and AVC denials after. On the release (the
 memory given back is the point).
 
+### Rules HAProxy refuses on the new release, at the update
+
+Since v2026.11.19-3 (HAProxy 3.4.8/3.2.27/3.0.31 refuse `cache-use`
+and `cache-store` in a `defaults` section): on a Controller machine
+outside any cluster, through its node page, a configuration with the
+rules in a named `defaults` section used by a frontend (`from`) -
+validated and applied on the release, then requests through it (what
+the release's HAProxy does with them); then the update through the
+node page's Update in headless Chromium, "Revert automatically" ticked
+as the page has it, the page followed two minutes past its "Back on":
+the node's version and slot polled every 0.5 s, janusd's and HAProxy's
+lines of the failed boot (`-boot`), the node's events
+(`haproxy.restart_failed`, `bootcommit.reverted`), what the page says
+and when. Measured: the time from the click to the node back on the
+release by itself, and the page's words. Then the rules moved into the
+backend and the update again (it must stay), and the old configuration
+validated and applied on the new release (refused, the node's
+configuration and HAProxy unchanged). The machine's configuration put
+back after. A machine pinned to another HAProxy branch, made on the
+release and updated through its page, checks the same refusal there.
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -1883,3 +1904,13 @@ ran:
   URLS` (now with the router watched and janusd's and HAProxy's memory
   before and after); `f2watch NAME`: HAProxy stopped on node 01 with
   the router watched; `abrun85 N` / `absum85.py` (v2026.11.19-2).
+- `cachecfg/`: the configurations of the cache rules test (in an
+  anonymous `defaults`, in a named one, moved into the backend);
+  `upage` (`FOLLOW=` ms past "Back on", the page's text logged as it
+  changes); `fbuild 'CUSTOMIZATION' VERSION`: the image factory asked
+  directly for a schematic's build, each state timed; `new-machine`
+  with `HAPROXY=` a branch; `h2run NAME [ROUNDS]`: `h2load` over TLS
+  and HTTP/2 through the VIP; `abrun86 N` / `absum86.py`: `cpuab` and an
+  `h2run` round alternating versions on node 01; `ccert NAME`: a
+  certificate given to the cluster and replaced, each member's HAProxy
+  process and store before and after (v2026.11.19-3).
