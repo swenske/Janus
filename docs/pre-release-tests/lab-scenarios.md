@@ -1512,6 +1512,37 @@ request's status, its `Connection` header and when each connection
 closed. On the release, then on the pre-release; the configuration put
 back afterwards.
 
+### janusd's memory over time
+
+Since v2026.11.19-2 (#682, the health gates' goroutines): janusd's
+resident memory sampled every 60 s from a fresh boot - on nodes 01 and
+02 (BIRD and keepalived) and on two Controller machines with neither
+(the longterm one, the Let's Encrypt one), from each node's process
+list through its node page, and on 01 and 02 also janusd's
+`/proc/<pid>/status` (`VmRSS`, `RssAnon`, `Threads`). At least 45
+minutes on the release, at least an hour on the pre-release with a
+HAProxy stop on node 01 in the middle (the router watched: the gate
+must still withdraw the route and give up the VIP at once, and take
+them back). Measured: each series' least-squares slope in MiB an hour,
+only over one janusd process (a restart starts another series), and
+over the part after the stop. Expected: a steady growth on the nodes
+with BIRD or keepalived on the release, flat everywhere on the
+pre-release.
+
+### janusd restarted under probes
+
+Since v2026.11.19-2 (the workaround its notes give for nodes not yet
+updated): `janusctl system restart` on node 01 under VIP and anycast
+probes every 50 ms from the build box, and a third probe on node 01's
+own front address (the VIP and the anycast route both leave the node
+meanwhile, so only that one sees its HAProxy); the router watched every
+0.2 s (BGP sessions, the anycast route's gateways, BFD, the VIP's MAC).
+Measured from the call: when the route goes and comes back, when the
+VIP moves and comes back, the BGP session and BFD, when the new janusd
+logs; the probes lost; janusd's and HAProxy's process and memory before
+and after; the services and AVC denials after. On the release (the
+memory given back is the point).
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -1845,3 +1876,10 @@ ran:
   console; `abrun84 N` / `absum84.py`: `cpuab` alternating versions on
   node 01 by rollbacks, and their means; `waitbuild RUN`: waits for an
   image-build run to end (v2026.11.18).
+- `rss-watch TAG INTERVAL NODE…`: janusd's memory on each node through
+  its node page; `status-watch TAG INTERVAL NODE…`: janusd's
+  `/proc/<pid>/status` on the nodes with credentials; `rss-slope FILE…
+  [-from EPOCH]`: their slopes; `r1-restart NAME NODE janusctl|page
+  URLS` (now with the router watched and janusd's and HAProxy's memory
+  before and after); `f2watch NAME`: HAProxy stopped on node 01 with
+  the router watched; `abrun85 N` / `absum85.py` (v2026.11.19-2).
