@@ -221,8 +221,11 @@ orchestrator reaches every member as a fleet admin - but the cluster's
 own trust doesn't hang on the fleet's issuing CA, because HAProxy
 couldn't tell one fleet certificate from another.
 
-Member certificates last 30 days; the orchestrator renews them at two
-thirds, with a `ClusterSet` that carries the certificate alone - HAProxy
+Member certificates last 30 days; the orchestrator renews them at half
+their life - 15 days left, before the 14 days at which the example
+`JanusCertificateExpiresSoon` alert fires ([metrics](metrics.md#alerts)),
+which then means a renewal failed - with a `ClusterSet` that carries the
+certificate alone - HAProxy
 takes the new one at runtime (`set ssl cert` + `commit ssl cert`), no
 reload.
 
@@ -361,7 +364,7 @@ configurations.
 | Placement | Two members on one host, or a member whose host is unknown |
 | LOGS | A member without a LOGS partition (installed before it existed): its logs don't survive a reboot |
 | BGP announcements | Members exporting different route sets (`BGPStatus` channels, a `BGPRoutes` RPC listing `show route export`) - legitimate when ToR peerings differ, worth a look |
-| Peers TLS | A member certificate past two thirds of its life that the orchestrator failed to renew |
+| Peers TLS | A member certificate past half its life that the orchestrator failed to renew |
 
 A check that can't run - a member unreachable - is a finding of its
 own, blocking for a join and a recycle, a warning for a status.
