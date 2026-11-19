@@ -63,8 +63,8 @@ AWSLC_SHA256  := 66e7132566cf2356b16ae79a9b57ea7a75ad6d65a41408753b08569c7db0292
 # image), not upstream's release binary - 1.12.1's was built with Go
 # 1.26.5, and carries seven standard library vulnerabilities. The source
 # is the module's zip on proxy.golang.org: sha256 pinned after go mod
-# download checked it against Go's checksum database (h1:LzcZ6SqJ...
-# for 1.12.1), the build checks it again the same way.
+# download checked it against Go's checksum database, the build checks
+# it again the same way.
 NODE_EXPORTER_VERSION := 1.13.0
 NODE_EXPORTER_SHA256  := 58a998769b507a66db60df11c6df1774a542df5dcdfd81825270341d8a35829d
 # nftables for the firewall extension: netfilter.org release tarballs,
