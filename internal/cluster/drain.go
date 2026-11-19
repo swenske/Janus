@@ -142,19 +142,34 @@ func (s *Store) DrainChanged() <-chan struct{} {
 	return s.drainCh
 }
 
-// Either is a change signal that fires when either of two does.
+// Either is a change signal that fires when either of two does. a and b
+// hand out the same channel until it fires (haproxy.Manager.Changed,
+// DrainChanged): so does Either - one goroutine per pair, gone when it
+// fires. The health gates take the signal at every tick (BIRD's each
+// second, keepalived's every two): a goroutine per call waited for a
+// change that seldom comes, ~3 KiB each - janusd grew 10 MiB an hour on
+// a BGP member, never given back.
 func Either(a, b func() <-chan struct{}) func() <-chan struct{} {
+	var mu sync.Mutex
+	var lastA, lastB <-chan struct{}
+	var out chan struct{}
 	return func() <-chan struct{} {
 		ca, cb := a(), b()
-		out := make(chan struct{})
-		var once sync.Once
+		mu.Lock()
+		defer mu.Unlock()
+		if out != nil && ca == lastA && cb == lastB {
+			return out
+		}
+		lastA, lastB = ca, cb
+		o := make(chan struct{})
+		out = o
 		go func() {
 			select {
 			case <-ca:
 			case <-cb:
 			}
-			once.Do(func() { close(out) })
+			close(o)
 		}()
-		return out
+		return o
 	}
 }
