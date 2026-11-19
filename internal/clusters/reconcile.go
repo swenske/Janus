@@ -133,7 +133,7 @@ func (e *Engine) observe(ctx context.Context, c *Cluster, m Member, prev MemberS
 	if info.GetMemberCertNotAfterUnix() == 0 {
 		return ms, info
 	}
-	if left := time.Until(ms.CertNotAfter); left < MemberValidity/3 {
+	if left := time.Until(ms.CertNotAfter); left < MemberRenewBefore {
 		if err := e.Renew(ctx, c, m); err != nil {
 			ms.Error = "renewing its member certificate: " + err.Error()
 		} else {

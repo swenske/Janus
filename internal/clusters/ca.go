@@ -28,8 +28,15 @@ const (
 	caKeyPlainFile = "ca.key"
 
 	// MemberValidity is a member certificate's lifetime; the reconcile
-	// loop renews it past two thirds.
+	// loop renews it once less than MemberRenewBefore is left.
 	MemberValidity = 30 * 24 * time.Hour
+	// MemberRenewBefore is half its life: a member certificate is renewed
+	// with 15 days left - before the 14 days at which the example
+	// JanusCertificateExpiresSoon alert fires
+	// (examples/prometheus/janus-rules.yml), so that it fires only when a
+	// renewal failed. Renewed at two thirds (10 days left), every member
+	// raised it for four days each cycle.
+	MemberRenewBefore = MemberValidity / 2
 )
 
 func caPurpose(id string) string { return "cluster/" + id + "/ca" }
