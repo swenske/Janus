@@ -285,8 +285,11 @@ The values you apply are saved on STATE, in
 `/etc/janus/config/sysctl.d/90-haproxy-tuning.conf` - sysctl.d's syntax,
 only what differs from Janus's defaults. At boot, Janus's init writes:
 
-1. the baseline: the benchmark's values, Janus's own, then the defaults
-   above - and IPv6 on, last;
+1. the baseline: the benchmark's values, Janus's own
+   (`net.ipv4.conf.{all,default}.promote_secondaries` for janusd's address
+   changes, `net.ipv4.tcp_migrate_req` for HAProxy's
+   [reloads](../haproxy-config.md#reloads-and-idle-connections)), then
+   the defaults above - and IPv6 on, last;
 2. the saved file, line by line against the same whitelist and bounds as
    the API - a line that fails is skipped, logged on the console
    (`init: sysctl: sysctl.d/90-haproxy-tuning.conf line N: ...`) and

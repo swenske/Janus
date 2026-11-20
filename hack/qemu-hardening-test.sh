@@ -66,6 +66,7 @@ declare -A EXPECTED=(
   ["/proc/sys/net/ipv6/conf/default/accept_ra"]="0"
   ["/proc/sys/net/ipv4/conf/all/promote_secondaries"]="1"
   ["/proc/sys/net/ipv4/conf/default/promote_secondaries"]="1"
+  ["/proc/sys/net/ipv4/tcp_migrate_req"]="1"
   ["/proc/sys/net/core/somaxconn"]="60000"
   ["/proc/sys/net/ipv4/ip_local_port_range"]="10240 65023"
   ["/proc/sys/net/ipv4/ip_local_reserved_ports"]=""

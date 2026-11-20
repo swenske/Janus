@@ -28,6 +28,13 @@ var janusSettings = []Setting{
 	// reconfiguration hit (internal/netmgr).
 	{"net.ipv4.conf.all.promote_secondaries", "1"},
 	{"net.ipv4.conf.default.promote_secondaries", "1"},
+	// A reload (every configuration applied) has the new HAProxy bind its
+	// listeners beside the previous one's (SO_REUSEPORT), then the previous
+	// one closes them: the connections still in their queue - established,
+	// not accepted yet, or half way through their handshake - move to the
+	// new process's listener instead of being reset (Linux 5.14+, IPv4 and
+	// IPv6 alike, #680).
+	{"net.ipv4.tcp_migrate_req", "1"},
 }
 
 // ipv6On turns IPv6 on - all, default and every interface. A node boots

@@ -65,6 +65,7 @@ var kernelDefaults = map[string]string{
 	"net.ipv6.conf.default.accept_ra":            "1",
 	"net.ipv4.conf.all.promote_secondaries":      "0",
 	"net.ipv4.conf.default.promote_secondaries":  "0",
+	"net.ipv4.tcp_migrate_req":                   "0",
 	"net.ipv6.conf.all.disable_ipv6":             "0", // ipv6.disable_ipv6=1 sets default only
 
 	"net.core.somaxconn":                        "4096",
