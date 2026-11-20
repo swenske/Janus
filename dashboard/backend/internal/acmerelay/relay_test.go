@@ -55,7 +55,6 @@ func newFixture(t *testing.T, cfg Config) *fixture {
 	}
 	approvedPool := x509.NewCertPool()
 	approvedPool.AddCert(f.approved.Cert)
-	var logs []string
 	f.relay = &Server{
 		Identity: func() *tls.Certificate { return f.identity },
 		NodeOf: func(chain []*x509.Certificate) (Node, bool) {
@@ -65,7 +64,10 @@ func newFixture(t *testing.T, cfg Config) *fixture {
 			_, err := chain[0].Verify(x509.VerifyOptions{Roots: approvedPool, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
 			return Node{ID: "n1", Name: "edge-1"}, err == nil
 		},
-		Logf: func(format string, args ...any) { logs = append(logs, format) },
+		// Called from the relay's connection goroutines, at once: nothing
+		// kept (a slice appended to raced, -race on CI), nothing t.Logf'd
+		// (a late line after the test would panic).
+		Logf: func(string, ...any) {},
 	}
 	cfg.Enabled, cfg.Listen = true, "127.0.0.1:0"
 	if err := f.relay.Apply(cfg); err != nil {
