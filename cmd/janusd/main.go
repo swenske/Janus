@@ -374,6 +374,11 @@ func main() {
 		} else {
 			haproxyMgr.Spawn = haproxyJailSpawn(self)
 		}
+		// A reload hands the listeners over to the new HAProxy instead of
+		// closing them (#680): a socket of janusd's own beside its stats
+		// socket, declared in a file of the Manager's. Only on a node:
+		// several janusd on one host would share the path.
+		haproxyMgr.Handover = haproxy.HandoverSocketFor(*haproxySock)
 		// And HAProxy runs with the peers section generated from the
 		// membership - the node alone when it is in none, so a reload keeps
 		// the stick tables - and this node's name as its local peer. Only on

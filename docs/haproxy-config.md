@@ -87,16 +87,6 @@ second, measured on 3.4. `option idle-close-on-response` keeps those
 connections open instead until their next request, answered with
 `Connection: close`: none failed.
 
-Fresh connections caught by the reload itself are another case:
-established, or half way through their handshake, but not accepted by
-HAProxy yet when the previous process closes its listeners. Janus
-turns the kernel's `net.ipv4.tcp_migrate_req` on at every boot: those
-connections move to the new process's listeners instead of being
-reset - nothing to add to your configuration. Measured on 3.4 with a
-new connection per request straight to HAProxy, 45 reloads at 12,000
-to 35,000 requests a second: 10 to 76 requests failed without it, 0 to
-2 with it.
-
 ```haproxy
 defaults
     mode http
@@ -111,6 +101,28 @@ keep what they run until you do. The previous process then lives until
 those connections send their next request or reach `timeout client`. A
 reboot or a shutdown doesn't wait for them: janusd ends HAProxy once
 the requests it was serving are answered.
+
+Fresh connections caught by the reload itself are the other case:
+established, or half way through their handshake, but not accepted by
+HAProxy yet. Nothing to add to your configuration for them: the
+previous process hands its listening sockets over to the new one -
+HAProxy's own seamless reload, through a socket of janusd's (`expose-fd
+listeners`, the new process started with `-x`) - and never closes them,
+so whatever waits in their queue is the new process's to serve.
+Measured on 3.4 with a new connection per request straight to HAProxy,
+45 reloads at 12,000 to 35,000 requests a second: 10 to 76 requests
+failed when the previous process closed its listeners, none with the
+hand-over.
+
+A socket handed over keeps what it was opened with, so a reload that
+changes how the listeners are opened opens new ones instead, and your
+change applies: a `bind` line, a `backlog` or `maxconn`, the threads
+(`nbthread`, `thread-groups`, `cpu-map`...), a `tune.*` setting,
+`net.core.somaxconn` ([kernel tuning](guide/kernel-tuning.md)) - and
+the first reload after janusd restarted. For those, Janus turns the
+kernel's `net.ipv4.tcp_migrate_req` on at every boot: connections
+queued on a listener that closes move to another instead of being
+reset - 0 to 2 failed in the same runs.
 
 ## The global section
 
@@ -266,8 +278,9 @@ had.
 
 Every configuration goes through `haproxy -c` first, then through a real
 start: a configuration HAProxy refuses at either step changes nothing.
-Reloads are seamless (`-sf`), and the configuration is kept on the node
-across reboots and updates.
+Reloads are seamless (`-sf`, the listeners handed over - see
+[reloads](#reloads-and-idle-connections)), and the configuration is
+kept on the node across reboots and updates.
 
 ## The history: who applied what, and going back
 

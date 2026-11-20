@@ -58,6 +58,9 @@ defaults
 		{"a second stats socket on the network", strings.Replace(good, "  stats timeout 30s\n", "  stats socket ipv4@0.0.0.0:9999 level admin\n", 1), `only janusd's socket`},
 		{"janusd's socket at another level", strings.Replace(good, "mode 660 level admin", "mode 666 level admin", 1), `it must be "stats socket /run/janus/haproxy-admin.sock mode 660 level admin"`},
 		{"janusd's socket with more", strings.Replace(good, "level admin", "level admin expose-fd listeners", 1), `it must be`},
+		// The hand-over socket is janusd's to declare (janus-handover.cfg):
+		// whoever reaches it can take the listeners.
+		{"the hand-over socket", strings.Replace(good, "  stats timeout 30s\n", "  stats socket /run/janus/haproxy-handover.sock mode 600 level user expose-fd listeners\n", 1), `only janusd's socket`},
 		{"daemon", strings.Replace(good, "  uid 1000\n", "  uid 1000\n  daemon\n", 1), `"daemon" isn't allowed`},
 		{"master-worker", strings.Replace(good, "  uid 1000\n", "  uid 1000\n  master-worker\n", 1), `"master-worker" isn't allowed`},
 		{"external-check", strings.Replace(good, "  uid 1000\n", "  uid 1000\n  external-check\n", 1), `"external-check" isn't allowed`},
