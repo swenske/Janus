@@ -344,6 +344,13 @@ for ev in janusd.started haproxy.started service.stopped service.started 'haprox
   grep -Eq "$ev" "$WORKDIR/events.txt" || fail "Events has no '$ev': $(cat "$WORKDIR/events.txt")"
 done
 echo "  ok: Events"
+# The reloads above that changed no listener (ulimit-n, a revert to a
+# configuration listening the same, the service restart) had the previous
+# process hand its listeners over (#680); the ones that did opened theirs.
+handed="$(grep -c 'haproxy.started.*"handover":true' "$WORKDIR/events.txt" || true)"
+opened="$(grep -c 'haproxy.started.*"handover":false' "$WORKDIR/events.txt" || true)"
+[ "$handed" -ge 3 ] && [ "$opened" -ge 2 ] || fail "$handed reloads handed the listeners over, $opened opened theirs: $(grep haproxy.started "$WORKDIR/events.txt")"
+echo "  ok: reloads hand the listeners over when they change none ($handed), open them otherwise ($opened)"
 
 # --- Restart: janusd only, HAProxy must keep answering throughout ---
 old_haproxy="$(ctl system ps | awk '/\/usr\/local\/sbin\/haproxy -f/ {print $1}')"
@@ -360,8 +367,14 @@ until ctl version >/dev/null 2>&1; do
   sleep 1
 done
 sleep 2
-grep -qE "/usr/local/sbin/haproxy -f /etc/haproxy/haproxy.cfg -f /etc/haproxy/janus-peers.cfg -L [a-z0-9-]+ -sf $old_haproxy\$" <<<"$(ctl system ps)" || fail "the restarted janusd didn't take over haproxy $old_haproxy with -sf: $(ctl system ps)"
-[ "$(haproxy_count)" -eq 1 ] || fail "$(haproxy_count) haproxy processes after the janusd restart, want 1: $(ctl system ps)"
+grep -qE "/usr/local/sbin/haproxy -f /etc/haproxy/haproxy.cfg -f /etc/haproxy/janus-peers.cfg -f /etc/haproxy/janus-handover.cfg -L [a-z0-9-]+ -sf $old_haproxy\$" <<<"$(ctl system ps)" || fail "the restarted janusd didn't take over haproxy $old_haproxy with -sf: $(ctl system ps)"
+# It didn't know what that process opened its listeners with; the one it
+# started hands them over at the next reload.
+took="$(ctl system ps | awk '/\/usr\/local\/sbin\/haproxy -f/ {print $1}')"
+ctl haproxy reload >/dev/null || fail "reload after the janusd restart"
+grep -qE "/usr/local/sbin/haproxy -f /etc/haproxy/haproxy.cfg -f /etc/haproxy/janus-peers.cfg -f /etc/haproxy/janus-handover.cfg -L [a-z0-9-]+ -x /run/janus/haproxy-handover.sock -sf $took\$" <<<"$(ctl system ps)" || fail "the next reload didn't hand haproxy $took's listeners over (-x): $(ctl system ps)"
+for _ in $(seq 25); do [ "$(haproxy_count)" -eq 1 ] && break; sleep 0.2; done
+[ "$(haproxy_count)" -eq 1 ] || fail "$(haproxy_count) haproxy processes after the janusd restart and a reload, want 1: $(ctl system ps)"
 [ "$(markers)" -eq 1 ] || fail "the machine rebooted during a janusd-only Restart"
 echo "  ok: Restart (HAProxy served every request, new janusd took haproxy over)"
 

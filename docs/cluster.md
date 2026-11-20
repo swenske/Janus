@@ -859,7 +859,9 @@ restarts at HAProxy, with or without conntrack state.
 
 **The generated section.** janusd writes `haproxy/janus-peers.cfg` on
 STATE from `cluster.json` and starts HAProxy as
-`haproxy -L <member> -f haproxy.cfg -f janus-peers.cfg [-sf <pid>]`.
+`haproxy -L <member> -f haproxy.cfg -f janus-peers.cfg [-sf <pid>]`
+(since #680 also `-f janus-handover.cfg` and, on a reload, `-x
+<socket>`: the listeners handed over).
 HAProxy takes any number of `-f` files and merges their sections;
 `-L` names the local peer, which today defaults to the hostname. The
 operator's `haproxy.cfg` is untouched, and so are its history and what

@@ -99,6 +99,19 @@ type Manager struct {
 	// the generated peers section calls this node.
 	LocalPeer func() string
 
+	// Handover, if set, is the UNIX socket through which a HAProxy hands
+	// its listening sockets over to the next one at a reload - HAProxy's
+	// own seamless reload (handover.go): the Manager declares it ("stats
+	// socket ... level user expose-fd listeners") in a file of its own,
+	// HandoverConfigName beside ConfigPath, and starts a reload's process
+	// with -x when the previous one answers on it. The listeners are
+	// never closed: a connection in their queue - established, not
+	// accepted yet, or half way through its handshake - is the new
+	// process's to serve, where a close reset it (#680). Root's only
+	// (mode 600) and never haproxy.cfg's: Policy refuses expose-fd there -
+	// whoever reaches such a socket can take the listeners.
+	Handover string
+
 	// txMu serializes runtime certificate transactions: HAProxy has one
 	// open at a time.
 	txMu sync.Mutex
@@ -161,6 +174,13 @@ type process struct {
 	failed   bool // exited before taking over (StartError), under Manager.mu
 	lost     bool // died while a reload failed: its restart planned there, under Manager.mu
 	output   *tailWriter
+	// handedOver: started with -x, the previous process's listeners
+	// handed over to it (Handover).
+	handedOver bool
+	// listen is listenFingerprint when it started ("" unknown): a reload
+	// hands its listeners over only to a process that would open them
+	// the same.
+	listen string
 }
 
 // StartError is a start or reload HAProxy refused although its
@@ -345,10 +365,24 @@ func (m *Manager) startOrReload(wait bool) error {
 // exit starts HAProxy again (restart.go), without counting as asked for.
 func (m *Manager) startLocked(wait bool) error {
 	args := m.configArgs(m.ConfigPath)
+	listen := ""
+	if m.Handover != "" {
+		listen = listenFingerprint(args)
+	}
 	prev := m.cur
 	old := m.previousPID()
 	reload := old > 0
+	handover := false
 	if reload {
+		// Handed over only what the new process would open the same: a
+		// reload that changes a listener (its address, backlog, threads,
+		// somaxconn...) opens new ones, its configuration applied - and
+		// the first reload after janusd restarted, which doesn't know
+		// what the running process opened them with.
+		if listen != "" && prev != nil && !prev.exited() && prev.cmd.Process.Pid == old && prev.listen == listen && m.handsOver(old) {
+			args = append(args, "-x", m.Handover)
+			handover = true
+		}
 		args = append(args, "-sf", strconv.Itoa(old))
 	}
 
@@ -375,7 +409,7 @@ func (m *Manager) startLocked(wait bool) error {
 	// Every started process is waited on, including the ones a later
 	// seamless reload (-sf) replaces - otherwise each would stay a zombie
 	// under janusd for as long as it runs.
-	p := &process{cmd: cmd, started: time.Now(), done: make(chan struct{}), output: output}
+	p := &process{cmd: cmd, started: time.Now(), done: make(chan struct{}), output: output, handedOver: handover, listen: listen}
 	go func() {
 		p.err = cmd.Wait()
 		close(p.done) // before taking mu: Stop holds it while waiting on done
@@ -424,7 +458,7 @@ func (m *Manager) startLocked(wait bool) error {
 	if err := os.WriteFile(m.PidPath, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644); err != nil {
 		log.Printf("haproxy: write %s: %v", m.PidPath, err)
 	}
-	events.Publish("haproxy.started", map[string]any{"pid": cmd.Process.Pid, "args": args})
+	events.Publish("haproxy.started", map[string]any{"pid": cmd.Process.Pid, "args": args, "handover": handover})
 	if (reload || wait) && !m.waitAnswering(p) && p.exited() {
 		// It never took over: -sf wasn't sent, the previous process (if
 		// any) still serves - it's the current one again.
@@ -448,6 +482,9 @@ func (m *Manager) startLocked(wait bool) error {
 		}
 		return &StartError{Output: output.lines()}
 	}
+	if handover {
+		m.waitReleased(old, p, time.Now().Add(takeoverTimeout))
+	}
 	m.restoreCerts(p)
 	m.notifyUpdated()
 	return nil
@@ -462,6 +499,7 @@ func (m *Manager) configArgs(cfg string) []string {
 			args = append(args, "-f", p)
 		}
 	}
+	args = append(args, m.handoverArgs()...)
 	if m.LocalPeer != nil {
 		if name := m.LocalPeer(); name != "" {
 			args = append(args, "-L", name)
@@ -761,7 +799,12 @@ func (m *Manager) SetServerState(backend, server, state string) error {
 }
 
 func (m *Manager) statsCommand(cmd string) ([]byte, error) {
-	conn, err := net.DialTimeout("unix", m.StatsSocketPath, 2*time.Second)
+	return m.statsCommandAt(m.StatsSocketPath, cmd)
+}
+
+// statsCommandAt is statsCommand on the stats socket at path.
+func (m *Manager) statsCommandAt(path, cmd string) ([]byte, error) {
+	conn, err := net.DialTimeout("unix", path, 2*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("dial stats socket: %w", err)
 	}
