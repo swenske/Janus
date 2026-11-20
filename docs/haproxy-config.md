@@ -87,6 +87,16 @@ second, measured on 3.4. `option idle-close-on-response` keeps those
 connections open instead until their next request, answered with
 `Connection: close`: none failed.
 
+Fresh connections caught by the reload itself are another case:
+established, or half way through their handshake, but not accepted by
+HAProxy yet when the previous process closes its listeners. Janus
+turns the kernel's `net.ipv4.tcp_migrate_req` on at every boot: those
+connections move to the new process's listeners instead of being
+reset - nothing to add to your configuration. Measured on 3.4 with a
+new connection per request straight to HAProxy, 45 reloads at 12,000
+to 35,000 requests a second: 10 to 76 requests failed without it, 0 to
+2 with it.
+
 ```haproxy
 defaults
     mode http
