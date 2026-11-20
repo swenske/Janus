@@ -15,7 +15,10 @@
 #   - a renewal asked for is swapped into the running HAProxy without a
 #     reload;
 #   - after a reboot the same certificates are served, nothing is
-#     ordered again; the exporter reports them; no AVC denial.
+#     ordered again; the exporter reports them;
+#   - removing a certificate haproxy.cfg uses is refused, checked or
+#     applied, accepted once it doesn't - every call returns (#694);
+#     no AVC denial.
 # With QEMU_ACME_VIA_PROXY=1 (make qemu-acme-proxy-test) the node has no
 # way out but an HTTP proxy on the host (hack/connectproxy, credentials
 # required): QEMU's user network restricted, a guestfwd to the proxy
@@ -333,6 +336,60 @@ until out="$(ctl haproxy acme status)" && grep -q "x509\|unknown authority" <<<"
   sleep 2
 done
 echo "  ok: without directory_ca the node's trust store applies - Pebble's test CA refused"
+
+# --- removing a certificate -----------------------------------------------
+# Checked and applied without "site": refused while haproxy.cfg's :443
+# loads its file, accepted once it doesn't. Each call bounded: janusd's
+# ACME manager deadlocked there (#694) - HAProxy's validation asked it for
+# HAProxy's environment while it waited for that validation - and every
+# ACME and HAProxy call after it hung too.
+python3 - "$WORKDIR/acme-system.json" > "$WORKDIR/acme-nosite.json" <<'PY'
+import json, sys
+c = json.load(open(sys.argv[1]))
+c["certificates"] = [x for x in c["certificates"] if x["name"] != "site"]
+print(json.dumps(c))
+PY
+bounded() { timeout 60 "$CTL_BIN" -endpoint "127.0.0.1:${P_GRPC}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" "$@" 2>&1; }
+rc=0
+out="$(bounded haproxy acme check "$WORKDIR/acme-nosite.json")" || rc=$?
+case $rc in
+  124) fail "acme check without a certificate haproxy.cfg uses never returned" ;;
+  0) fail "acme check accepted removing a certificate haproxy.cfg uses: $out" ;;
+esac
+check "check: refused while in use" "doesn't load without the certificates removed" "$out"
+rc=0
+out="$(bounded haproxy acme apply "$WORKDIR/acme-nosite.json")" || rc=$?
+case $rc in
+  124) fail "acme apply without a certificate haproxy.cfg uses never returned" ;;
+  0) fail "acme apply removed a certificate haproxy.cfg uses: $out" ;;
+esac
+out="$(bounded haproxy acme status)" || fail "acme status after a refused removal: $out"
+check "the certificate stays" "^site " "$out"
+[ "$(served "$P_443" www.site.test)" = "tls-file" ] || fail "site's file isn't back after a refused removal"
+echo "  ok: removing a certificate haproxy.cfg uses - checked, applied - refused, its file back"
+
+sed '/^frontend tls-file$/,/^$/d' "$WORKDIR/haproxy.cfg" > "$WORKDIR/haproxy-nosite.cfg"
+if grep -q "acme/site.pem" "$WORKDIR/haproxy-nosite.cfg"; then
+  fail "haproxy-nosite.cfg still uses site.pem"
+fi
+out="$(bounded haproxy apply-config "$WORKDIR/haproxy-nosite.cfg")" || fail "haproxy.cfg without site.pem: $out"
+out="$(bounded haproxy acme check "$WORKDIR/acme-nosite.json")" || fail "acme check without an unused certificate: $out"
+out="$(bounded haproxy acme apply "$WORKDIR/acme-nosite.json")" || fail "acme apply without an unused certificate: $out"
+out="$(bounded haproxy acme status)" || fail "acme status after the removal: $out"
+if grep -q "^site " <<<"$out"; then
+  fail "site still listed after its removal: $out"
+fi
+out="$(bounded system ls /etc/haproxy/acme)" || fail "ls /etc/haproxy/acme: $out"
+if grep -q "site.pem" <<<"$out"; then
+  fail "site.pem still there after its removal: $out"
+fi
+out="$(bounded system ls /etc/haproxy)" || fail "ls /etc/haproxy: $out"
+if grep -q "acme-removing" <<<"$out"; then
+  fail "the removal left .acme-removing behind: $out"
+fi
+out="$(bounded haproxy reload)" || fail "HAProxy no longer reloads after the removal: $out"
+[ "$(served "$P_8443" any.wild.test)" = "tls-dir" ] || fail "the wildcard isn't served after site's removal"
+echo "  ok: removed once haproxy.cfg doesn't use it - file gone, HAProxy still applies and reloads"
 
 denials="$(grep -a "avc:.*denied" "$LOG".* || true)"
 if [ -n "$denials" ]; then

@@ -31,6 +31,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -91,7 +92,10 @@ func backoff(n int) time.Duration {
 	return min(d, 24*time.Hour)
 }
 
-// HAProxy is what the manager needs of janusd's HAProxy manager.
+// HAProxy is what the manager needs of janusd's HAProxy manager. Its
+// methods may call the manager's Env - janusd's HAProxy manager does from
+// Validate and when it starts or reloads HAProxy, under its own lock -
+// so Env takes no lock (#694).
 type HAProxy interface {
 	ReplaceCertFile(path string, pemBundle []byte) error
 	Reload() error
@@ -135,6 +139,12 @@ type Manager struct {
 	// follow: a cluster member another member orders for (Follow) - its
 	// name, and the thumbprint HTTP-01 is answered with.
 	followOrderer, followThumb string
+	// answer is answerThumbLocked's value, published by publishAnswerLocked
+	// whenever what it depends on changes, for Env to read without mu:
+	// HAProxy's manager calls Env while this manager holds mu and waits
+	// for it (Apply's checkRemovable validates haproxy.cfg, StartedAt) -
+	// with mu, Env deadlocked them both (#694).
+	answer atomic.Pointer[string]
 }
 
 // Follow makes this node a cluster member another orders the
@@ -149,6 +159,7 @@ func (m *Manager) Follow(orderer, thumb string) (changed bool) {
 	was := m.followOrderer
 	m.followOrderer, m.followThumb = orderer, thumb
 	changed = m.answerThumbLocked() != before
+	m.publishAnswerLocked()
 	m.mu.Unlock()
 	switch {
 	case orderer != "" && was != orderer:
@@ -239,15 +250,22 @@ func (m *Manager) Thumbprint() string {
 }
 
 // Env is HAProxy's part of the extension's environment: the thumbprint
-// the HTTP-01 rule answers with.
+// the HTTP-01 rule answers with. It takes no lock (see answer): HAProxy's
+// manager calls it under its own, while this manager may hold mu and
+// wait for HAProxy.
 func (m *Manager) Env() []string {
-	m.mu.Lock()
-	t := m.answerThumbLocked()
-	m.mu.Unlock()
-	if t != "" {
-		return []string{ThumbprintEnv + "=" + t}
+	if t := m.answer.Load(); t != nil && *t != "" {
+		return []string{ThumbprintEnv + "=" + *t}
 	}
 	return nil
+}
+
+// publishAnswerLocked publishes answerThumbLocked for Env: called with mu
+// held, after anything it depends on changed - the account key, the
+// configuration's path, Follow - and before HAProxy is reloaded for it.
+func (m *Manager) publishAnswerLocked() {
+	t := m.answerThumbLocked()
+	m.answer.Store(&t)
 }
 
 // answerThumbLocked is the thumbprint HTTP-01 challenges are answered
@@ -278,6 +296,7 @@ func (m *Manager) Boot() error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	defer m.publishAnswerLocked() // before the Unlock: deferred after it
 	if err := m.loadKey(); err != nil {
 		return err
 	}
@@ -297,7 +316,56 @@ func (m *Manager) Boot() error {
 		normalize(cfg)
 	}
 	m.cfg = cfg
+	m.recoverRemovingLocked()
 	return m.writePlaceholders()
+}
+
+// removingDir is where checkRemovable moves the files of the certificates
+// a configuration removes while it checks haproxy.cfg without them.
+func removingDir() string { return filepath.Join(filepath.Dir(CertDir), ".acme-removing") }
+
+// recoverRemovingLocked deals with what checkRemovable left aside when
+// janusd stopped before putting it back (#694: it deadlocked there): a
+// certificate still configured gets its file back unless it has a real
+// one again, any other file - a certificate and its key - is deleted.
+// At Boot, before HAProxy starts. Called with mu held.
+func (m *Manager) recoverRemovingLocked() {
+	aside := removingDir()
+	entries, err := os.ReadDir(aside)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		file := filepath.Join(aside, e.Name())
+		name, ok := strings.CutSuffix(e.Name(), ".pem")
+		if ok && m.certificate(name) != nil && !m.hasRealCert(name) {
+			if err := os.Rename(file, certPath(name)); err != nil {
+				m.logger.Printf("put %s back: %v", certPath(name), err)
+				continue
+			}
+			m.logger.Printf("certificate %s: its file, left aside by a removal that never ended, put back", name)
+			continue
+		}
+		if err := os.Remove(file); err != nil {
+			m.logger.Printf("remove %s: %v", file, err)
+			continue
+		}
+		m.logger.Printf("removed %s, left aside by a removal that never ended", file)
+	}
+	if err := os.Remove(aside); err != nil {
+		m.logger.Printf("remove %s: %v", aside, err)
+	}
+}
+
+// hasRealCert reports whether name's file holds a certificate from a CA,
+// not a stand-in.
+func (m *Manager) hasRealCert(name string) bool {
+	data, err := os.ReadFile(certPath(name))
+	if err != nil {
+		return false
+	}
+	b, err := parseBundle(data)
+	return err == nil && !b.Placeholder
 }
 
 // loadKey loads the account key, or creates it. Called with mu held.
@@ -463,6 +531,7 @@ func (m *Manager) Apply(cfg *janusv1alpha1.ACMEConfig, accountKey string, valida
 			return nil, err
 		}
 		m.key, m.thumb = key, thumb
+		m.publishAnswerLocked()
 		m.logger.Printf("account key replaced: thumbprint %s", thumb)
 	}
 	saved := proto.Clone(cfg).(*janusv1alpha1.ACMEConfig)
@@ -486,6 +555,7 @@ func (m *Manager) Apply(cfg *janusv1alpha1.ACMEConfig, accountKey string, valida
 		}
 	}
 	m.cfg = cfg
+	m.publishAnswerLocked()
 	if pathChanged {
 		m.retryFailedLocked()
 	}
@@ -524,7 +594,8 @@ func (m *Manager) Apply(cfg *janusv1alpha1.ACMEConfig, accountKey string, valida
 }
 
 // checkRemovable makes sure haproxy.cfg doesn't need the files of the
-// removed certificates: it's checked without them. Called with mu held.
+// removed certificates: it's checked without them. Called with mu held:
+// HAProxy's Validate calls Env, which mustn't take it.
 func (m *Manager) checkRemovable(names []string) []string {
 	if len(names) == 0 || m.opts.HAProxyConfig == "" {
 		return nil
@@ -533,7 +604,7 @@ func (m *Manager) checkRemovable(names []string) []string {
 	if err != nil {
 		return nil // no configuration: nothing uses them
 	}
-	aside := filepath.Join(filepath.Dir(CertDir), ".acme-removing")
+	aside := removingDir()
 	if err := os.MkdirAll(aside, 0o700); err != nil {
 		return []string{err.Error()}
 	}
