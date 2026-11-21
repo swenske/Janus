@@ -1564,6 +1564,63 @@ configuration and HAProxy unchanged). The machine's configuration put
 back after. A machine pinned to another HAProxy branch, made on the
 release and updated through its page, checks the same refusal there.
 
+### Reloads under new connections
+
+Since v2026.11.20 (#680, the listeners handed over at a reload): 40
+HAProxy reloads on node 01, one every 3 s (a configuration applied with
+a changing comment each time), under a load of **new connections** -
+`Connection: close`, one TCP connection per request - straight on the
+VIP: `wrk -t4 -c32` from the build box and `wrk -t2 -c8` from an idle
+CI runner at once, about 12,000 connections a second, and the VIP and
+anycast probes every 50 ms. The build box needs `net.ipv4.tcp_tw_reuse=1`
+and a wider ephemeral port range for that rate (it closes first: with
+the defaults its ports fill with `TIME_WAIT` and the rate falls to about
+1,100 a second within half a minute) - set for the campaign, put back
+after. Measured: every `wrk` error (connect, read, write, timeout,
+non-2xx), the probes lost, `net.ipv4.tcp_migrate_req` read from `/proc`
+through the API, node 01's `haproxy.started` events after the run
+(`handover` true or false, `-x` among the arguments) and its HAProxy
+processes; `ListenDrops`/`ListenOverflows` from node_exporter when a
+probe is lost. On the release, then on the pre-release; optionally a
+round at a higher rate (`wrk -t8 -c128`). Expected: resets on the
+release, none and every reload handed over on the pre-release.
+
+The same 20 reloads on Controller machines pinned to the other HAProxy
+branches (made from the image factory, given the lab's HTTP frontend),
+the load from the build box straight on the machine, then their AVC
+denials; ten `haproxy reload` of a cluster member (its configuration is
+the cluster's) under the same load, with both members' stick table read
+every 0.6 s (a count that falls is reported, with when).
+
+### Reloads that open new listeners, and janusd's restart
+
+Since v2026.11.20 (a socket handed over keeps the backlog and options
+it was opened with, so a reload that changes them opens new ones;
+`tcp_migrate_req` covers their queues): under the load above, a plan of
+steps 3 s apart on node 01 - the configuration, the same with
+`backlog 2048` on the frontend's `bind`, back - expecting `"handover":
+false` on each change and `true` on the reload after; then `janusctl
+system restart` and reloads after it (the HAProxy pid before and after,
+janusd's own reload at its start). Measured: each reload's `handover`,
+the `wrk` errors and probes per plan, and for the restart the load cut
+into one-second `wrk` runs to tell the VIP's moves (keepalived is
+janusd's child) from HAProxy's reload.
+
+### Removing a Let's Encrypt certificate
+
+Since v2026.11.20 (#694: removing a certificate deadlocked the node's
+ACME manager): on the Controller's Let's Encrypt machine, outside any
+cluster, two certificates issued (one HTTP-01, one DNS-01); every call
+bounded (`timeout 60`) and timed. On the release: a `haproxy.cfg` naming
+one of them only, then `acme check` and `acme apply` of the
+configuration without the other, `acme status`/`get`, a `haproxy
+apply-config`, `/etc/haproxy/.acme-removing/` listed; the upgrade note
+followed (`janusctl system restart`, then the update through the node's
+page) and what its boot does with the file set aside. On the
+pre-release: the removal while `haproxy.cfg` names the file (refused,
+the message), then after taking it out of `haproxy.cfg` (accepted), the
+files left, a reload, `acme status`.
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -1914,3 +1971,13 @@ ran:
   `h2run` round alternating versions on node 01; `ccert NAME`: a
   certificate given to the cluster and replaced, each member's HAProxy
   process and store before and after (v2026.11.19-3).
+- `freload NAME CFG [N] [INTERVAL]`: N reloads of node 01 (`reloadsf`,
+  on a cadence) under new connections from the box and a runner
+  (`WRK_BOX=`, `R3=1`) and the probes, then node 01's `haproxy.started`
+  events counted by `handover`; `RCMD=` another command instead, like
+  `reloadplan NODE INTERVAL STEP…` (a configuration file, `reload`,
+  `restart`, `wait`, `pid`); `MODE=reload`: `haproxy reload` instead of
+  an apply; `mreload NAME NODE ADDRESS CFG [N]`: the same on a
+  Controller machine, its AVC denials after; `tsample SECONDS OUT` /
+  `tdrops`: both members' stick table sampled, and its falls; `jxt
+  SECONDS NODE ARGS…`: a bounded, timed `janusctl` call (v2026.11.20).
