@@ -15,10 +15,10 @@
 # sha256sums.asc (Kernel.org checksum autosigner,
 # B8868C80BA62A1FFFAF5FDA9632D3A06589DA6B1), which agree. Every track is
 # built with kernel/patches/ applied - its README says which and why.
-KERNEL_LONGTERM_VERSION := 6.18.64
-KERNEL_LONGTERM_SHA256  := 020d45510c539972e6f14c5c71566878d3b7ef56fb082b3e09134f2ebaade562
-KERNEL_STABLE_VERSION   := 7.3.5
-KERNEL_STABLE_SHA256    := 8f293f83d54f0b7b9be56863ebc5e4ea79d73e530b4ae55c572be97ef39f0990
+KERNEL_LONGTERM_VERSION := 6.18.65
+KERNEL_LONGTERM_SHA256  := c92606f956f09dc50b5a0e2af9e86763fce27ada1647de97f8d1ac8cfc95801d
+KERNEL_STABLE_VERSION   := 7.3.6
+KERNEL_STABLE_SHA256    := 8183d475a76a0faffa92d6cd500af421f589dfd0300a0f1060bb875e11d45723
 
 # HAProxy, one pin per LTS branch an image can be built with (variants.mk,
 # haproxy.org). HAProxy doesn't sign its tarballs: sha256 as published by
@@ -165,8 +165,8 @@ PEBBLE_VERSION := v2.10.3
 # balancer to keep its routes on (never shipped). Checked against the
 # sha256 MikroTik publishes beside it (chr-<version>.img.zip.sha256, over
 # HTTPS); the newest stable is upgrade.mikrotik.com's NEWESTa7.stable.
-ROUTEROS_CHR_VERSION := 7.25.1
-ROUTEROS_CHR_SHA256  := c78e8e24ca78d7f13496140e600702df07fe5c57d1a5d6d025654c8476ed2ed2
+ROUTEROS_CHR_VERSION := 7.25.2
+ROUTEROS_CHR_SHA256  := b0df0acb3f2070fb94d9e30bd8a8566bb622034786bb4f759f837cf2aa05bacb
 
 # versitygw, Versity's S3 gateway: the bucket hack/qemu-dashboard-test.sh
 # backs the Controller up to and restores it from - it checks S3's
