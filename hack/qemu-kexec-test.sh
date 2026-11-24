@@ -14,7 +14,8 @@
 #   4. janusd's own boot timing (internal/boottime) is there after the
 #      kexec'd boot too - it's a boot like any other to the kernel;
 #   5. a second kexec from the kexec'd kernel: the EFI runtime and the ESP
-#      are still there after a jump;
+#      are still there after a jump; neither kexec'd kernel used the EFI
+#      stub's INITRD table from the first boot;
 #   6. zero AVC denials across all four boots.
 #
 # On q35 with SMM, under the firmware $OVMF_CODE names - the plain OVMF
@@ -169,6 +170,16 @@ wait_api "after the second kexec"
 [ "$(grep -acF "$KEXEC_LOADED" "$LOG")" -eq 2 ] \
   || fail "the Secure Boot state ($KEXEC_STATE) wasn't looked up before both kexecs: $(grep -a 'kexec: the next reboot' "$LOG")"
 echo "  ok: a second kexec from the kexec'd kernel - the EFI runtime and the ESP survive a jump"
+# Both kexec'd kernels disregarded the INITRD table the EFI stub
+# installed at the first boot (kernel/patches/0001, #374): reading it,
+# a kexec'd kernel cleared 16 bytes of whatever had reused that memory -
+# its own text under the Secure Boot capable OVMF (7.2.10 oopsed in
+# tcp_parse_options). The firmware boots still list it as usable.
+[ "$(grep -acE 'efi: .*\(INITRD=0x[0-9a-f]+ unusable\)' "$LOG")" -eq 2 ] \
+  || fail "the kexec'd kernels didn't disregard the stale INITRD table: $(grep -a 'efi: .*ACPI' "$LOG")"
+[ "$(grep -acE 'efi: .* INITRD=0x[0-9a-f]+' "$LOG")" -eq 2 ] \
+  || fail "the firmware boots should list the INITRD table: $(grep -a 'efi: .*ACPI' "$LOG")"
+echo "  ok: the kexec'd kernels disregarded the first boot's INITRD table"
 
 # --- 6. SELinux ---
 # Each reboot janusd made said where its time went, before the console
