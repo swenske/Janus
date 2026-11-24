@@ -88,9 +88,10 @@ config says what the default's says, or
 
 Every track is built with Janus's own patches applied
 ([`kernel/patches/`](../kernel/patches/README.md)), each one sent
-upstream. A patch must apply exactly: a release that no longer takes one
-(or already carries it) fails to build, and its bump is listed under the
-status issue's **Not proposed** - drop or rebase the patch.
+upstream - ours, or a maintainer's fix before a release carries it. A
+patch must apply exactly: a release that no longer takes one (or already
+carries it) fails to build, and its bump is listed under the status
+issue's **Not proposed** - drop or rebase the patch.
 
 Adding a HAProxy branch (a new LTS): its pins in `versions.mk` (`make
 upstream-bump` can't add a variable - write them by hand after checking

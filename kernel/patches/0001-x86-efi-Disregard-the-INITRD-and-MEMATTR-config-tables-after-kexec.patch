@@ -1,0 +1,137 @@
+From 6863183e8b65e833f8140e20d526282a725e040e Mon Sep 17 00:00:00 2001
+From: Ard Biesheuvel <ardb@kernel.org>
+Date: Mon, 2 Nov 2026 13:59:20 +0100
+Subject: x86/efi: Disregard the INITRD and MEMATTR config tables after kexec
+
+When the EFI stub loads the initrd itself, it describes its location and
+size to the core kernel via a LINUX_EFI_INITRD_MEDIA_GUID configuration
+table, which is allocated from EFI loader data, just like the initrd.
+On x86, the stub passes the same information via boot_params as well,
+which takes precedence, but the core kernel will fall back to the INITRD
+config table if boot_params does not describe an initrd.
+
+The EFI configuration table array is passed on to kexec'd kernels as-is,
+and so a kexec'd kernel that is booted without an initrd will pick up
+the INITRD config table that was installed during the original boot, and
+use the initrd it describes, which no longer exists at that point.
+
+Commit 6e62d1c6f2c7 ("efi: Wipe INITRD config table from memory after
+consumption") mitigated this by wiping the base and size fields of the
+table once it has been consumed. However, the memory holding the table
+is released to the page allocator as well, and so it may have been
+reused by the time the kexec occurs, in which case the kexec'd kernel
+will interpret whatever happens to be stored there as the base and size
+of the initrd, e.g.,
+
+  [    0.000000] efi: ... INITRD=0x7c41cc18 ...
+  [    0.000000] RAMDISK: [mem 0x9090909090909090-0xd1e7d1e68aaeafff]
+  [    0.000000] Kernel panic - not syncing: Cannot find place for new RAMDISK of size 4708303772963442675
+
+Crash kernels will find the stale table as well, and wipe it again, i.e.,
+write to the memory of the crashed kernel that they are supposed to
+capture.
+
+Both kexec_file_load() and kexec-tools pass a SETUP_EFI setup_data entry
+to the next kernel when EFI is enabled, which the x86 EFI code already
+relies on to detect that it was booted via kexec. Such kernels are
+entered directly, bypassing the EFI stub, and so any INITRD config table
+they encounter is necessarily stale. So wire up
+efi_config_table_is_usable() for x86, and use it to disregard the INITRD
+config table when a SETUP_EFI setup_data entry is present.
+
+While at it, use the same mechanism to disregard the Memory Attributes
+table after kexec, which is currently achieved by overwriting its address
+in the firmware's config table array with EFI_INVALID_TABLE_ADDR in
+efi_reuse_config(). This only happens on 64-bit firmware, and only if
+the SETUP_EFI entry carries the address of an SMBIOS table, which
+kexec-tools does not provide on systems that only expose an SMBIOS3
+entry point. In that case, the kexec'd kernel will parse the table, which
+may be stale as well, given that EDK2 based firmware allocates it from
+EFI boot services data, which is released to the page allocator after
+boot too, e.g.,
+
+  [    0.000000] efi: memattr: Unexpected EFI Memory Attributes table version -1958647317
+
+Reviewed-by: Ilias Apalodimas <ilias.apalodimas@linaro.org>
+Tested-by: Jasmeet (Jazz) Bhatia <jasmeet.bhatia.us@gmail.com>
+Fixes: f4dc7fffa987 ("efi: libstub: unify initrd loading between architectures")
+Signed-off-by: Ard Biesheuvel <ardb@kernel.org>
+---
+ arch/x86/platform/efi/efi.c    | 26 ++++++++++++++++++++++++++
+ arch/x86/platform/efi/quirks.c |  4 ----
+ include/linux/efi.h            |  3 +++
+ 3 files changed, 29 insertions(+), 4 deletions(-)
+
+diff --git a/arch/x86/platform/efi/efi.c b/arch/x86/platform/efi/efi.c
+index 5eb96c17883e86..c2817c7415ce68 100644
+--- a/arch/x86/platform/efi/efi.c
++++ b/arch/x86/platform/efi/efi.c
+@@ -432,6 +432,32 @@ static int __init efi_systab_init(unsigned long phys)
+ 	return 0;
+ }
+ 
++/*
++ * kexec passes the firmware's config table array on to the next kernel as-is,
++ * but some of the tables it describes must be disregarded when booting via
++ * kexec, which is indicated by the presence of a SETUP_EFI setup_data entry:
++ *
++ * - The INITRD table is installed by the EFI stub to describe the initrd that
++ *   it loaded. Both the table and the initrd are allocated from EFI loader
++ *   data, which is released to the page allocator once the kernel is up and
++ *   running, and so the table is stale by the time kexec boots the next kernel.
++ *
++ * - The Memory Attributes table may reside in EFI boot services data, which is
++ *   released to the page allocator as well. Even if it is still intact, the
++ *   sanity check in efi_memattr_init() may fail spuriously, given that only
++ *   the runtime regions of the EFI memory map are passed on via kexec. Applying
++ *   the permissions it describes is not critical, so just ignore it.
++ */
++bool __init x86_efi_config_table_is_usable(const efi_guid_t *guid,
++					   unsigned long table)
++{
++	if (!efi_setup)
++		return true;
++
++	return efi_guidcmp(*guid, LINUX_EFI_INITRD_MEDIA_GUID) &&
++	       efi_guidcmp(*guid, EFI_MEMORY_ATTRIBUTES_TABLE_GUID);
++}
++
+ static int __init efi_config_init(const efi_config_table_type_t *arch_tables)
+ {
+ 	void *config_tables;
+diff --git a/arch/x86/platform/efi/quirks.c b/arch/x86/platform/efi/quirks.c
+index 02c56a02eb9bc4..d6d34dfa19e60b 100644
+--- a/arch/x86/platform/efi/quirks.c
++++ b/arch/x86/platform/efi/quirks.c
+@@ -611,10 +611,6 @@ int __init efi_reuse_config(u64 tables, int nr_tables)
+ 		if (!efi_guidcmp(guid, SMBIOS_TABLE_GUID))
+ 			((efi_config_table_64_t *)p)->table = data->smbios;
+ 
+-		/* Do not bother to play with mem attr table across kexec */
+-		if (!efi_guidcmp(guid, EFI_MEMORY_ATTRIBUTES_TABLE_GUID))
+-			((efi_config_table_64_t *)p)->table = EFI_INVALID_TABLE_ADDR;
+-
+ 		p += sz;
+ 	}
+ 	early_memunmap(tablep, nr_tables * sz);
+diff --git a/include/linux/efi.h b/include/linux/efi.h
+index cc1df1577d5fb8..1bdb4639acef29 100644
+--- a/include/linux/efi.h
++++ b/include/linux/efi.h
+@@ -1355,10 +1355,13 @@ struct linux_efi_initrd {
+ #define EFI_SECRET_TABLE_HEADER_GUID	EFI_GUID(0x1e74f542, 0x71dd, 0x4d66,  0x96, 0x3e, 0xef, 0x42, 0x87, 0xff, 0x17, 0x3b)
+ 
+ bool xen_efi_config_table_is_usable(const efi_guid_t *guid, unsigned long table);
++bool x86_efi_config_table_is_usable(const efi_guid_t *guid, unsigned long table);
+ 
+ static __always_inline
+ bool efi_config_table_is_usable(const efi_guid_t *guid, unsigned long table)
+ {
++	if (IS_ENABLED(CONFIG_X86) && !x86_efi_config_table_is_usable(guid, table))
++		return false;
+ 	if (!IS_ENABLED(CONFIG_XEN_EFI))
+ 		return true;
+ 	return xen_efi_config_table_is_usable(guid, table);
+-- 
+cgit 1.3.1-korg
+
