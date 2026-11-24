@@ -400,6 +400,7 @@ arch/x86/include/asm/sev.h
 arch/x86/include/asm/sgx.h
 arch/x86/include/asm/shared/io.h
 arch/x86/include/asm/shared/msr.h
+arch/x86/include/asm/shared/string.h
 arch/x86/include/asm/shared/tdx.h
 arch/x86/include/asm/shared/tdx_errno.h
 arch/x86/include/asm/shmparam.h
@@ -3383,6 +3384,7 @@ include/scsi/scsi_eh.h
 include/scsi/scsi_host.h
 include/scsi/scsi_ioctl.h
 include/scsi/scsi_proto.h
+include/scsi/scsi_sense.h
 include/scsi/scsi_status.h
 include/scsi/scsi_tcq.h
 include/scsi/scsi_transport.h
