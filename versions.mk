@@ -24,12 +24,12 @@ KERNEL_STABLE_SHA256    := 8183d475a76a0faffa92d6cd500af421f589dfd0300a0f1060bb8
 # haproxy.org). HAProxy doesn't sign its tarballs: sha256 as published by
 # haproxy.org (the .sha256 file and the branch's releases.json, over
 # HTTPS).
-HAPROXY_3_4_VERSION := 3.4.8
-HAPROXY_3_4_SHA256  := 024bd521a6cbbe32b426853147e6bbd6a89b107c5a34144846193fee5b7c6ed1
-HAPROXY_3_2_VERSION := 3.2.27
-HAPROXY_3_2_SHA256  := 3363a337dcde55a871b0f63ac483a4476db647418b85dee069b35f39291ee177
-HAPROXY_3_0_VERSION := 3.0.31
-HAPROXY_3_0_SHA256  := 5c423b6db7e99b0e61dcb1e310648274b00976ef24049ebbbebf28b3c183083c
+HAPROXY_3_4_VERSION := 3.4.9
+HAPROXY_3_4_SHA256  := 896c55b6029ec2a841617e92a327a335f36a8968e7d51a47eada159673c2f320
+HAPROXY_3_2_VERSION := 3.2.28
+HAPROXY_3_2_SHA256  := 56d08f65cfa756e95e8b64b76e28bdd5163c52d8a633dfa6a553f641e575698e
+HAPROXY_3_0_VERSION := 3.0.32
+HAPROXY_3_0_SHA256  := e9e93866280b8c8ef115eefe519ea17b1d7a2d893cc80c159251009dba5fd2a1
 
 # Single Board Computer tranche follow-up: pkgs/musl-toolchain builds a
 # real aarch64-linux-musl cross-toolchain (musl-cross-make, pinned by
@@ -143,17 +143,17 @@ RPI5_UEFI_SHA256  := c4fbbec9cd0d1115c9adab884923061b960de42b4ca6d65ba5f08cb6b46
 # for janus-controller-updater (dashboard/updater), which updates the
 # Controller with it - checked against the release's own .sha256 assets
 # (github.com/docker/compose/releases).
-DOCKER_COMPOSE_VERSION      := v5.8.0
-DOCKER_COMPOSE_SHA256_AMD64 := b8840f5008c447f41fce0a57ae3adeab42c89b1eb6e6012524bcabbfb4ffbaf6
-DOCKER_COMPOSE_SHA256_ARM64 := 1a9c918b2fb49b9c87f0018c64b5abd0d30715155e98dc939779fbaee6c414d3
+DOCKER_COMPOSE_VERSION      := v5.8.1
+DOCKER_COMPOSE_SHA256_AMD64 := cf2713394ca63900da5d00e0be12045634cea93a504e1ab2f2ae24eed7f2d359
+DOCKER_COMPOSE_SHA256_ARM64 := e169103deb35aa6633a78eca0a2a0658275d573dd689a33c839c71badfa00cce
 
 # OpenTofu, which hack/terraform-provider-test.sh drives the Janus
 # Terraform provider (terraform-provider-janus) with - never shipped.
 # Checked against these, from tofu_<version>_SHA256SUMS, whose signature
 # by OpenTofu's key E3E6 E43D 84CB 852E ADB0 051D 0C0A F313 E5FD 9F80
 # was checked when pinning.
-OPENTOFU_VERSION      := 1.13.9
-OPENTOFU_SHA256_AMD64 := b34b327cc1ef07178207b6f2cd1f5276537d3e5b7be316500f6dac50d4c0a857
+OPENTOFU_VERSION      := 1.13.10
+OPENTOFU_SHA256_AMD64 := f606b6117ee03177374806d56d580bde7b512aff69f86d2b9f3148dced4ca375
 
 # Pebble, Let's Encrypt's ACME test server, and its DNS test server: the
 # CA hack/qemu-acme-test.sh issues certificates from (go install'ed at
