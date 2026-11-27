@@ -24,8 +24,8 @@ KERNEL_STABLE_SHA256    := 8183d475a76a0faffa92d6cd500af421f589dfd0300a0f1060bb8
 # haproxy.org). HAProxy doesn't sign its tarballs: sha256 as published by
 # haproxy.org (the .sha256 file and the branch's releases.json, over
 # HTTPS).
-HAPROXY_3_4_VERSION := 3.4.8
-HAPROXY_3_4_SHA256  := 024bd521a6cbbe32b426853147e6bbd6a89b107c5a34144846193fee5b7c6ed1
+HAPROXY_3_4_VERSION := 3.4.9
+HAPROXY_3_4_SHA256  := 896c55b6029ec2a841617e92a327a335f36a8968e7d51a47eada159673c2f320
 HAPROXY_3_2_VERSION := 3.2.27
 HAPROXY_3_2_SHA256  := 3363a337dcde55a871b0f63ac483a4476db647418b85dee069b35f39291ee177
 HAPROXY_3_0_VERSION := 3.0.31
