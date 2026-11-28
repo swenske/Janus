@@ -84,6 +84,12 @@ the updater's containers (`/usr/local/bin/docker-compose version`)
 before and after the update - the updater recreates only the
 Controller's container -, then after `docker compose up -d` in the
 Compose directory, the way its README gives the updater the new image.
+Since v2026.11.27 (a Compose fix that reaches the updater only through
+that command), the updater's version is read right after the update -
+still the release's image - and the `docker compose up -d` is run once
+under the same probe of `/api/version` every 0.1 s: what it recreates,
+any probe without an answer, the updater's Compose version after, and
+the Controller's update check answering.
 
 ### The image factory
 
@@ -125,6 +131,12 @@ other slot no longer holds the release to compare with (an update in
 place onto another image wrote it), node 01 is updated to that release
 first - its image asked of the image factory again if the site pruned
 it -, then `abrun` alternates them by rollbacks.
+
+Since v2026.11.27, HTTP/2 too: `h2load` from the build box over clear
+text (prior knowledge, `h2c` - HAProxy recognises HTTP/2's preface on
+the lab's HTTP frontend, nothing to change) on the VIP, 8 threads, 64
+connections of 10 streams, three rounds of 20 s, and one round in each
+pass of `abrun`.
 
 ### Failovers
 
@@ -171,6 +183,12 @@ four times - the node's boot stages are read off its Janus exporter
 seconds after the kernel started), on node 02 and on the Controller's
 longterm machine through its node page, the release measured the same
 way first: what a kernel update changes in the boot itself.
+Since v2026.11.27 (#716), after each of those boots the kernel log's
+`efi:` line - the configuration tables the boot was given: a firmware
+boot lists `MEMATTR=` and `INITRD=`, a kernel that disregards the
+first boot's tables after kexec says `(… unusable)` - and an update
+through the node page with "Reboot through kexec", the release's kernel
+starting the pre-release's: its time, slot and the new kernel's line.
 Since v2026.11.08-2, the serial console of every one of those boots
 on node 02 is kept and read (`serlog`): kernel warnings, oops, "Unknown
 kernel command line parameter", AVC denials, the kernel parameters init
@@ -468,6 +486,7 @@ through `janusctl` along the way, its counts compared with the requests
 | A drained member rebooted | the backup drained, rebooted through the firmware, the router's routes read every 0.75 s until undrained (since v2026.10.29) | the member's VRRP state and BGP protocols at boot, the router's routes, which node the probes reached |
 | Undrained the moment it answers | the backup drained through the Controller, rebooted (kexec three times, the firmware three times), undrained through the Controller as soon as its janusd answers - its port polled every 0.1 s, then `janusctl version` (which waits for a node instead of failing); on the previous release's Controller first (since v2026.10.31) | each first undrain's outcome and error, how long after the API answered it was sent |
 | Back on its old slot | the cluster updated in place to the other release; the first member's VM destroyed and started again the moment its janusd answers on the new slot (its one boot try taken, not yet confirmed), so init reverts it (since v2026.10.31) | init's revert line, when the Controller's journal says reverted, that the update stops before the next member, both members' slots after |
+| A table keyed on a string | since v2026.11.27: in the same version, a second table `type string len 32` tracked on a request header; the load sends 24 keys - 16 short, 6 longer than 32 characters, 2 equal in their first 32 - through the update in place | each member's keys and counts of both tables, compared member to member and with `wrk`'s requests; the long keys cut to 32 |
 | Deleted | | time; the nodes on their own - each with a ring of its own -, the lab's configuration put back |
 | The page | the Clusters list and the cluster's tabs with these data | both themes, axe, console errors, failed requests |
 
@@ -1564,6 +1583,25 @@ configuration and HAProxy unchanged). The machine's configuration put
 back after. A machine pinned to another HAProxy branch, made on the
 release and updated through its page, checks the same refusal there.
 
+Since v2026.11.27 (HAProxy 3.4.9/3.2.28/3.0.32 refuse settings they
+accepted): every setting the upgrade note names, each in a copy of the
+machine's configuration, validated through the node page on the
+release and on the pre-release (and passed to `haproxy -c` of both
+releases' binaries on the build box); a configuration with one of them
+(a `resolvers` section) applied on the release, checked to serve, then
+the update through the page as above.
+
+### A certificate bound with a server name
+
+Since v2026.11.27 (HAProxy keeps a certificate's settings when `add
+ssl crt-list` binds it): on a Controller machine, a temporary TLS
+frontend on a `crt-list` with a seed certificate (`alpn h2,http/1.1`),
+throwaway self-signed certificates; `cert-upload -crt-list -sni NAME`;
+`openssl s_client` with that name, another and none (the certificate
+and ALPN served), then after `haproxy reload`, then after `cert-delete
+-crt-list`. On the release and on the pre-release; the frontend, the
+files and the certificate removed after.
+
 ### Reloads under new connections
 
 Since v2026.11.20 (#680, the listeners handed over at a reload): 40
@@ -1981,3 +2019,17 @@ ran:
   Controller machine, its AVC denials after; `tsample SECONDS OUT` /
   `tdrops`: both members' stick table sampled, and its falls; `jxt
   SECONDS NODE ARGS…`: a bounded, timed `janusctl` call (v2026.11.20).
+- `bstage` with each boot's `efi:` line; `pvalidate NODE CFG`: a
+  configuration checked through the node page (`ValidateConfig`);
+  `p2cfg/`: one configuration per setting the upgrade note names;
+  `p2b-run NAME`: the longterm machine updated through its page with
+  its version, slot and test frontend polled every 0.5 s, then its
+  events and the boot before's logs; `p4check HOST:PORT`: the
+  certificate and ALPN a `crt-list` bind serves for each server name;
+  `compose-up NAME`: `docker compose up -d` on the lab's Controller
+  under probes, the updater's Compose version after; `keys.lua`: the
+  string keys `wrk` sends (`runder-load` takes `WRK_ARGS=`);
+  `ctables NAME`: both members' two stick tables compared; `h2run`
+  over `h2c` on the VIP; `ucheck-api OUT NODE…`: each node page's
+  update check; `abrun89 N`: `cpuab` and an `h2run` round alternating
+  versions on node 01 (v2026.11.27).
