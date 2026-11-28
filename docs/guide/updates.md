@@ -43,7 +43,9 @@ On the node's page, **System › Update**:
    installs - and says so when it is older than the node's, which then
    takes its version typed. The page follows the node through its reboot
    until it's back, on its new slot, and says whether it went through
-   kexec or, when it couldn't, the firmware.
+   kexec or, when it couldn't, the firmware. With the automatic revert,
+   it then waits for the node's word on HAProxy: confirmed healthy, or
+   gone back to the previous slot by itself - with HAProxy's own error.
 
 Update the nodes of a pair one at a time: before rebooting, a node gives
 its virtual IP or its BGP route up, so the other one serves alone for
@@ -251,9 +253,12 @@ Encrypt) come near it.
 
 ## When an update reverted
 
-The node is back on its previous release, serving as before. Its event
+The node is back on its previous release, serving as before. Its Update
+page says so - "The last update didn't hold", with what HAProxy said -
+until the node is updated again or the notice is hidden. Its event
 log, which the reboots don't clear - the update, then each boot's
-`janusd.started` with its slot -, and janusd's output say why:
+`janusd.started` with its slot, `haproxy.restart_failed` with HAProxy's
+error, `bootcommit.reverted` -, and janusd's output say why:
 
 ```sh
 janusctl -n lb1 system events
