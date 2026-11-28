@@ -12,7 +12,7 @@ const ACTIONS = [
     method: 'SystemService/Restart',
     icon: RefreshCcw,
     title: 'Restart janusd',
-    text: "Restarts the node's control-plane daemon only. HAProxy keeps serving traffic throughout: the new janusd takes it over without a reload gap.",
+    text: "Restarts the node's control-plane daemon, not the machine. HAProxy keeps running: the new janusd takes it over with a seamless reload. keepalived and BIRD restart with janusd, so on a VRRP or BGP node the virtual IPs move to a peer and the routes are withdrawn, then both come back.",
     button: 'Restart janusd',
     confirm: { title: 'Restart janusd?', body: 'The API is unavailable for a few seconds. HAProxy is not interrupted.', action: 'Restart' },
     expectReboot: false,

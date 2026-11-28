@@ -42,7 +42,7 @@ are calls the Controller makes for a `janus_node`.
 | `Hostname` - the node's hostname | `system hostname` | ✅ | Overview | - |
 | `Reboot` - soft-stop HAProxy, reboot: firmware, power cycle or kexec | `system reboot` | ✅ | Power | - |
 | `Shutdown` - soft-stop HAProxy, power off | `system shutdown` | - | Power; ⚙️ resizing or deleting a VM | ⚙️ |
-| `Restart` - restart janusd, HAProxy keeps serving | `system restart` | ✅ | Power | - |
+| `Restart` - restart janusd; HAProxy keeps running, the virtual IPs and routes move to a peer and back | `system restart` | ✅ | Power | - |
 | `Reset` - wipe STATE, reboot with a new CA | `system reset` | - | Power | - |
 | `Events` - the node's event log, live | `system events` | ✅ | Events | - |
 | `Dmesg` - the kernel's messages | `system dmesg` | - | Kernel | - |
