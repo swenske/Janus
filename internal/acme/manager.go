@@ -344,6 +344,7 @@ func (m *Manager) recoverRemovingLocked() {
 				continue
 			}
 			m.logger.Printf("certificate %s: its file, left aside by a removal that never ended, put back", name)
+			m.recoveredLocked(name)
 			continue
 		}
 		if err := os.Remove(file); err != nil {
@@ -355,6 +356,36 @@ func (m *Manager) recoverRemovingLocked() {
 	if err := os.Remove(aside); err != nil {
 		m.logger.Printf("remove %s: %v", aside, err)
 	}
+}
+
+// recoveredLocked forgets what name's stand-in went through - the
+// attempts it failed while the real file was aside, and the next one
+// planned - once a real certificate is back in its file: otherwise the
+// status shows a valid certificate "failed (3 in a row)" with a next
+// attempt that never comes (#703). A certificate newer than the last
+// success recorded gives it its NotBefore. Called with mu held.
+func (m *Manager) recoveredLocked(name string) {
+	data, err := os.ReadFile(certPath(name))
+	if err != nil {
+		return
+	}
+	b, err := parseBundle(data)
+	if err != nil || b.Placeholder {
+		return
+	}
+	cs := m.certState(name)
+	if cs.LastError == "" && cs.Failures == 0 && cs.NextAttempt.IsZero() {
+		return
+	}
+	cs.LastError, cs.Failures, cs.NextAttempt = "", 0, time.Time{}
+	if b.Leaf.NotBefore.After(cs.LastSuccess) {
+		cs.LastSuccess = b.Leaf.NotBefore
+	}
+	if err := m.saveState(); err != nil {
+		m.logger.Printf("certificate %s: %v", name, err)
+		return
+	}
+	m.logger.Printf("certificate %s: its stand-in's failed attempts forgotten", name)
 }
 
 // hasRealCert reports whether name's file holds a certificate from a CA,
