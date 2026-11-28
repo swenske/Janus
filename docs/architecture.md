@@ -362,9 +362,9 @@ call `HAProxyService.ShowInfo` but gets `PermissionDenied` calling
 - A minimal, project-specific SELinux policy module confines `janusd`,
   HAProxy, and the optional network daemons to exactly the syscalls/files
   they need (Phase 4) - not a stock distro policy.
-- Kernel hardening: `lockdown=confidentiality`, no loadable kernel modules
-  at runtime in production builds (or a tightly restricted allow-list if
-  a specific driver genuinely needs to load late), and the kernel
+- Kernel hardening: no loadable kernel modules at all - every kernel is
+  built without module support (`CONFIG_MODULES` unset), each driver a
+  node needs built in - and the kernel
   parameters of the CIS benchmark's controls (CIS Debian Linux 13
   Benchmark v1.0.0, Level 2 - Server, sections 1.5 and 3.3) written by
   init at every boot - also on every network interface, where the kernel
@@ -374,7 +374,9 @@ call `HAProxyService.ShowInfo` but gets `PermissionDenied` calling
   bounds, on trial - see [kernel tuning](guide/kernel-tuning.md)): never
   one of the benchmark's, which SELinux keeps out of janusd's reach too
   (only the whitelist's files are `sysctl_tunable_t`) - only init writes
-  them, and no other daemon writes a kernel parameter at all.
+  them, and no other daemon writes a kernel parameter at all. The
+  kernels don't build the lockdown LSM (`CONFIG_SECURITY_LOCKDOWN_LSM`
+  unset, and nothing passes `lockdown=`).
 - No setuid binaries beyond what's strictly required; `janusd` runs as
   the sole privileged process, dropping capabilities it doesn't need.
 - Every binary on a node is static: no dynamic loader, no shared
