@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 )
 
 // callbackHAProxy is janusd's HAProxy manager as janusd wires it to this
@@ -251,6 +253,20 @@ func TestBootRecoversCertificatesLeftAside(t *testing.T) {
 	if !readBundle(t, "site").Placeholder {
 		t.Fatal("site isn't a stand-in to begin with")
 	}
+	// The stand-in's attempts failed meanwhile (#703: the CA refused
+	// them), and so did one of wild's, whose file stays. Both files were
+	// obtained from the configuration's CA.
+	next := time.Now().Add(time.Hour)
+	m.mu.Lock()
+	for _, name := range []string{"site", "wild"} {
+		cs := m.certState(name)
+		cs.Directory = ResolveDirectory(m.cfg.Account.GetDirectory())
+		cs.LastAttempt, cs.LastError, cs.Failures, cs.NextAttempt = time.Now(), "refused", 3, next
+	}
+	if err := m.saveState(); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.Unlock()
 
 	m2 := New(Options{HAProxy: &fakeHAProxy{loaded: map[string]bool{}}, HAProxyConfig: m.opts.HAProxyConfig, Output: &testLog{t}})
 	if err := m2.Boot(); err != nil {
@@ -271,5 +287,30 @@ func TestBootRecoversCertificatesLeftAside(t *testing.T) {
 	}
 	if _, err := os.Stat(aside); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("%s still there: %v", aside, err)
+	}
+
+	status := map[string]*janusv1alpha1.ACMECertificateStatus{}
+	for _, c := range m2.Status().Certificates {
+		status[c.Name] = c
+	}
+	site := status["site"]
+	if site.State != "valid" || site.LastError != "" || site.Failures != 0 || site.NextAttemptUnix != 0 {
+		t.Errorf("site put back: %s, last error %q, %d failures, next attempt %d - want valid, no failure", site.State, site.LastError, site.Failures, site.NextAttemptUnix)
+	}
+	if site.LastSuccessUnix != site.NotBeforeUnix {
+		t.Errorf("site's last success %d, want its certificate's NotBefore %d", site.LastSuccessUnix, site.NotBeforeUnix)
+	}
+	if w := status["wild"]; w.Failures != 3 || w.LastError != "refused" || w.NextAttemptUnix != next.Unix() {
+		t.Errorf("wild's own failures changed: %d, %q, next %d", w.Failures, w.LastError, w.NextAttemptUnix)
+	}
+	// Saved: the boot after shows the same.
+	m3 := New(Options{HAProxy: &fakeHAProxy{loaded: map[string]bool{}}, HAProxyConfig: m.opts.HAProxyConfig, Output: &testLog{t}})
+	if err := m3.Boot(); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range m3.Status().Certificates {
+		if c.Name == "site" && (c.Failures != 0 || c.LastError != "") {
+			t.Errorf("site's failures back at the next boot: %d, %q", c.Failures, c.LastError)
+		}
 	}
 }
