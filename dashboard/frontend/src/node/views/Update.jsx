@@ -9,6 +9,8 @@ import { ndjsonLines, uploadPosition } from '../upload.js'
 import { useNodeStatus, usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
 import { WaitForNode } from '../waitForNode.jsx'
+import { HealthCheck, UndoneUpdate } from '../healthCheck.jsx'
+import { useNodeEvents } from '../nodeEvents.js'
 import { PrereleaseBadge } from '../../PrereleaseBadge.jsx'
 import { SecurityBadge } from '../../SecurityBadge.jsx'
 import { compareRelease } from '../../releases.js'
@@ -57,6 +59,9 @@ export default function Update({ route = '' }) {
   // Into the new kernel without the firmware (RebootMode KEXEC).
   const [kexec, setKexec] = useState(false)
   const [following, setFollowing] = useState(null)
+  // checking: the node answers on its new slot, its health being
+  // checked (an update with "Revert automatically") - HealthCheck.
+  const [checking, setChecking] = useState(null)
   // changing: the image panel (extensions, HAProxy branch, kernel track)
   // is open; target: the update it prepared (POST /api/factory/update),
   // installed when the URL below is still its. Apps › "Add or remove
@@ -78,9 +83,12 @@ export default function Update({ route = '' }) {
   const canUpgrade = useMay()('LifecycleService/Upgrade')
   // An upgrade under way - its stream, the reboot followed: the page
   // stays in edit mode until it's over.
-  useHold(!!following)
+  useHold(!!following || !!checking)
 
   const v = overview.data?.version
+  // The node's event log: the health check after an update, and an
+  // update that didn't hold (UndoneUpdate).
+  const events = useNodeEvents(!!v?.active_slot)
   const uc = check.data
   const useLatest = () => {
     if (uc.renamed) {
@@ -256,7 +264,7 @@ export default function Update({ route = '' }) {
       // through the firmware and why it couldn't kexec.
       const how = result.message || ''
       toast(how || 'Update written - the node is rebooting', kexec && !how.includes('through kexec') ? 'warn' : 'ok')
-      setFollowing({ boot: overview.data?.system?.boot_time_unix, from: v?.version, how })
+      setFollowing({ boot: overview.data?.system?.boot_time_unix, from: v?.version, fromSlot: v?.active_slot, how, health: revert, timeoutS: Number(timeout) || 0 })
     }
   }
 
@@ -271,17 +279,42 @@ export default function Update({ route = '' }) {
             label={following.how ? following.how[0].toUpperCase() + following.how.slice(1) : 'Installing and rebooting'}
             onBack={(o) => {
               const now = o.version?.version
-              toast(
-                now && now !== following.from
-                  ? `Back on ${now} (slot ${o.version?.active_slot})`
-                  : `The node is back on ${now} - if that's the old version, the new one may have been reverted`,
-                now !== following.from ? 'ok' : 'warn',
-              )
+              const slot = o.version?.active_slot
+              const moved = slot && slot !== following.fromSlot
               setFollowing(null)
+              // With "Revert automatically", the new slot isn't kept yet:
+              // janusd checks HAProxy there first.
+              if (moved && following.health && o.system?.boot_time_unix) {
+                setChecking({ from: following.from, to: now, slot, bootUnix: o.system.boot_time_unix, timeoutS: following.timeoutS })
+                return
+              }
+              toast(
+                moved
+                  ? `Back on ${now} (slot ${slot})`
+                  : `The node is back on ${now} (slot ${slot}) - if that's the old version, the new one may have been reverted`,
+                moved ? 'ok' : 'warn',
+              )
             }}
           />
         </div>
       )}
+      {checking && (
+        <div style={{ marginBottom: '1rem' }}>
+          <HealthCheck
+            events={events}
+            {...checking}
+            onDone={(r) => {
+              const c = checking
+              setChecking(null)
+              if (r.outcome === 'confirmed') toast(`Updated to ${c.to} (slot ${c.slot}) - HAProxy answered healthy`, 'ok')
+              else if (r.outcome === 'reverted')
+                toast(`The update didn't hold: HAProxy didn't come up healthy on ${c.to} - the node went back to ${r.now || c.from} (slot ${r.nowSlot})`, 'danger')
+              else toast(`No word from the node's health check on slot ${c.slot} - its Events page says what happened`, 'warn')
+            }}
+          />
+        </div>
+      )}
+      {!following && !checking && <UndoneUpdate events={events} activeSlot={v?.active_slot} />}
       <div className="grid grid-2" style={{ marginBottom: '1rem' }}>
         <Card
           title="This node"
@@ -540,7 +573,7 @@ export default function Update({ route = '' }) {
             </p>
             {relay && <RelayProgress p={relay} />}
             <div>
-              <button className="danger solid" disabled={busy || !ready || !!following || !v?.active_slot} onClick={launch}>
+              <button className="danger solid" disabled={busy || !ready || !!following || !!checking || !v?.active_slot} onClick={launch}>
                 <Rocket size={15} /> {busy ? (mode === 'upload' && (!relay || relay.stage === 'upload') ? 'Uploading…' : 'Installing…') : 'Install and reboot…'}
               </button>
             </div>
