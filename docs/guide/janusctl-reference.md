@@ -604,7 +604,7 @@ janusctl system shutdown
 
 #### janusctl system restart
 
-Restart janusd only - HAProxy keeps serving.
+Restart janusd, not the machine: HAProxy keeps running; a VRRP or BGP node's virtual IPs and routes move to a peer and back.
 
 ```text
 janusctl system restart

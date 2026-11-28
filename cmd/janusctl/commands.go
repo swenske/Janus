@@ -260,7 +260,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 		}},
 		{name: "reboot", help: "soft-stop HAProxy, then reboot", flags: []flagDef{boolFlag("powercycle", "a power cycle"), boolFlag("kexec", "jump into the active kernel without the firmware (seconds, not a POST)")}},
 		{name: "shutdown", help: "soft-stop HAProxy, then power off"},
-		{name: "restart", help: "restart janusd only - HAProxy keeps serving"},
+		{name: "restart", help: "restart janusd, not the machine: HAProxy keeps running; a VRRP or BGP node's virtual IPs and routes move to a peer and back"},
 		{name: "reset", help: "wipe the STATE partition and reboot: a new CA and a pairing code on the console", flags: []flagDef{boolFlag("wipe-state", "wipe the persistent STATE partition"), boolFlag("wipe-ephemeral", "wipe ephemeral state")}},
 	}},
 	{name: "haproxy", group: "⚖️  HAProxy", help: "HAProxy: config, runtime, certificates, files", subs: []*command{

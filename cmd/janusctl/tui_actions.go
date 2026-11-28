@@ -215,7 +215,7 @@ var rebootAction = action{
 
 var restartAction = action{
 	title:   "Restart janusd",
-	prompt:  "janusd exits and init starts it again; HAProxy keeps serving.",
+	prompt:  "janusd restarts; HAProxy keeps running. The VIP and routes move away and back.",
 	danger:  true,
 	choices: []string{"Restart", "Cancel"},
 	need:    rolesOperators,

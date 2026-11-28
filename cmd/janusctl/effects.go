@@ -84,7 +84,7 @@ var effects = map[string]effectOf{
 	"system sysctl observed":       {effectReads, ""},
 	"system reboot":                {effectCritical, ""},
 	"system shutdown":              {effectCritical, "nothing powers it back on remotely"},
-	"system restart":               {effectChanges, "janusd only: HAProxy keeps serving"},
+	"system restart":               {effectChanges, "BIRD and keepalived restart with janusd"},
 	"system reset":                 {effectCritical, "wipes the node's state: a new CA, configuration gone"},
 
 	"haproxy show-info":      {effectReads, ""},

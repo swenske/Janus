@@ -398,6 +398,10 @@ func main() {
 			}
 			haproxyMgr.LocalPeer = clusterStore.LocalPeer
 			haproxyMgr.Policy.PeersSection = cluster.Section
+			// A reload waits until the running process has learnt the
+			// stick tables: only then does it teach them to the next one
+			// (#701).
+			haproxyMgr.PeersSection = cluster.Section
 			haproxyMgr.Policy.PeersPort = clusterStore.BindPort
 			// A stop for good: HAProxy waits for a successor to teach its
 			// tables to, and none comes - ended once its clients are served

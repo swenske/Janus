@@ -68,7 +68,7 @@ func runSystemCommand(conn *grpc.ClientConn, cmd string, args []string) bool {
 		defer cancel()
 		_, err := client.Restart(c, &emptypb.Empty{})
 		check("Restart", err)
-		fmt.Println("janusd is restarting (HAProxy keeps serving)")
+		fmt.Println("janusd is restarting - HAProxy keeps running; keepalived and BIRD restart with janusd, so a virtual IP or route moves to a peer and back")
 
 	case "reset":
 		fs := flag.NewFlagSet("system reset", flag.ExitOnError)
