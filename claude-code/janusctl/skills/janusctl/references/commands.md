@@ -70,7 +70,7 @@ janusctl -endpoint HOST:PORT -ca FILE -cert FILE -key FILE COMMAND ...
 - `janusctl system sysctl observed [-v]` - reads - what the node observed for its suggestions: each signal, by hour
 - `janusctl system reboot [-powercycle] [-kexec]` - **critical** - soft-stop HAProxy, then reboot
 - `janusctl system shutdown` - **critical** - soft-stop HAProxy, then power off. Nothing powers it back on remotely
-- `janusctl system restart` - **changes** - restart janusd only - HAProxy keeps serving. Janusd only: HAProxy keeps serving
+- `janusctl system restart` - **changes** - restart janusd, not the machine: HAProxy keeps running; a VRRP or BGP node's virtual IPs and routes move to a peer and back. BIRD and keepalived restart with janusd
 - `janusctl system reset [-wipe-state] [-wipe-ephemeral]` - **critical** - wipe the STATE partition and reboot: a new CA and a pairing code on the console. Wipes the node's state: a new CA, configuration gone
 
 ## HAProxy
