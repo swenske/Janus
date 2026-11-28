@@ -151,16 +151,17 @@ done
 echo "  ok: on their own, the nodes run with the generated section and -L"
 
 # A reload keeps the stick table on a node on its own (the local resync).
-# HAProxy's resync window after a start is five seconds, and the apply
-# above was the first with the new local peer name: a reload inside that
-# window gets no table from a process still waiting for its own.
-sleep 6
+# The apply above was the first with the new local peer name: its process
+# got no lesson from the one it replaced and waits five seconds for its
+# own, and a process replaced before it has learnt teaches nothing - the
+# reload below, right away, waits for it (#701: janusd's waitLearnt).
 http 1 >/dev/null; http 1 >/dev/null
 table() { ctl "$1" haproxy table fe 2>/dev/null || true; }
 check "an entry for the host" "10\.0\.2\.2" "$(table 1)"
 ctl 1 haproxy apply-config "$WORKDIR/haproxy.cfg" >/dev/null
-sleep 2
 check "the entry survived the reload" "10\.0\.2\.2" "$(table 1)"
+grep -aq "haproxy: reloading once the stick tables were learnt" "$WORKDIR/1.log" ||
+  fail "node 1's reload didn't wait for its stick tables (no such line on its console)"
 echo "  ok: a reload keeps the stick table on a node on its own"
 
 # What a configuration may not say.

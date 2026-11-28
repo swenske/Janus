@@ -119,9 +119,10 @@ type PeersSection struct {
 	Peers []Peer
 	// Learnt: this HAProxy process has learnt the section's stick tables
 	// since it started - from the process it replaced, or from a remote
-	// peer. Measured on 3.4.7: a process reloaded among remote peers has
-	// empty tables until its resync timeout (5 s) passes and a peer
-	// teaches it; the process it replaced is gone at once.
+	// peer. A process replaced before it had learnt them teaches the next
+	// one nothing - gone at once, the new one with empty tables until its
+	// resync timeout (5 s) passes and a remote peer teaches it (measured
+	// on 3.4.7 and 3.4.9, #701): a reload waits for it (waitLearnt).
 	Learnt bool
 }
 

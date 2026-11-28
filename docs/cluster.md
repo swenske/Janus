@@ -435,11 +435,15 @@ HAProxy (`ApplyConfig` keeps the previous configuration when the new
 process fails to start), the files the version no longer has (a node
 refuses to delete one its running configuration names), the firewall,
 on trial, confirmed from a fresh connection; VRRP; BGP - and, before the
-next member, the member's stick tables learnt back: HAProxy reloaded
-among remote peers starts with empty tables and learns them from a peer
-once its resync timeout (5 s) passes, the process it replaced gone at
-once (measured on 3.4.7), so members reloaded inside that window would
-leave no one to teach the others. `ClusterStatus.tables_learnt` (the
+next member, the member's stick tables learnt back: the HAProxy a reload
+replaces teaches the new one its tables over the local peer only once
+it has learnt them itself; replaced earlier - within about 5 s of its
+start, or of a reload whose lesson didn't come -, it exits at once, and
+the new one starts with empty tables and learns them from a remote peer
+after its resync timeout (5 s, measured on 3.4.7 and 3.4.9). janusd's
+reload waits for the running process to have learnt (up to 11 s, #701);
+members reloaded together would still leave no one to teach the
+others. `ClusterStatus.tables_learnt` (the
 peers section's resync flags) says when; a member with no peer up has no
 one to learn from and the apply goes on, journaled. The same wait follows
 each member whose composition changes when one joins or leaves. A
@@ -907,7 +911,18 @@ peers janus
 - **Lifecycle**: adding or removing a member is a `ClusterSet` on
   every other member, so a regenerated file and a reload; the reload
   is transparent - the new process learns the tables from the old one
-  over the local peer before the old one goes. A member whose HAProxy
+  over the local peer before the old one goes, which HAProxy does only
+  once the old one has learnt them itself: janusd waits for that
+  before it reloads (#701; an old process that hadn't learnt left the
+  new one empty, counting from zero, its small counts pushed over the
+  other members' until a key's count was reset everywhere). Under
+  traffic the new process serves from the moment it takes the
+  listeners: a key it counts before the lesson arrives starts from
+  zero for that moment, its value pushed to the others until the
+  lesson overwrites it - a dip of a fraction of a second, and those
+  increments lost (on the build box, 20 to 80 per key and reload at
+  11,500 to 23,000 new connections a second on that key). A member
+  whose HAProxy
   restarts, or whose node reboots, requests a **full resync** from a
   remote peer as soon as it connects: it is back with full tables
   within seconds of starting. After a **VRRP failover** the new holder

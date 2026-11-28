@@ -98,6 +98,12 @@ type Manager struct {
 	// member name, or the hostname of a node that is no member - what
 	// the generated peers section calls this node.
 	LocalPeer func() string
+	// PeersSection, if set, names the peers section whose stick tables a
+	// reload keeps (internal/cluster's): a reload waits, up to LearnWait,
+	// until the running process has learnt them (learnt.go, #701).
+	PeersSection string
+	// LearnWait bounds that wait; zero: DefaultLearnWait.
+	LearnWait time.Duration
 
 	// Handover, if set, is the UNIX socket through which a HAProxy hands
 	// its listening sockets over to the next one at a reload - HAProxy's
@@ -374,6 +380,9 @@ func (m *Manager) startLocked(wait bool) error {
 	reload := old > 0
 	handover := false
 	if reload {
+		// The running process teaches the next one its stick tables only
+		// once it has learnt them itself (#701).
+		m.waitLearnt()
 		// Handed over only what the new process would open the same: a
 		// reload that changes a listener (its address, backlog, threads,
 		// somaxconn...) opens new ones, its configuration applied - and

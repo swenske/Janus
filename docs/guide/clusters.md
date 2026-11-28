@@ -257,8 +257,10 @@ already is left alone, so a Let's Encrypt change reloads no HAProxy and
 an unchanged ruleset isn't put on trial again; a file that changes
 reloads HAProxy, which reads it as it starts. Before the next member,
 the member's stick tables are learnt back from its peers when its
-HAProxy may have reloaded (a reloaded HAProxy gets them from a peer
-after about 5 seconds: members reloaded together would lose them). The
+HAProxy may have reloaded (a reloaded HAProxy learns them from the
+process it replaces - the node waits until that one has learnt them
+itself - or, when it couldn't, from a peer about 5 seconds later:
+members reloaded together would lose them). The
 first failure stops it:
 the members before run the new version, the others the one they ran,
 and the cluster says which. Going back is applying an older version.
